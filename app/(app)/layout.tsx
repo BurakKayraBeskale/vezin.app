@@ -31,8 +31,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <AppShell
-      userName={session.user.name}
-      userEmail={session.user.email}
+      userName={session.user.name ?? ""}
+      userEmail={session.user.email ?? ""}
       userRole={session.user.role}
       overdueCount={overdueCount}
       unreadPetitions={unreadPetitions}
