@@ -1,0 +1,180 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Role: "ADMIN" | "MANAGER" | "EMPLOYEE"
+// Status: "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE"
+// Priority: "LOW" | "MEDIUM" | "HIGH"
+// Department: "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YEMINLI_MALI_MUSAVIR" | "ADMIN"
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  password     String
+  role         String   @default("EMPLOYEE")
+  department   String   @default("OUTSOURCE")
+  createdAt    DateTime @default(now())
+  assignedTasks    Task[]           @relation("AssignedTo")
+  createdTasks     Task[]           @relation("CreatedBy")
+  feedbacks        Feedback[]
+  files            File[]
+  taskLogs         TaskLog[]
+  petitions        Petition[]
+  leaveRequests    LeaveRequest[]   @relation("LeaveRequests")
+  leaveBalances    LeaveBalance[]   @relation("LeaveBalances")
+  manages          UserRelation[]   @relation("manages")
+  subordinateTo    UserRelation[]   @relation("subordinateTo")
+  notifications    Notification[]
+  meetingsCreated  Meeting[]        @relation("MeetingCreator")
+  meetingAttendees MeetingAttendee[]
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  type      String   // TASK_ASSIGNED | LEAVE_APPROVED | LEAVE_REJECTED | FEEDBACK_RECEIVED
+  message   String
+  isRead    Boolean  @default(false)
+  relatedId String?
+  createdAt DateTime @default(now())
+}
+
+// relationType: "SUPERIOR" | "PEER" | "SUBORDINATE"
+model UserRelation {
+  id            String   @id @default(cuid())
+  managerId     String
+  subordinateId String
+  relationType  String   @default("SUBORDINATE")
+  manager       User     @relation("manages", fields: [managerId], references: [id], onDelete: Cascade)
+  subordinate   User     @relation("subordinateTo", fields: [subordinateId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  @@unique([managerId, subordinateId])
+}
+
+model Task {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  status       String    @default("TODO")
+  priority     String    @default("MEDIUM")
+  assignedTo   User?     @relation("AssignedTo", fields: [assignedToId], references: [id])
+  assignedToId String?
+  dueDate      DateTime?
+  createdBy    User      @relation("CreatedBy", fields: [createdById], references: [id])
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  feedbacks    Feedback[]
+  files        File[]
+  logs         TaskLog[]
+}
+
+model TaskLog {
+  id              String   @id @default(cuid())
+  task            Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId          String
+  user            User     @relation(fields: [userId], references: [id])
+  userId          String
+  action          String   // STARTED | COMPLETED | STATUS_CHANGED
+  fromStatus      String?
+  toStatus        String?
+  timestamp       DateTime @default(now())
+  durationMinutes Int?
+}
+
+model Feedback {
+  id         String   @id @default(cuid())
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId     String
+  fromUser   User     @relation(fields: [fromUserId], references: [id])
+  fromUserId String
+  message    String
+  createdAt  DateTime @default(now())
+}
+
+model File {
+  id           String   @id @default(cuid())
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId       String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  uploadedById String
+  filename     String
+  path         String
+  comment      String?
+  createdAt    DateTime @default(now())
+}
+
+// category: "SUGGESTION" | "COMPLAINT" | "PETITION"
+model Petition {
+  id          String   @id @default(cuid())
+  user        User?    @relation(fields: [userId], references: [id])
+  userId      String?
+  category    String   // SUGGESTION | COMPLAINT | PETITION
+  message     String
+  isAnonymous Boolean  @default(false)
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+// type: "ANNUAL" | "EXCUSE" | "UNPAID"
+// status: "PENDING" | "APPROVED" | "REJECTED"
+model LeaveRequest {
+  id          String    @id @default(cuid())
+  user        User      @relation("LeaveRequests", fields: [userId], references: [id])
+  userId      String
+  startDate   DateTime
+  endDate     DateTime
+  days        Int
+  type        String    // ANNUAL | EXCUSE | UNPAID
+  note        String?
+  status      String    @default("PENDING")
+  reviewedBy  String?
+  createdAt   DateTime  @default(now())
+}
+
+model LeaveBalance {
+  id            String @id @default(cuid())
+  user          User   @relation("LeaveBalances", fields: [userId], references: [id])
+  userId        String
+  year          Int
+  totalDays     Int    @default(14)
+  usedDays      Int    @default(0)
+  remainingDays Int    @default(14)
+
+  @@unique([userId, year])
+}
+
+// date: "YYYY-MM-DD" | time: "HH:MM" | duration in minutes
+// department: hangi departman davet edildi
+model Meeting {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  date        String   // YYYY-MM-DD
+  time        String   // HH:MM
+  duration    Int      // 30 | 60 | 120
+  department  String
+  createdBy   User     @relation("MeetingCreator", fields: [createdById], references: [id])
+  createdById String
+  createdAt   DateTime @default(now())
+  attendees   MeetingAttendee[]
+}
+
+// status: "PENDING" | "ACCEPTED" | "DECLINED"
+model MeetingAttendee {
+  id        String  @id @default(cuid())
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  meetingId String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  status    String  @default("PENDING")
+
+  @@unique([meetingId, userId])
+}

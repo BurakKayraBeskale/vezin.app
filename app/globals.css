@@ -1,0 +1,183 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Reset ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ─── CSS Custom Properties ─────────────────────────────────────── */
+:root {
+  /* Badge: indigo */
+  --badge-indigo-bg:     #EEF2FF;
+  --badge-indigo-text:   #6366F1;
+  --badge-indigo-border: #C7D2FE;
+  /* Badge: orange */
+  --badge-orange-bg:     #FFF3E9;
+  --badge-orange-text:   #F57C28;
+  --badge-orange-border: #FED7AA;
+  /* Badge: gray */
+  --badge-gray-bg:       #F3F4F6;
+  --badge-gray-text:     #6B7280;
+  --badge-gray-border:   #D1D5DB;
+  /* Badge: red */
+  --badge-red-bg:        #FEF2F2;
+  --badge-red-text:      #EF4444;
+  --badge-red-border:    #FECACA;
+  /* Badge: emerald */
+  --badge-emerald-bg:    #ECFDF5;
+  --badge-emerald-text:  #10B981;
+  --badge-emerald-border: #A7F3D0;
+  /* UI */
+  --page-bg:   #F8F9FB;
+  --card-bg:   #FFFFFF;
+  --border:    #F3F4F6;
+  --text-main: #1F2937;
+  --text-sub:  #6B7280;
+  --text-muted:#9CA3AF;
+  --input-bg:  #FFFFFF;
+}
+
+.dark {
+  --badge-indigo-bg:     rgba(99,102,241,0.15);
+  --badge-indigo-text:   #818CF8;
+  --badge-indigo-border: rgba(99,102,241,0.3);
+  --badge-orange-bg:     rgba(245,124,40,0.15);
+  --badge-orange-text:   #FB923C;
+  --badge-orange-border: rgba(245,124,40,0.3);
+  --badge-gray-bg:       rgba(107,114,128,0.15);
+  --badge-gray-text:     #9CA3AF;
+  --badge-gray-border:   rgba(107,114,128,0.3);
+  --badge-red-bg:        rgba(239,68,68,0.12);
+  --badge-red-text:      #F87171;
+  --badge-red-border:    rgba(239,68,68,0.3);
+  --badge-emerald-bg:    rgba(16,185,129,0.12);
+  --badge-emerald-text:  #34D399;
+  --badge-emerald-border: rgba(16,185,129,0.3);
+  --page-bg:   #0B0B17;
+  --card-bg:   #13132A;
+  --border:    #20203C;
+  --text-main: #E2E8F0;
+  --text-sub:  #94A3B8;
+  --text-muted:#64748B;
+  --input-bg:  #1A1A35;
+}
+
+/* ─── Base ───────────────────────────────────────────────────────── */
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--page-bg);
+  color: var(--text-main);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+.dark ::-webkit-scrollbar-thumb { background: #2A2A4A; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #3A3A5C; }
+
+/* ─── DARK MODE OVERRIDES ────────────────────────────────────────── */
+
+/* --- Backgrounds --- */
+.dark .bg-white        { background-color: #13132A !important; }
+.dark .bg-gray-50      { background-color: #0F0F24 !important; }
+.dark .bg-gray-100     { background-color: #1A1A35 !important; }
+.dark .bg-gray-200     { background-color: #222240 !important; }
+
+/* Hover */
+.dark .hover\:bg-gray-50:hover    { background-color: #191930 !important; }
+.dark .hover\:bg-gray-100:hover   { background-color: #20203C !important; }
+
+/* Orange tinted row (leave list) */
+.dark .bg-orange-50\/30 { background-color: rgba(245,124,40,0.07) !important; }
+.dark .bg-orange-50     { background-color: rgba(245,124,40,0.1) !important; }
+.dark .hover\:bg-orange-50:hover  { background-color: rgba(245,124,40,0.15) !important; }
+.dark .hover\:bg-orange-100:hover { background-color: rgba(245,124,40,0.2) !important; }
+
+/* Status colors (tinted cards) */
+.dark .bg-\[\#FFF3E9\]  { background-color: rgba(245,124,40,0.12) !important; }
+.dark .bg-\[\#EEF2FF\]  { background-color: rgba(99,102,241,0.12) !important; }
+.dark .bg-\[\#ECFDF5\]  { background-color: rgba(16,185,129,0.10) !important; }
+.dark .bg-\[\#F3F4F6\]  { background-color: rgba(107,114,128,0.14) !important; }
+
+/* Emerald */
+.dark .bg-emerald-50  { background-color: rgba(16,185,129,0.1) !important; }
+.dark .hover\:bg-emerald-100:hover { background-color: rgba(16,185,129,0.18) !important; }
+
+/* Red */
+.dark .bg-red-50    { background-color: rgba(239,68,68,0.1) !important; }
+.dark .hover\:bg-red-100:hover { background-color: rgba(239,68,68,0.18) !important; }
+
+/* Indigo */
+.dark .bg-indigo-50 { background-color: rgba(99,102,241,0.1) !important; }
+
+/* Amber */
+.dark .bg-amber-50  { background-color: rgba(245,158,11,0.1) !important; }
+
+/* Purple */
+.dark .bg-purple-50 { background-color: rgba(147,51,234,0.1) !important; }
+
+/* --- Borders --- */
+.dark .border-gray-100   { border-color: #20203C !important; }
+.dark .border-gray-200   { border-color: #28284A !important; }
+.dark .border-gray-300   { border-color: #333358 !important; }
+.dark .border-orange-200 { border-color: rgba(245,124,40,0.3) !important; }
+.dark .border-emerald-200{ border-color: rgba(16,185,129,0.3) !important; }
+.dark .border-red-200    { border-color: rgba(239,68,68,0.3) !important; }
+.dark .border-indigo-100,
+.dark .border-indigo-200 { border-color: rgba(99,102,241,0.3) !important; }
+.dark .border-purple-200 { border-color: rgba(147,51,234,0.3) !important; }
+.dark .border-dashed     { border-color: #28284A !important; }
+.dark .border-\[\#F57C28\]\/20 { border-color: rgba(245,124,40,0.25) !important; }
+
+/* Divide */
+.dark .divide-y > * + *      { border-color: #1E1E38 !important; }
+.dark .divide-gray-50 > * + * { border-color: #1A1A35 !important; }
+
+/* --- Text --- */
+.dark .text-gray-900 { color: #F1F5F9 !important; }
+.dark .text-gray-800 { color: #E2E8F0 !important; }
+.dark .text-gray-700 { color: #CBD5E1 !important; }
+.dark .text-gray-600 { color: #94A3B8 !important; }
+.dark .text-gray-500 { color: #64748B !important; }
+.dark .text-gray-400 { color: #475569 !important; }
+.dark .text-gray-300 { color: #334155 !important; }
+
+.dark .text-orange-500,
+.dark .text-orange-600,
+.dark .text-orange-700,
+.dark .text-orange-900  { color: #FB923C !important; }
+.dark .text-emerald-600,
+.dark .text-emerald-700 { color: #34D399 !important; }
+.dark .text-red-500,
+.dark .text-red-600     { color: #F87171 !important; }
+.dark .text-indigo-600,
+.dark .text-indigo-700  { color: #818CF8 !important; }
+.dark .text-purple-600  { color: #A78BFA !important; }
+.dark .text-amber-600   { color: #FCD34D !important; }
+
+/* --- Placeholders --- */
+.dark ::placeholder { color: #475569 !important; }
+
+/* --- Inputs / Selects / Textareas --- */
+.dark input:not([type="file"]):not([type="checkbox"]):not([type="radio"]),
+.dark textarea,
+.dark select {
+  background-color: #1A1A35 !important;
+  color: #E2E8F0 !important;
+  border-color: #28284A !important;
+}
+
+/* --- Shadows --- */
+.dark .shadow-sm  { box-shadow: 0 1px 4px rgba(0,0,0,0.5) !important; }
+.dark .shadow-md  { box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important; }
+.dark .shadow-xl  { box-shadow: 0 8px 32px rgba(0,0,0,0.6) !important; }
+.dark .shadow-2xl { box-shadow: 0 16px 48px rgba(0,0,0,0.7) !important; }
+
+/* --- Animations --- */
+.dark .animate-pulse .bg-gray-100 { background-color: #1A1A35 !important; }
+
+/* --- Kanban card hover --- */
+.dark .hover\:shadow-md:hover     { box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important; }
+.dark .hover\:border-gray-300:hover { border-color: #333358 !important; }
