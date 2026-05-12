@@ -98,6 +98,7 @@ export default function LeavePage() {
 
   // Action loading
   const [actioning, setActioning] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/leave")
@@ -139,6 +140,16 @@ export default function LeavePage() {
       }
     }
     setSubmitting(false);
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Bu izin talebi silinsin mi?")) return;
+    setDeleting(id);
+    const res = await fetch(`/api/leave/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setRequests((r) => r.filter((x) => x.id !== id));
+    }
+    setDeleting(null);
   }
 
   async function handleAction(id: string, status: "APPROVED" | "REJECTED") {
@@ -386,6 +397,15 @@ export default function LeavePage() {
                           {actioning === r.id + "REJECTED" ? "..." : "Reddet"}
                         </button>
                       </>
+                    )}
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDelete(r.id)}
+                        disabled={deleting === r.id}
+                        className="px-3 py-1 rounded-lg text-xs font-semibold bg-gray-50 text-gray-400 border border-gray-200 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors disabled:opacity-50"
+                      >
+                        {deleting === r.id ? "..." : "Sil"}
+                      </button>
                     )}
                   </div>
                 </div>
