@@ -48,7 +48,7 @@ export default function LoginPage() {
           <img
             src="/logo-login.png"
             alt="Vezin"
-            style={{ width: "160px", height: "auto" }}
+            style={{ width: "300px", height: "auto" }}
           />
           {/* Ayraç */}
           <div
