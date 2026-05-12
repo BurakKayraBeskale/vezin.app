@@ -179,10 +179,9 @@ export default function Sidebar({
         <Image
           src="/logo.png"
           alt="Vezin"
-          width={0}
-          height={0}
-          sizes="200px"
-          className="h-11 w-auto object-contain flex-shrink-0"
+          width={120}
+          height={50}
+          style={{ objectFit: "contain", background: "transparent", flexShrink: 0 }}
         />
         <p className="text-white font-bold text-sm leading-tight flex-1">Vezin</p>
         {/* Close button — only visible on mobile */}

@@ -42,10 +42,9 @@ export default function LoginPage() {
             <Image
               src="/logo.png"
               alt="Vezin"
-              width={0}
-              height={0}
-              sizes="200px"
-              className="h-11 w-auto object-contain"
+              width={120}
+              height={50}
+              style={{ objectFit: "contain", background: "transparent" }}
             />
           </div>
           <h1 className="text-2xl font-black text-gray-800">Vezin PM</h1>
