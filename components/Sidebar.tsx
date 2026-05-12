@@ -174,13 +174,12 @@ export default function Sidebar({
       )}
     >
       {/* Logo + mobile close */}
-      <div className="px-4 py-4 flex items-center gap-2.5 flex-shrink-0">
+      <div style={{ width: "100%", padding: "20px 16px", display: "flex", alignItems: "center" }}>
         <img
           src="/logo-white.png"
           alt="Vezin"
-          style={{ width: "80%", height: "auto", margin: "0 auto", display: "block", padding: "16px", filter: "brightness(0) invert(1)" }}
+          style={{ width: "100%", height: "auto", flex: 1 }}
         />
-        <div className="flex-1" />
         {/* Close button — only visible on mobile */}
         <button
           onClick={onClose}
