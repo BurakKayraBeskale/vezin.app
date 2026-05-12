@@ -38,17 +38,13 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo + Başlık */}
         <div className="flex flex-col items-center mb-8">
-          <div className="mb-4">
-            <Image
-              src="/logo.png"
-              alt="Vezin"
-              width={120}
-              height={50}
-              style={{ objectFit: "contain", background: "transparent" }}
-            />
-          </div>
-          <h1 className="text-2xl font-black text-gray-800">Vezin PM</h1>
-          <p className="text-sm text-gray-400 mt-1">Proje Yönetim Sistemi</p>
+          <Image
+            src="/logo.png"
+            alt="Vezin"
+            width={120}
+            height={50}
+            style={{ objectFit: "contain", background: "transparent" }}
+          />
         </div>
 
         {/* Form */}

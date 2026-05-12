@@ -181,7 +181,7 @@ export default function Sidebar({
           alt="Vezin"
           width={120}
           height={50}
-          style={{ objectFit: "contain", background: "transparent", flexShrink: 0 }}
+          style={{ objectFit: "contain", background: "transparent", flexShrink: 0, filter: "brightness(0) invert(1)" }}
         />
         <div className="flex-1" />
         {/* Close button — only visible on mobile */}
@@ -309,7 +309,7 @@ export default function Sidebar({
 
         {/* Logout */}
         <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={() => signOut({ callbackUrl: "https://vezin.app/login" })}
           className="w-full flex items-center gap-2.5 px-3 h-10 lg:h-9 rounded-lg text-[13px] font-medium text-white/45 hover:text-white hover:bg-white/5 transition-colors"
         >
           <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
