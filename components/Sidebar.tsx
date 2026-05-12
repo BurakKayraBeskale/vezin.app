@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import clsx from "clsx";
@@ -176,12 +175,10 @@ export default function Sidebar({
     >
       {/* Logo + mobile close */}
       <div className="px-4 py-4 flex items-center gap-2.5 flex-shrink-0">
-        <Image
+        <img
           src="/logo.png"
           alt="Vezin"
-          width={120}
-          height={50}
-          style={{ objectFit: "contain", background: "transparent", flexShrink: 0, mixBlendMode: "multiply" }}
+          style={{ width: "140px", height: "auto" }}
         />
         <div className="flex-1" />
         {/* Close button — only visible on mobile */}

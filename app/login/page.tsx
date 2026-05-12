@@ -3,7 +3,6 @@
 import { useState, FormEvent } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -38,12 +37,10 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo + Başlık */}
         <div className="flex flex-col items-center mb-8">
-          <Image
+          <img
             src="/logo.png"
             alt="Vezin"
-            width={120}
-            height={50}
-            style={{ objectFit: "contain", background: "transparent", mixBlendMode: "multiply" }}
+            style={{ width: "140px", height: "auto" }}
           />
         </div>
 
