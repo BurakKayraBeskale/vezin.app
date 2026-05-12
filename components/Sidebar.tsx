@@ -175,7 +175,7 @@ export default function Sidebar({
       )}
     >
       {/* Logo + mobile close */}
-      <div className="px-4 py-4 border-b border-white/10 flex items-center gap-2.5 flex-shrink-0">
+      <div className="px-4 py-4 flex items-center gap-2.5 flex-shrink-0">
         <Image
           src="/logo.png"
           alt="Vezin"
@@ -183,7 +183,7 @@ export default function Sidebar({
           height={50}
           style={{ objectFit: "contain", background: "transparent", flexShrink: 0 }}
         />
-        <p className="text-white font-bold text-sm leading-tight flex-1">Vezin</p>
+        <div className="flex-1" />
         {/* Close button — only visible on mobile */}
         <button
           onClick={onClose}
