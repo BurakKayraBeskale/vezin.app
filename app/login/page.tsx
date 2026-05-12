@@ -38,20 +38,14 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo + Başlık */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-[#F57C28] rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-[#F57C28]/30 overflow-hidden">
+          <div className="mb-4">
             <Image
               src="/logo.png"
               alt="Vezin"
-              width={64}
-              height={64}
-              className="object-contain"
-              onError={(e) => {
-                const t = e.target as HTMLImageElement;
-                t.style.display = "none";
-                if (t.parentElement) {
-                  t.parentElement.innerHTML = '<span style="color:white;font-weight:900;font-size:24px">V</span>';
-                }
-              }}
+              width={0}
+              height={0}
+              sizes="200px"
+              className="h-11 w-auto object-contain"
             />
           </div>
           <h1 className="text-2xl font-black text-gray-800">Vezin PM</h1>

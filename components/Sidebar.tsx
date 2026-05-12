@@ -176,22 +176,14 @@ export default function Sidebar({
     >
       {/* Logo + mobile close */}
       <div className="px-4 py-4 border-b border-white/10 flex items-center gap-2.5 flex-shrink-0">
-        <div className="w-8 h-8 bg-[#F57C28] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-          <Image
-            src="/logo.png"
-            alt="Vezin"
-            width={32}
-            height={32}
-            className="object-contain"
-            onError={(e) => {
-              const t = e.target as HTMLImageElement;
-              t.style.display = "none";
-              if (t.parentElement) {
-                t.parentElement.innerHTML = '<span style="color:white;font-weight:900;font-size:16px">V</span>';
-              }
-            }}
-          />
-        </div>
+        <Image
+          src="/logo.png"
+          alt="Vezin"
+          width={0}
+          height={0}
+          sizes="200px"
+          className="h-11 w-auto object-contain flex-shrink-0"
+        />
         <p className="text-white font-bold text-sm leading-tight flex-1">Vezin</p>
         {/* Close button — only visible on mobile */}
         <button
