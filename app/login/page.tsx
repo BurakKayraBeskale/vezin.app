@@ -43,7 +43,7 @@ export default function LoginPage() {
             alt="Vezin"
             width={120}
             height={50}
-            style={{ objectFit: "contain", background: "transparent" }}
+            style={{ objectFit: "contain", background: "transparent", mixBlendMode: "multiply" }}
           />
         </div>
 

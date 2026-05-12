@@ -181,7 +181,7 @@ export default function Sidebar({
           alt="Vezin"
           width={120}
           height={50}
-          style={{ objectFit: "contain", background: "transparent", flexShrink: 0, mixBlendMode: "luminosity" }}
+          style={{ objectFit: "contain", background: "transparent", flexShrink: 0, mixBlendMode: "multiply" }}
         />
         <div className="flex-1" />
         {/* Close button — only visible on mobile */}
