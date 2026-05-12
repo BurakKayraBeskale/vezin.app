@@ -175,11 +175,13 @@ export default function Sidebar({
     >
       {/* Logo + mobile close */}
       <div style={{ width: "100%", padding: "20px 16px", display: "flex", alignItems: "center" }}>
-        <img
-          src="/logo-white.png"
-          alt="Vezin"
-          style={{ width: "100%", height: "auto", flex: 1 }}
-        />
+        <a href="/" style={{ flex: 1, display: "block" }}>
+          <img
+            src="/logo-white.png?v=2"
+            alt="Vezin"
+            style={{ width: "100%", height: "auto" }}
+          />
+        </a>
         {/* Close button — only visible on mobile */}
         <button
           onClick={onClose}

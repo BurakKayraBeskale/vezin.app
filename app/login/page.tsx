@@ -45,11 +45,13 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <img
-            src="/logo-login.png"
-            alt="Vezin"
-            style={{ width: "300px", height: "auto" }}
-          />
+          <a href="/">
+            <img
+              src="/logo-login.png?v=2"
+              alt="Vezin"
+              style={{ width: "300px", height: "auto" }}
+            />
+          </a>
           {/* Ayraç */}
           <div
             className="mt-6 h-px w-16"
