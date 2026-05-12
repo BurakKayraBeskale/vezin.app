@@ -33,20 +33,45 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F9FB] flex items-center justify-center p-4">
+    <div
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{
+        backgroundColor: "#F4F5F7",
+        backgroundImage:
+          "radial-gradient(circle, #C9CDD6 1px, transparent 1px)",
+        backgroundSize: "22px 22px",
+      }}
+    >
       <div className="w-full max-w-sm">
-        {/* Logo + Başlık */}
+        {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <img
-            src="/logo.png"
+            src="/logo-login.png"
             alt="Vezin"
-            style={{ width: "140px", height: "auto" }}
+            style={{ width: "160px", height: "auto" }}
+          />
+          {/* Ayraç */}
+          <div
+            className="mt-6 h-px w-16"
+            style={{
+              background:
+                "linear-gradient(to right, transparent, #F57C28, transparent)",
+              opacity: 0.5,
+            }}
           />
         </div>
 
-        {/* Form */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
-          <h2 className="text-lg font-bold text-gray-800 mb-6">Giriş Yap</h2>
+        {/* Kart */}
+        <div
+          className="bg-white rounded-2xl border border-gray-100 p-8"
+          style={{
+            boxShadow:
+              "0 8px 40px -8px rgba(0,0,0,0.13), 0 2px 8px -2px rgba(0,0,0,0.06)",
+          }}
+        >
+          <h2 className="text-xl font-extrabold text-gray-900 mb-6">
+            Giriş Yap
+          </h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -60,7 +85,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="ornek@vezin.com"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] transition-colors"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/40 focus:border-[#F57C28] transition-colors"
               />
             </div>
 
@@ -75,7 +100,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] transition-colors"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/40 focus:border-[#F57C28] transition-colors"
               />
             </div>
 
@@ -96,7 +121,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          Vezin Vergi & Denetim A.Ş. · {new Date().getFullYear()}
+          Vezin Vergi &amp; Denetim A.Ş. · {new Date().getFullYear()}
         </p>
       </div>
     </div>
