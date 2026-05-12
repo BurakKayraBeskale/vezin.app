@@ -176,7 +176,7 @@ export default function Sidebar({
       {/* Logo + mobile close */}
       <div className="px-4 py-4 flex items-center gap-2.5 flex-shrink-0">
         <img
-          src="/logo.png"
+          src="/logo-white.png"
           alt="Vezin"
           style={{ width: "140px", height: "auto" }}
         />
