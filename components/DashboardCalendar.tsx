@@ -212,8 +212,8 @@ export default function DashboardCalendar() {
                   className={clsx(
                     "h-10 flex flex-col items-center justify-center rounded-lg cursor-default select-none transition-colors",
                     isToday && "bg-[#F57C28] text-white font-bold shadow-md shadow-[#F57C28]/30",
-                    !isToday && hasLeave && "bg-emerald-50",
-                    !isToday && !hasLeave && (hasTasks ? "hover:bg-orange-50" : "hover:bg-gray-50"),
+                    !isToday && isHoliday && "bg-green-100",
+                    !isToday && !isHoliday && (hasTasks || hasLeave ? "hover:bg-orange-50" : "hover:bg-gray-50"),
                   )}
                 >
                   <span className={clsx(
@@ -230,9 +230,6 @@ export default function DashboardCalendar() {
                       )}
                       {hasLeave && (
                         <span className="w-1 h-1 rounded-full bg-emerald-500" />
-                      )}
-                      {isHoliday && (
-                        <span className="w-1 h-1 rounded-full bg-green-500" />
                       )}
                     </div>
                   )}
@@ -256,7 +253,7 @@ export default function DashboardCalendar() {
           <span className="w-2 h-2 rounded-full bg-emerald-500" /> Onaylı İzin
         </span>
         <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
-          <span className="w-2 h-2 rounded-full bg-green-500" /> Resmi Tatil
+          <span className="w-3.5 h-3.5 rounded-md bg-green-100 border border-green-300 inline-block" /> Resmi Tatil
         </span>
         <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
           <span className="w-4 h-4 rounded-lg bg-[#F57C28] inline-block" /> Bugün
