@@ -24,6 +24,17 @@ const STATUS_LABEL: Record<string, string> = {
   DONE: "Tamamlandı",
 };
 
+// Türkiye resmi tatilleri (MM-DD formatı)
+const HOLIDAYS: Record<string, string> = {
+  "01-01": "Yılbaşı",
+  "04-23": "Ulusal Egemenlik ve Çocuk Bayramı",
+  "05-01": "Emek ve Dayanışma Bayramı",
+  "05-19": "Atatürk'ü Anma, Gençlik ve Spor Bayramı",
+  "07-15": "Demokrasi ve Millî Birlik Günü",
+  "08-30": "Zafer Bayramı",
+  "10-29": "Cumhuriyet Bayramı",
+};
+
 const WEEKDAYS = ["Pt", "Sa", "Ça", "Pe", "Cu", "Ct", "Pz"];
 const MONTHS = [
   "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
@@ -40,12 +51,22 @@ interface TooltipProps {
   day: number;
 }
 
-function DayTooltip({ tasks, leaves }: TooltipProps) {
+interface TooltipPropsExtended extends TooltipProps {
+  holiday?: string;
+}
+
+function DayTooltip({ tasks, leaves, holiday }: TooltipPropsExtended) {
   const shown = tasks.slice(0, 3);
   const extra = tasks.length - 3;
   return (
     <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 bg-white rounded-xl shadow-xl border border-gray-100 p-3 pointer-events-none">
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-white" />
+      {holiday && (
+        <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-gray-100">
+          <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+          <p className="text-[11px] font-semibold text-green-700">{holiday}</p>
+        </div>
+      )}
       {shown.map((t, i) => (
         <div key={i} className="flex items-start gap-1.5 mb-1.5 last:mb-0">
           <span
@@ -175,13 +196,16 @@ export default function DashboardCalendar() {
             const isToday = isCurrentMonth && day === today.getDate();
             const hasLeave = dayLeaves.length > 0;
             const hasTasks = dayTasks.length > 0;
-            const showTooltip = hoveredDay === idx && (hasTasks || hasLeave);
+            const holidayKey = `${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            const holidayName = HOLIDAYS[holidayKey];
+            const isHoliday = !!holidayName;
+            const showTooltip = hoveredDay === idx && (hasTasks || hasLeave || isHoliday);
 
             return (
               <div
                 key={idx}
                 className="relative"
-                onMouseEnter={() => (hasTasks || hasLeave) ? setHoveredDay(idx) : undefined}
+                onMouseEnter={() => (hasTasks || hasLeave || isHoliday) ? setHoveredDay(idx) : undefined}
                 onMouseLeave={() => setHoveredDay(null)}
               >
                 <div
@@ -199,7 +223,7 @@ export default function DashboardCalendar() {
                     {day}
                   </span>
                   {/* Dot indicators */}
-                  {!isToday && (hasTasks || hasLeave) && (
+                  {!isToday && (hasTasks || hasLeave || isHoliday) && (
                     <div className="flex gap-0.5 mt-0.5">
                       {hasTasks && (
                         <span className="w-1 h-1 rounded-full bg-[#F57C28]" />
@@ -207,12 +231,15 @@ export default function DashboardCalendar() {
                       {hasLeave && (
                         <span className="w-1 h-1 rounded-full bg-emerald-500" />
                       )}
+                      {isHoliday && (
+                        <span className="w-1 h-1 rounded-full bg-green-500" />
+                      )}
                     </div>
                   )}
                 </div>
 
                 {showTooltip && (
-                  <DayTooltip tasks={dayTasks} leaves={dayLeaves} day={day} />
+                  <DayTooltip tasks={dayTasks} leaves={dayLeaves} day={day} holiday={holidayName} />
                 )}
               </div>
             );
@@ -227,6 +254,9 @@ export default function DashboardCalendar() {
         </span>
         <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
           <span className="w-2 h-2 rounded-full bg-emerald-500" /> Onaylı İzin
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
+          <span className="w-2 h-2 rounded-full bg-green-500" /> Resmi Tatil
         </span>
         <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
           <span className="w-4 h-4 rounded-lg bg-[#F57C28] inline-block" /> Bugün

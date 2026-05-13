@@ -7,6 +7,15 @@ import OrgChart, { OrgUser } from "@/components/OrgChart";
 
 type Tab = "liste" | "org";
 
+const DEPT_OPTIONS = [
+  { value: "ALL",                  label: "Tüm Departmanlar" },
+  { value: "ADMIN",                label: "Yönetim" },
+  { value: "MUHASEBE",             label: "Muhasebe" },
+  { value: "BAGIMSIZ_DENETIM",     label: "Bağımsız Denetim" },
+  { value: "YEMINLI_MALI_MUSAVIR", label: "YMM" },
+  { value: "OUTSOURCE",            label: "Outsource" },
+];
+
 interface Props {
   initialUsers: OrgUser[];
   currentUserId: string;
@@ -14,6 +23,11 @@ interface Props {
 
 export default function UsersPageClient({ initialUsers, currentUserId }: Props) {
   const [tab, setTab] = useState<Tab>("liste");
+  const [orgDept, setOrgDept] = useState<string>("ALL");
+
+  const filteredForOrg = orgDept === "ALL"
+    ? initialUsers
+    : initialUsers.filter((u) => u.department === orgDept);
 
   return (
     <div>
@@ -55,7 +69,25 @@ export default function UsersPageClient({ initialUsers, currentUserId }: Props) 
 
       {tab === "org" && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <OrgChart users={initialUsers} />
+          {/* Departman filtresi */}
+          <div className="flex items-center gap-3 mb-5">
+            <label className="text-xs font-semibold text-gray-500">Departman:</label>
+            <select
+              value={orgDept}
+              onChange={(e) => setOrgDept(e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#F57C28]/30 focus:border-[#F57C28] text-gray-600"
+            >
+              {DEPT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            {orgDept !== "ALL" && (
+              <span className="text-xs text-gray-400">
+                {filteredForOrg.length} kişi
+              </span>
+            )}
+          </div>
+          <OrgChart users={filteredForOrg} />
         </div>
       )}
     </div>

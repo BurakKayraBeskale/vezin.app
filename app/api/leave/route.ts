@@ -13,17 +13,22 @@ export async function GET() {
 
   const isAdmin = role === "ADMIN";
   const isMuhasebe = department === "MUHASEBE";
+  const isManager = role === "MANAGER";
+
+  let whereClause: object = { userId };
+  if (isAdmin || isMuhasebe) whereClause = {};
+  else if (isManager) whereClause = { user: { department } };
 
   const requests = await prisma.leaveRequest.findMany({
-    where: isAdmin || isMuhasebe ? {} : { userId },
+    where: whereClause,
     include: {
       user: { select: { id: true, name: true, email: true, department: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  // Admin ve muhasebe düz array alır; çalışanlar balance ile birlikte alır
-  if (isAdmin || isMuhasebe) {
+  // Admin, muhasebe ve manager düz array alır; çalışanlar balance ile birlikte alır
+  if (isAdmin || isMuhasebe || isManager) {
     return NextResponse.json(requests);
   }
 

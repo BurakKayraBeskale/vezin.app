@@ -49,8 +49,9 @@ export async function PATCH(
 
   const isAdmin = role === "ADMIN";
   const isMuhasebe = department === "MUHASEBE";
+  const isManager = role === "MANAGER";
 
-  if (!isAdmin && !isMuhasebe) {
+  if (!isAdmin && !isMuhasebe && !isManager) {
     return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
   }
 
@@ -59,8 +60,19 @@ export async function PATCH(
     return NextResponse.json({ error: "Geçersiz durum" }, { status: 400 });
   }
 
-  const existing = await prisma.leaveRequest.findUnique({ where: { id: params.id } });
+  const existing = await prisma.leaveRequest.findUnique({
+    where: { id: params.id },
+    include: { user: { select: { department: true } } },
+  });
   if (!existing) return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
+
+  // Manager sadece kendi departmanını onaylayabilir
+  if (isManager && !isAdmin && !isMuhasebe) {
+    if ((existing as any).user?.department !== department) {
+      return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
+    }
+  }
+
   if (existing.status !== "PENDING") {
     return NextResponse.json({ error: "Zaten işlem görmüş" }, { status: 400 });
   }

@@ -27,6 +27,19 @@ export async function GET() {
   }
 }
 
+export async function DELETE() {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+
+  const userId = (session.user as any).id as string;
+
+  try {
+    await notifModel().deleteMany({ where: { userId } });
+  } catch { /* model henüz yok */ }
+
+  return NextResponse.json({ ok: true });
+}
+
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });

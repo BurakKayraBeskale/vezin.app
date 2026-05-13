@@ -77,7 +77,9 @@ function formatDate(dateStr: string) {
 
 export default function LeavePage() {
   const { data: session } = useSession();
-  const isAdmin = session?.user.role === "ADMIN" || (session?.user as any)?.department === "MUHASEBE";
+  const isAdmin = session?.user.role === "ADMIN"
+    || (session?.user as any)?.department === "MUHASEBE"
+    || session?.user.role === "MANAGER";
 
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);

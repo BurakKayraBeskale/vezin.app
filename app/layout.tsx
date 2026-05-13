@@ -5,6 +5,11 @@ import Providers from "./providers";
 export const metadata: Metadata = {
   title: "Vezin",
   description: "Vezin Vergi & Denetim",
+  manifest: "/manifest.json",
+  icons: {
+    icon: "/logo-login.png",
+    apple: "/logo-login.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
