@@ -13,6 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { useRouter } from "next/navigation";
 
 const DEPT_LABELS: Record<string, string> = {
   OUTSOURCE:            "Outsource",
@@ -69,14 +70,16 @@ function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
 }
 
-// ── DnD context (avoids prop-drilling through recursive tree) ─────────────
+// ── DnD context ───────────────────────────────────────────────────────────────
 interface DragState {
   activeId: string | null;
   overInfo: { id: string; relationType: "SUBORDINATE" | "PEER" } | null;
 }
 const DragCtx = createContext<DragState>({ activeId: null, overInfo: null });
 
-// Detect whether dragged card center is below target center → SUBORDINATE, else PEER
+const DISCONNECT_ID = "__disconnect__";
+
+// Dragged card center below target midY by >18px → SUBORDINATE, else PEER
 function detectRelation(
   translatedRect: { top: number; height: number } | null | undefined,
   overRect: { top: number; height: number } | null | undefined,
@@ -87,7 +90,7 @@ function detectRelation(
   return activeCenter > overMidY + 18 ? "SUBORDINATE" : "PEER";
 }
 
-// ── Single draggable + droppable card ─────────────────────────────────────
+// ── Draggable + droppable card ────────────────────────────────────────────────
 function OrgCard({ user }: { user: OrgUser }) {
   const { activeId, overInfo } = useContext(DragCtx);
 
@@ -95,10 +98,7 @@ function OrgCard({ user }: { user: OrgUser }) {
   const { setNodeRef: setDropRef } = useDroppable({ id: user.id });
 
   const ref = useCallback(
-    (el: HTMLDivElement | null) => {
-      setDragRef(el);
-      setDropRef(el);
-    },
+    (el: HTMLDivElement | null) => { setDragRef(el); setDropRef(el); },
     [setDragRef, setDropRef],
   );
 
@@ -116,21 +116,15 @@ function OrgCard({ user }: { user: OrgUser }) {
         transform: CSS.Translate.toString(transform),
         opacity: isDragging ? 0.25 : 1,
         borderColor: isTarget ? "#22c55e" : deptColor + "40",
-        boxShadow: isTarget
-          ? "0 0 0 2px #22c55e, 0 4px 16px -4px rgba(34,197,94,0.35)"
-          : undefined,
+        boxShadow: isTarget ? "0 0 0 2px #22c55e, 0 4px 16px -4px rgba(34,197,94,0.35)" : undefined,
         transition: isDragging ? undefined : "box-shadow 0.12s, border-color 0.12s, transform 0.12s",
         cursor: isDragging ? "grabbing" : "grab",
         position: "relative",
       }}
       className="bg-white border-2 rounded-2xl shadow-sm p-3 flex flex-col items-center gap-1.5 w-36 sm:w-40 select-none"
     >
-      {/* Hover tint */}
-      {isTarget && (
-        <div className="absolute inset-0 rounded-2xl bg-green-500/5 pointer-events-none" />
-      )}
+      {isTarget && <div className="absolute inset-0 rounded-2xl bg-green-500/5 pointer-events-none" />}
 
-      {/* Avatar */}
       <div
         className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
         style={{ backgroundColor: deptColor }}
@@ -138,9 +132,7 @@ function OrgCard({ user }: { user: OrgUser }) {
         {initials(user.name)}
       </div>
 
-      <p className="text-xs font-bold text-gray-800 text-center leading-snug line-clamp-2">
-        {user.name}
-      </p>
+      <p className="text-xs font-bold text-gray-800 text-center leading-snug line-clamp-2">{user.name}</p>
 
       <span
         className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
@@ -150,16 +142,14 @@ function OrgCard({ user }: { user: OrgUser }) {
       </span>
 
       {user.role === "ADMIN" && (
-        <span className="text-[9px] font-bold bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full">
-          Admin
-        </span>
+        <span className="text-[9px] font-bold bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full">Admin</span>
       )}
 
       {user.taskCount != null && user.taskCount > 0 && (
         <span className="text-[9px] text-gray-400">{user.taskCount} görev</span>
       )}
 
-      {/* Drop relation badge */}
+      {/* Relation type badge shown while hovering */}
       {isTarget && (
         <span className="absolute -bottom-3.5 left-1/2 -translate-x-1/2 text-[9px] font-bold bg-green-500 text-white px-2 py-0.5 rounded-full whitespace-nowrap z-10 pointer-events-none">
           {relationType === "SUBORDINATE" ? "↓ Alt" : "↔ Denk"}
@@ -169,7 +159,7 @@ function OrgCard({ user }: { user: OrgUser }) {
   );
 }
 
-// ── Ghost card shown during drag ───────────────────────────────────────────
+// ── Ghost card during drag ────────────────────────────────────────────────────
 function OverlayCard({ user }: { user: OrgUser }) {
   const color = DEPT_COLORS[user.department] ?? "#6B7280";
   return (
@@ -185,7 +175,35 @@ function OverlayCard({ user }: { user: OrgUser }) {
   );
 }
 
-// ── Recursive tree node ────────────────────────────────────────────────────
+// ── "Drop here to disconnect" zone ────────────────────────────────────────────
+function DisconnectZone({ visible }: { visible: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id: DISCONNECT_ID });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`mt-5 border-2 border-dashed rounded-2xl p-4 flex items-center justify-center gap-2.5 transition-all ${
+        visible ? "opacity-100" : "opacity-0 pointer-events-none"
+      } ${isOver ? "border-red-400 bg-red-50" : "border-gray-200 bg-gray-50/60"}`}
+    >
+      <svg
+        className={`w-4 h-4 flex-shrink-0 ${isOver ? "text-red-400" : "text-gray-300"}`}
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        strokeWidth={2}
+      >
+        <path strokeLinecap="round" strokeLinejoin="round"
+          d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+      </svg>
+      <p className={`text-xs font-medium ${isOver ? "text-red-500" : "text-gray-400"}`}>
+        {isOver ? "Bırak → Bağlantıyı Kopar" : "Bağlantıyı koparmak için buraya sürükle"}
+      </p>
+    </div>
+  );
+}
+
+// ── Recursive tree node ───────────────────────────────────────────────────────
 function UserCard({ node, depth }: { node: TreeNode; depth: number }) {
   return (
     <div className="flex flex-col items-center">
@@ -195,10 +213,7 @@ function UserCard({ node, depth }: { node: TreeNode; depth: number }) {
         <div className="flex flex-col items-center">
           <div className="w-px h-5 bg-gray-200" />
           {node.children.length > 1 && (
-            <div
-              className="h-px bg-gray-200"
-              style={{ width: `${node.children.length * 160 - 16}px` }}
-            />
+            <div className="h-px bg-gray-200" style={{ width: `${node.children.length * 160 - 16}px` }} />
           )}
           <div className="flex items-start gap-4">
             {node.children.map((child) => (
@@ -214,8 +229,9 @@ function UserCard({ node, depth }: { node: TreeNode; depth: number }) {
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) {
+  const router = useRouter();
   const [users, setUsers] = useState<OrgUser[]>(initialUsers);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overInfo, setOverInfo] = useState<{ id: string; relationType: "SUBORDINATE" | "PEER" } | null>(null);
@@ -233,10 +249,7 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
     return ids;
   }, [tree]);
 
-  const standalone = useMemo(
-    () => users.filter((u) => !inTree.has(u.id)),
-    [users, inTree],
-  );
+  const standalone = useMemo(() => users.filter((u) => !inTree.has(u.id)), [users, inTree]);
 
   function showToast(msg: string, ok: boolean) {
     setToast({ msg, ok });
@@ -248,7 +261,10 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
   }
 
   function handleDragOver(e: DragOverEvent) {
-    if (!e.over || e.active.id === e.over.id) { setOverInfo(null); return; }
+    if (!e.over || e.active.id === e.over.id || e.over.id === DISCONNECT_ID) {
+      setOverInfo(null);
+      return;
+    }
     const rel = detectRelation(e.active.rect.current.translated, e.over.rect);
     setOverInfo({ id: e.over.id as string, relationType: rel });
   }
@@ -260,10 +276,42 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
     if (!e.over || e.active.id === e.over.id) return;
 
     const draggedId = e.active.id as string;
-    const targetId  = e.over.id  as string;
+
+    // ── Disconnect ────────────────────────────────────────────────────────────
+    if (e.over.id === DISCONNECT_ID) {
+      const manager = users.find((u) => u.subordinateIds.includes(draggedId));
+      if (!manager) return; // already standalone, nothing to do
+
+      const prevUsers = users;
+      // Optimistic: remove from manager's subordinateIds
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === manager.id
+            ? { ...u, subordinateIds: u.subordinateIds.filter((id) => id !== draggedId) }
+            : u,
+        ),
+      );
+
+      const res = await fetch(`/api/users/${manager.id}/relations`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subordinateId: draggedId, relationType: null }),
+      });
+
+      if (!res.ok) {
+        setUsers(prevUsers);
+        showToast("Bağlantı kaldırılamadı", false);
+      } else {
+        showToast(`${userMap.get(draggedId)?.name ?? "—"} bağlantısı kaldırıldı`, true);
+        router.refresh(); // sync user list tab
+      }
+      return;
+    }
+
+    // ── Connect ───────────────────────────────────────────────────────────────
+    const targetId = e.over.id as string;
     const relationType = detectRelation(e.active.rect.current.translated, e.over.rect);
 
-    // Optimistic update (tree structure only changes for SUBORDINATE)
     const prevUsers = users;
     if (relationType === "SUBORDINATE") {
       setUsers((prev) =>
@@ -291,6 +339,7 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
       const targetName  = userMap.get(targetId)?.name  ?? "—";
       const label = relationType === "SUBORDINATE" ? "altı" : "dengi";
       showToast(`${draggedName} → ${targetName} (${label}) kaydedildi`, true);
+      router.refresh(); // sync user list tab
     }
   }
 
@@ -308,8 +357,9 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
           <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <p className="text-xs text-blue-600">
-          Bir kartı sürükle: <strong>hedefin altına</strong> bırak → Alt (Ast) &nbsp;·&nbsp;
-          <strong>yanına</strong> bırak → Denk
+          <strong>Altına</strong> bırak → Alt &nbsp;·&nbsp;
+          <strong>Yanına</strong> bırak → Denk &nbsp;·&nbsp;
+          <strong>Kırmızı alana</strong> bırak → Bağlantıyı kopar
         </p>
       </div>
 
@@ -331,7 +381,7 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
           onDragEnd={handleDragEnd}
         >
           {/* Hierarchy tree */}
-          <div className="overflow-x-auto pb-8">
+          <div className="overflow-x-auto pb-4">
             {tree.length === 0 ? (
               <p className="text-center text-sm text-gray-400 py-8">
                 Henüz hiyerarşi tanımlanmamış. Kartları sürükleyerek bağlantı kurun.
@@ -345,7 +395,7 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
             )}
           </div>
 
-          {/* Standalone (unassigned) users */}
+          {/* Standalone users */}
           {standalone.length > 0 && (
             <div className="mt-6">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3 px-1">
@@ -359,6 +409,9 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
             </div>
           )}
 
+          {/* Disconnect zone — visible only while dragging */}
+          <DisconnectZone visible={activeId !== null} />
+
           <DragOverlay dropAnimation={null}>
             {activeUser ? <OverlayCard user={activeUser} /> : null}
           </DragOverlay>
@@ -368,7 +421,7 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-6 left-1/2 -translate-x-1/2 text-white text-sm px-5 py-3 rounded-xl shadow-xl z-50 whitespace-nowrap transition-opacity ${
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 text-white text-sm px-5 py-3 rounded-xl shadow-xl z-50 whitespace-nowrap ${
             toast.ok ? "bg-gray-900" : "bg-red-600"
           }`}
         >

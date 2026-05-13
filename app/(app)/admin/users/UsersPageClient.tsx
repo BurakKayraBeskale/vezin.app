@@ -126,7 +126,7 @@ export default function UsersPageClient({ initialUsers, currentUserId }: Props) 
           </div>
 
           {orgView === "schema" ? (
-            <OrgChart users={filteredForOrg} />
+            <OrgChart key={orgDept} users={filteredForOrg} />
           ) : (
             <OrgEditor users={filteredForOrg} />
           )}
