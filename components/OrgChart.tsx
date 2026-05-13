@@ -269,7 +269,7 @@ export default function OrgChart({ users: initialUsers }: { users: OrgUser[] }) 
       setUsers((prev) =>
         prev.map((u) => {
           if (u.id === targetId)
-            return { ...u, subordinateIds: [...new Set([...u.subordinateIds, draggedId])] };
+            return { ...u, subordinateIds: Array.from(new Set([...u.subordinateIds, draggedId])) };
           if (u.subordinateIds.includes(draggedId))
             return { ...u, subordinateIds: u.subordinateIds.filter((id) => id !== draggedId) };
           return u;
