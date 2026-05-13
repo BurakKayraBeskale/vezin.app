@@ -30,7 +30,7 @@ export default async function BoardPage() {
     ? { assignedToId: { in: visibleUserIds } }
     : {};
 
-  const [tasks, users] = await Promise.all([
+  const [tasks, users, templates] = await Promise.all([
     prisma.task.findMany({
       where: taskWhere,
       include: {
@@ -55,6 +55,12 @@ export default async function BoardPage() {
       select: { id: true, name: true, email: true },
       orderBy: { name: "asc" },
     }),
+    (isAdmin || role === "MANAGER")
+      ? prisma.taskTemplate.findMany({
+          select: { id: true, title: true, description: true, priority: true, estimatedDays: true },
+          orderBy: { createdAt: "desc" },
+        })
+      : Promise.resolve([]),
   ]);
 
   const counts = {
@@ -94,6 +100,7 @@ export default async function BoardPage() {
         initialTasks={JSON.parse(JSON.stringify(tasks))}
         users={JSON.parse(JSON.stringify(users))}
         isAdmin={isAdmin}
+        templates={JSON.parse(JSON.stringify(templates))}
       />
     </div>
   );

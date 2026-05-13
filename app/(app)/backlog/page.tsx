@@ -27,7 +27,7 @@ export default async function BacklogPage() {
   const visibleUserIds = await getVisibleUserIds(userId, role);
   const taskWhere = visibleUserIds ? { assignedToId: { in: visibleUserIds } } : {};
 
-  const [tasks, users] = await Promise.all([
+  const [tasks, users, templates] = await Promise.all([
     prisma.task.findMany({
       where: taskWhere,
       include: {
@@ -52,6 +52,12 @@ export default async function BacklogPage() {
       select: { id: true, name: true, email: true },
       orderBy: { name: "asc" },
     }),
+    (isAdmin || role === "MANAGER")
+      ? prisma.taskTemplate.findMany({
+          select: { id: true, title: true, description: true, priority: true, estimatedDays: true },
+          orderBy: { createdAt: "desc" },
+        })
+      : Promise.resolve([]),
   ]);
 
   const open = tasks.filter((t) => t.status !== "DONE").length;
@@ -85,6 +91,7 @@ export default async function BacklogPage() {
         initialTasks={JSON.parse(JSON.stringify(tasks))}
         users={JSON.parse(JSON.stringify(users))}
         isAdmin={isAdmin}
+        templates={JSON.parse(JSON.stringify(templates))}
       />
     </div>
   );

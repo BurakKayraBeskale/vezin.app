@@ -11,15 +11,32 @@ export const authOptions: NextAuthOptions = {
         email: { label: "E-posta", type: "email" },
         password: { label: "Şifre", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
+
+        const rawIp = req?.headers?.["x-forwarded-for"] ?? req?.headers?.["x-real-ip"] ?? "unknown";
+        const ip = Array.isArray(rawIp) ? rawIp[0] : (rawIp as string).split(",")[0].trim();
+        const userAgent = (req?.headers?.["user-agent"] as string) ?? "unknown";
 
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
         });
-        if (!user) return null;
+
+        if (!user) {
+          try {
+            await prisma.loginLog.create({ data: { ip, userAgent, success: false } });
+          } catch { /* ignore */ }
+          return null;
+        }
 
         const valid = await bcrypt.compare(credentials.password, user.password);
+
+        try {
+          await prisma.loginLog.create({
+            data: { userId: user.id, ip, userAgent, success: valid },
+          });
+        } catch { /* ignore */ }
+
         if (!valid) return null;
 
         return {

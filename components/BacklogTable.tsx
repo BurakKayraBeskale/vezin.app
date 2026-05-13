@@ -14,13 +14,18 @@ type SortDir = "asc" | "desc";
 
 const PRIORITY_ORDER: Record<Priority, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 const STATUS_ORDER: Record<Status, number> = { TODO: 0, IN_PROGRESS: 1, REVIEW: 2, DONE: 3 };
+const STATUS_LABELS: Record<Status, string> = {
+  TODO: "Yapılacak", IN_PROGRESS: "Devam Ediyor", REVIEW: "İncelemede", DONE: "Tamamlandı",
+};
 
 interface User { id: string; name: string; email?: string; }
+interface Template { id: string; title: string; description: string | null; priority: string; estimatedDays: number | null; }
 
 interface Props {
   initialTasks: TaskFull[];
   users: User[];
   isAdmin: boolean;
+  templates?: Template[];
 }
 
 function fmtDate(d: string | null) {
@@ -52,7 +57,7 @@ function SortIcon({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol; s
   );
 }
 
-export default function BacklogTable({ initialTasks, users, isAdmin }: Props) {
+export default function BacklogTable({ initialTasks, users, isAdmin, templates }: Props) {
   const [tasks, setTasks] = useState<TaskFull[]>(initialTasks);
   const [search, setSearch] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
@@ -64,14 +69,15 @@ export default function BacklogTable({ initialTasks, users, isAdmin }: Props) {
   const [editTask, setEditTask] = useState<TaskFull | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"assign" | "status" | null>(null);
+  const [bulkAssignId, setBulkAssignId] = useState("");
+  const [bulkStatus, setBulkStatus] = useState<Status>("TODO");
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   function handleSort(col: SortCol) {
-    if (col === sortCol) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortCol(col);
-      setSortDir("asc");
-    }
+    if (col === sortCol) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortCol(col); setSortDir("asc"); }
   }
 
   const filtered = useMemo(() => {
@@ -87,33 +93,76 @@ export default function BacklogTable({ initialTasks, users, isAdmin }: Props) {
     result.sort((a, b) => {
       let cmp = 0;
       switch (sortCol) {
-        case "title":
-          cmp = a.title.localeCompare(b.title, "tr");
-          break;
-        case "priority":
-          cmp = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
-          break;
-        case "status":
-          cmp = STATUS_ORDER[a.status as Status] - STATUS_ORDER[b.status as Status];
-          break;
-        case "assignedTo":
-          cmp = (a.assignedTo?.name ?? "").localeCompare(b.assignedTo?.name ?? "", "tr");
-          break;
+        case "title": cmp = a.title.localeCompare(b.title, "tr"); break;
+        case "priority": cmp = PRIORITY_ORDER[a.priority as Priority] - PRIORITY_ORDER[b.priority as Priority]; break;
+        case "status": cmp = STATUS_ORDER[a.status as Status] - STATUS_ORDER[b.status as Status]; break;
+        case "assignedTo": cmp = (a.assignedTo?.name ?? "").localeCompare(b.assignedTo?.name ?? "", "tr"); break;
         case "dueDate":
           if (!a.dueDate && !b.dueDate) cmp = 0;
           else if (!a.dueDate) cmp = 1;
           else if (!b.dueDate) cmp = -1;
           else cmp = new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
           break;
-        case "files":
-          cmp = a.files.length - b.files.length;
-          break;
+        case "files": cmp = a.files.length - b.files.length; break;
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
 
     return result;
   }, [tasks, search, filterPriority, filterStatus, filterAssignee, sortCol, sortDir]);
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
+
+  function toggleAll() {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((t) => next.delete(t.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((t) => next.add(t.id));
+        return next;
+      });
+    }
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleBulkSubmit() {
+    if (selectedIds.size === 0) return;
+    setBulkLoading(true);
+    try {
+      const body: Record<string, unknown> = { ids: Array.from(selectedIds), action: bulkAction };
+      if (bulkAction === "assign") body.assignedToId = bulkAssignId || null;
+      if (bulkAction === "status") body.status = bulkStatus;
+
+      const res = await fetch("/api/tasks/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const updated: TaskFull[] = await res.json();
+        setTasks((prev) => prev.map((t) => {
+          const u = updated.find((x) => x.id === t.id);
+          return u ?? t;
+        }));
+        setSelectedIds(new Set());
+        setBulkAction(null);
+      }
+    } finally {
+      setBulkLoading(false);
+    }
+  }
 
   function handleUpdate(updated: TaskFull) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
@@ -140,35 +189,86 @@ export default function BacklogTable({ initialTasks, users, isAdmin }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="bg-[#F57C28]/10 border border-[#F57C28]/30 rounded-2xl p-3 flex items-center gap-3 flex-wrap">
+          <span className="text-sm font-semibold text-[#F57C28]">{selectedIds.size} görev seçildi</span>
+          <div className="flex items-center gap-2 flex-wrap flex-1">
+            {bulkAction === null ? (
+              <>
+                <button onClick={() => setBulkAction("assign")}
+                  className="text-xs bg-[#F57C28] text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-[#D96A1A] transition-colors">
+                  Toplu Ata
+                </button>
+                <button onClick={() => setBulkAction("status")}
+                  className="text-xs bg-indigo-600 text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">
+                  Toplu Durum Değiştir
+                </button>
+              </>
+            ) : bulkAction === "assign" ? (
+              <>
+                <select value={bulkAssignId} onChange={(e) => setBulkAssignId(e.target.value)}
+                  className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#F57C28]/40">
+                  <option value="">— Atanmamış —</option>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                <button onClick={handleBulkSubmit} disabled={bulkLoading}
+                  className="text-xs bg-[#F57C28] text-white font-semibold px-3 py-1.5 rounded-lg disabled:opacity-60">
+                  {bulkLoading ? "..." : "Uygula"}
+                </button>
+                <button onClick={() => setBulkAction(null)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5">İptal</button>
+              </>
+            ) : (
+              <>
+                <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value as Status)}
+                  className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#F57C28]/40">
+                  {(Object.keys(STATUS_LABELS) as Status[]).map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+                </select>
+                <button onClick={handleBulkSubmit} disabled={bulkLoading}
+                  className="text-xs bg-indigo-600 text-white font-semibold px-3 py-1.5 rounded-lg disabled:opacity-60">
+                  {bulkLoading ? "..." : "Uygula"}
+                </button>
+                <button onClick={() => setBulkAction(null)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5">İptal</button>
+              </>
+            )}
+          </div>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-400 hover:text-gray-600 ml-auto">Seçimi Temizle</button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex flex-col gap-2 sm:gap-3">
-        {/* Row 1: search + action button */}
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="relative flex-1">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input
-              type="text"
-              placeholder="Ara: başlık, açıklama, kişi..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
-            />
+            <input type="text" placeholder="Ara: başlık, açıklama, kişi..." value={search} onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]" />
           </div>
           <span className="text-sm text-gray-400 whitespace-nowrap hidden sm:block">{filtered.length} görev</span>
           {isAdmin && (
-            <button onClick={() => setShowCreate(true)}
-              className="flex items-center gap-2 bg-[#F57C28] hover:bg-[#D96A1A] text-white text-sm font-semibold px-3 sm:px-4 py-2.5 rounded-xl shadow-md shadow-[#F57C28]/25 transition-colors flex-shrink-0">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              <span className="hidden sm:inline">Yeni Görev</span>
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {templates && templates.length > 0 && (
+                <button onClick={() => setShowCreate(true)}
+                  className="flex items-center gap-1.5 text-xs border border-[#F57C28]/40 bg-[#FFF9F5] text-[#F57C28] font-semibold px-3 py-2.5 rounded-xl hover:bg-[#FFF3E9] transition-colors">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                  </svg>
+                  <span className="hidden sm:inline">Şablondan</span>
+                </button>
+              )}
+              <button onClick={() => setShowCreate(true)}
+                className="flex items-center gap-2 bg-[#F57C28] hover:bg-[#D96A1A] text-white text-sm font-semibold px-3 sm:px-4 py-2.5 rounded-xl shadow-md shadow-[#F57C28]/25 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                <span className="hidden sm:inline">Yeni Görev</span>
+              </button>
+            </div>
           )}
         </div>
 
-        {/* Row 2: filters */}
         <div className="flex flex-wrap items-center gap-2">
           <select value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}
             className="flex-1 min-w-[110px] px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]">
@@ -189,9 +289,7 @@ export default function BacklogTable({ initialTasks, users, isAdmin }: Props) {
             className="flex-1 min-w-[120px] px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]">
             <option value="">Tüm Kişiler</option>
             <option value="__none__">Atanmamış</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
-            ))}
+            {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
           <span className="text-sm text-gray-400 sm:hidden">{filtered.length} görev</span>
         </div>
@@ -203,6 +301,10 @@ export default function BacklogTable({ initialTasks, users, isAdmin }: Props) {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
+                <th className="px-4 py-3 w-10">
+                  <input type="checkbox" checked={allFilteredSelected} onChange={toggleAll}
+                    className="w-4 h-4 rounded accent-[#F57C28] cursor-pointer" />
+                </th>
                 <th className={thSortable} onClick={() => handleSort("title")}>
                   Başlık <SortIcon col="title" sortCol={sortCol} sortDir={sortDir} />
                 </th>
@@ -226,9 +328,14 @@ export default function BacklogTable({ initialTasks, users, isAdmin }: Props) {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filtered.map((task) => {
-                const overdue = isOverdue(task.dueDate, task.status);
+                const overdue = isOverdue(task.dueDate, task.status as Status);
+                const isSelected = selectedIds.has(task.id);
                 return (
-                  <tr key={task.id} className="hover:bg-gray-50/50 transition-colors">
+                  <tr key={task.id} className={clsx("hover:bg-gray-50/50 transition-colors", isSelected && "bg-orange-50/30")}>
+                    <td className="px-4 py-3.5 w-10">
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleOne(task.id)}
+                        className="w-4 h-4 rounded accent-[#F57C28] cursor-pointer" />
+                    </td>
                     <td className="px-4 py-3.5 max-w-xs">
                       <button onClick={() => setViewTask(task)} className="text-left">
                         <p className="text-sm font-medium text-gray-800 hover:text-[#F57C28] transition-colors line-clamp-1">
@@ -256,22 +363,17 @@ export default function BacklogTable({ initialTasks, users, isAdmin }: Props) {
                         {overdue && "⚠ "}{fmtDate(task.dueDate)}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5">
-                      <span className="text-xs text-gray-400">{task.files.length}</span>
-                    </td>
+                    <td className="px-4 py-3.5"><span className="text-xs text-gray-400">{task.files.length}</span></td>
                     {isAdmin && (
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-1">
-                          <button onClick={() => setEditTask(task)}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-[#F57C28] hover:bg-orange-50 transition-colors"
-                            title="Düzenle">
+                          <button onClick={() => setEditTask(task)} className="p-1.5 rounded-lg text-gray-400 hover:text-[#F57C28] hover:bg-orange-50 transition-colors" title="Düzenle">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                             </svg>
                           </button>
                           <button onClick={() => handleDelete(task.id)} disabled={deleting === task.id}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
-                            title="Sil">
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50" title="Sil">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
@@ -292,16 +394,13 @@ export default function BacklogTable({ initialTasks, users, isAdmin }: Props) {
 
       {/* Modals */}
       {viewTask && (
-        <TaskModal task={viewTask} users={users} isAdmin={isAdmin}
-          onClose={() => setViewTask(null)} onUpdate={handleUpdate} />
+        <TaskModal task={viewTask} users={users} isAdmin={isAdmin} onClose={() => setViewTask(null)} onUpdate={handleUpdate} />
       )}
       {editTask && (
-        <TaskFormModal task={editTask} users={users}
-          onClose={() => setEditTask(null)} onUpdate={handleUpdate} />
+        <TaskFormModal task={editTask} users={users} templates={templates} onClose={() => setEditTask(null)} onUpdate={handleUpdate} />
       )}
       {showCreate && (
-        <TaskFormModal users={users}
-          onClose={() => setShowCreate(false)} onCreate={handleCreate} />
+        <TaskFormModal users={users} templates={templates} onClose={() => setShowCreate(false)} onCreate={handleCreate} />
       )}
     </div>
   );

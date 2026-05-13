@@ -8,6 +8,11 @@ import DashboardCalendar from "@/components/DashboardCalendar";
 
 interface TasksByStatus { todo: number; inProgress: number; review: number; done: number; }
 
+interface OverdueTask {
+  id: string; title: string; dueDate: string;
+  assignedTo: { name: string } | null; priority: string;
+}
+
 interface DashboardData {
   openTasks: number;
   completedThisWeek: number;
@@ -17,6 +22,7 @@ interface DashboardData {
   overdueLastWeek: number;
   tasksByStatus: TasksByStatus;
   weeklyData: { week: string; acilan: number; kapanan: number; geciken: number }[];
+  overdueList?: OverdueTask[];
 }
 
 const today = new Date().toLocaleDateString("tr-TR", {
@@ -51,23 +57,16 @@ function TaskStatusBar({ data }: { data: TasksByStatus }) {
         </div>
       </div>
 
-      {/* Stacked bar */}
       <div className="flex rounded-full overflow-hidden h-3 mb-4">
         {STATUS_BARS.map(({ key, color }) => {
           const pct = (data[key] / total) * 100;
           if (pct === 0) return null;
           return (
-            <div
-              key={key}
-              className="h-full transition-all"
-              style={{ width: `${pct}%`, backgroundColor: color }}
-              title={`${data[key]}`}
-            />
+            <div key={key} className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} title={`${data[key]}`} />
           );
         })}
       </div>
 
-      {/* Row breakdown */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {STATUS_BARS.map(({ key, label, color, bg }) => {
           const pct = total > 0 ? Math.round((data[key] / total) * 100) : 0;
@@ -88,73 +87,184 @@ export default function DashboardPage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
   const [data, setData] = useState<DashboardData | null>(null);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   useEffect(() => {
     fetch("/api/dashboard").then((r) => r.json()).then(setData);
   }, []);
 
-  function handlePrint() { window.print(); }
+  // Process recurring tasks on mount
+  useEffect(() => {
+    fetch("/api/tasks/process-recurring", { method: "POST" }).catch(() => {});
+  }, []);
 
-  const metricCards = data
-    ? [
-        {
-          title: "Açık Görevler",
-          value: data.openTasks,
-          sub: "Tamamlanmamış görevler",
-          accentColor: "var(--badge-orange-text)",
-          bgColor: "var(--badge-orange-bg)",
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12l2 2 4-4" />
-            </svg>
-          ),
-        },
-        {
-          title: "Bu Hafta Tamamlanan",
-          value: data.completedThisWeek,
-          sub: "Bu hafta kapatılan görevler",
-          accentColor: "var(--badge-emerald-text)",
-          bgColor: "var(--badge-emerald-bg)",
-          trend: {
-            delta: data.completedThisWeek - data.completedLastWeek,
-            higherIsBetter: true,
-          },
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          ),
-        },
-        {
-          title: "Geciken İşler",
-          value: data.overdueTasks,
-          sub: "Son tarihi geçmiş görevler",
-          accentColor: "var(--badge-red-text)",
-          bgColor: "var(--badge-red-bg)",
-          trend: {
-            delta: data.overdueTasks - data.overdueLastWeek,
-            higherIsBetter: false,
-          },
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          ),
-        },
-        ...(isAdmin ? [{
-          title: "Aktif Kullanıcılar",
-          value: data.activeUsers,
-          sub: "Devam eden görevi olan kişiler",
-          accentColor: "var(--badge-indigo-text)",
-          bgColor: "var(--badge-indigo-bg)",
-          icon: (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          ),
-        }] : []),
-      ]
-    : [];
+  async function handleDownloadPdf() {
+    if (!data) return;
+    setGeneratingPdf(true);
+    try {
+      const { jsPDF } = await import("jspdf");
+      const autoTable = (await import("jspdf-autotable")).default;
+
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      const now = new Date().toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" });
+
+      // Header bar
+      doc.setFillColor(245, 124, 40);
+      doc.rect(0, 0, pageW, 20, "F");
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("Vezin - Dashboard Raporu", 14, 13);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.text(now, pageW - 14, 13, { align: "right" });
+
+      let y = 30;
+
+      // Metrics section
+      doc.setTextColor(30, 30, 30);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text("Metrik Ozeti", 14, y);
+      y += 6;
+
+      const metrics = [
+        ["Acik Gorevler", String(data.openTasks)],
+        ["Bu Hafta Tamamlanan", String(data.completedThisWeek)],
+        ["Geciken Isler", String(data.overdueTasks)],
+        ...(isAdmin ? [["Aktif Kullanicilar", String(data.activeUsers)]] : []),
+      ];
+
+      autoTable(doc, {
+        startY: y,
+        head: [["Metrik", "Deger"]],
+        body: metrics,
+        theme: "grid",
+        headStyles: { fillColor: [245, 124, 40], textColor: 255, fontStyle: "bold", fontSize: 9 },
+        bodyStyles: { fontSize: 9 },
+        columnStyles: { 1: { halign: "center", fontStyle: "bold" } },
+        margin: { left: 14, right: 14 },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 10;
+
+      // Weekly performance table
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 30, 30);
+      doc.text("Son 7 Hafta Performansi", 14, y);
+      y += 6;
+
+      autoTable(doc, {
+        startY: y,
+        head: [["Hafta", "Acilan", "Kapanan", "Geciken"]],
+        body: data.weeklyData.map((w) => [w.week, w.acilan, w.kapanan, w.geciken]),
+        theme: "striped",
+        headStyles: { fillColor: [99, 102, 241], textColor: 255, fontSize: 9 },
+        bodyStyles: { fontSize: 9 },
+        margin: { left: 14, right: 14 },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 10;
+
+      // Overdue tasks
+      if (data.overdueList && data.overdueList.length > 0) {
+        if (y > 240) { doc.addPage(); y = 20; }
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 30, 30);
+        doc.text("Geciken Gorevler", 14, y);
+        y += 6;
+
+        autoTable(doc, {
+          startY: y,
+          head: [["Gorev", "Atanan", "Son Tarih", "Oncelik"]],
+          body: data.overdueList.map((t) => [
+            t.title.slice(0, 40),
+            t.assignedTo?.name ?? "—",
+            new Date(t.dueDate).toLocaleDateString("tr-TR"),
+            t.priority === "HIGH" ? "Yuksek" : t.priority === "MEDIUM" ? "Orta" : "Dusuk",
+          ]),
+          theme: "grid",
+          headStyles: { fillColor: [239, 68, 68], textColor: 255, fontSize: 9 },
+          bodyStyles: { fontSize: 9 },
+          margin: { left: 14, right: 14 },
+        });
+      }
+
+      // Footer
+      const pageCount = (doc.internal as any).getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Sayfa ${i} / ${pageCount}  |  vezin.app`, pageW / 2, doc.internal.pageSize.getHeight() - 8, { align: "center" });
+      }
+
+      doc.save(`vezin-rapor-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      console.error("PDF hatasi:", err);
+      window.print();
+    } finally {
+      setGeneratingPdf(false);
+    }
+  }
+
+  const metricCards = data ? [
+    {
+      title: "Açık Görevler",
+      value: data.openTasks,
+      sub: "Tamamlanmamış görevler",
+      accentColor: "var(--badge-orange-text)",
+      bgColor: "var(--badge-orange-bg)",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12l2 2 4-4" />
+        </svg>
+      ),
+    },
+    {
+      title: "Bu Hafta Tamamlanan",
+      value: data.completedThisWeek,
+      sub: "Bu hafta kapatılan görevler",
+      accentColor: "var(--badge-emerald-text)",
+      bgColor: "var(--badge-emerald-bg)",
+      trend: { delta: data.completedThisWeek - data.completedLastWeek, higherIsBetter: true },
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+    },
+    {
+      title: "Geciken İşler",
+      value: data.overdueTasks,
+      sub: "Son tarihi geçmiş görevler",
+      accentColor: "var(--badge-red-text)",
+      bgColor: "var(--badge-red-bg)",
+      trend: { delta: data.overdueTasks - data.overdueLastWeek, higherIsBetter: false },
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      ),
+    },
+    ...(isAdmin ? [{
+      title: "Aktif Kullanıcılar",
+      value: data.activeUsers,
+      sub: "Devam eden görevi olan kişiler",
+      accentColor: "var(--badge-indigo-text)",
+      bgColor: "var(--badge-indigo-bg)",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      ),
+    }] : []),
+  ] : [];
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -165,13 +275,14 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-400 mt-1 capitalize">{today}</p>
         </div>
         <button
-          onClick={handlePrint}
-          className="inline-flex items-center gap-2 bg-[#F57C28] hover:bg-[#D96A1A] text-white font-semibold text-sm px-4 py-2.5 rounded-xl shadow-md shadow-[#F57C28]/30 transition-all hover:-translate-y-0.5 active:translate-y-0 self-start sm:self-auto"
+          onClick={handleDownloadPdf}
+          disabled={!data || generatingPdf}
+          className="inline-flex items-center gap-2 bg-[#F57C28] hover:bg-[#D96A1A] disabled:opacity-60 text-white font-semibold text-sm px-4 py-2.5 rounded-xl shadow-md shadow-[#F57C28]/30 transition-all hover:-translate-y-0.5 active:translate-y-0 self-start sm:self-auto"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
-          PDF Rapor İndir
+          {generatingPdf ? "Hazırlanıyor..." : "PDF Rapor İndir"}
         </button>
       </div>
 

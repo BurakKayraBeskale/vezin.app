@@ -101,6 +101,14 @@ export async function GET() {
     })
   );
 
+  // Geciken görevler listesi (PDF için)
+  const overdueList = await prisma.task.findMany({
+    where: { dueDate: { lt: now }, status: { not: "DONE" } },
+    select: { id: true, title: true, dueDate: true, assignedTo: { select: { name: true } }, priority: true },
+    orderBy: { dueDate: "asc" },
+    take: 15,
+  });
+
   return NextResponse.json({
     openTasks,
     completedThisWeek,
@@ -115,5 +123,6 @@ export async function GET() {
       done: statusMap["DONE"] ?? 0,
     },
     weeklyData,
+    overdueList,
   });
 }

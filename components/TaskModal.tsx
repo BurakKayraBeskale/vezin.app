@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef, ChangeEvent, useEffect, useCallback } from "react";
 import PriorityBadge from "./PriorityBadge";
 
 type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
@@ -10,6 +10,12 @@ type Tab = "detay" | "dosyalar" | "yorumlar" | "aktivite";
 interface User { id: string; name: string; email?: string; }
 interface FileRecord { id: string; filename: string; comment?: string | null; uploadedBy: { name: string }; createdAt: string; }
 interface FeedbackRecord { id: string; message: string; fromUser: { name: string; role: string }; createdAt: string; }
+interface CommentRecord {
+  id: string;
+  content: string;
+  user: { id: string; name: string; role: string };
+  createdAt: string;
+}
 interface LogRecord {
   id: string;
   user: { name: string };
@@ -82,20 +88,35 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
   const [assignedToId, setAssignedToId] = useState<string>(task.assignedToId ?? "");
   const [dueDate, setDueDate] = useState<string>(task.dueDate ? task.dueDate.slice(0, 10) : "");
   const [files, setFiles] = useState<FileRecord[]>(task.files);
-  const [feedbacks, setFeedbacks] = useState<FeedbackRecord[]>(task.feedbacks);
   const [logs, setLogs] = useState<LogRecord[]>(task.logs ?? []);
-  const [feedbackMsg, setFeedbackMsg] = useState("");
   const [fileComment, setFileComment] = useState("");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [sendingFb, setSendingFb] = useState(false);
   const [toast, setToast] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Comments state
+  const [comments, setComments] = useState<CommentRecord[]>([]);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
+  const [commentText, setCommentText] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionPos, setMentionPos] = useState<number>(0);
+  const commentRef = useRef<HTMLTextAreaElement>(null);
 
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(""), 2500);
   }
+
+  // Load comments when tab is first opened
+  useEffect(() => {
+    if (activeTab === "yorumlar" && !commentsLoaded) {
+      fetch(`/api/tasks/${task.id}/comments`)
+        .then((r) => r.json())
+        .then((d) => { setComments(Array.isArray(d) ? d : []); setCommentsLoaded(true); });
+    }
+  }, [activeTab, commentsLoaded, task.id]);
 
   async function patchTask(data: Record<string, unknown>) {
     const res = await fetch(`/api/tasks/${task.id}`, {
@@ -154,24 +175,49 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
     }
   }
 
-  async function handleSendFeedback() {
-    if (!feedbackMsg.trim()) return;
-    setSendingFb(true);
+  // Mention detection
+  function handleCommentChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value;
+    setCommentText(val);
+    const cursor = e.target.selectionStart ?? val.length;
+    const textBeforeCursor = val.slice(0, cursor);
+    const atMatch = textBeforeCursor.match(/@(\w*)$/);
+    if (atMatch) {
+      setMentionQuery(atMatch[1].toLowerCase());
+      setMentionPos(cursor - atMatch[0].length);
+    } else {
+      setMentionQuery(null);
+    }
+  }
+
+  function insertMention(user: User) {
+    const before = commentText.slice(0, mentionPos);
+    const after = commentText.slice(mentionPos + (mentionQuery?.length ?? 0) + 1);
+    const newText = `${before}@${user.name} ${after}`;
+    setCommentText(newText);
+    setMentionQuery(null);
+    commentRef.current?.focus();
+  }
+
+  async function handleSendComment() {
+    if (!commentText.trim()) return;
+    setSendingComment(true);
     try {
-      const res = await fetch("/api/feedback", {
+      const res = await fetch(`/api/tasks/${task.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: task.id, message: feedbackMsg.trim() }),
+        body: JSON.stringify({ content: commentText.trim() }),
       });
       if (!res.ok) throw new Error();
-      const fb = await res.json();
-      setFeedbacks((prev) => [...prev, fb]);
-      setFeedbackMsg("");
-      showToast("Mesaj gönderildi");
+      const newComment = await res.json();
+      setComments((prev) => [...prev, newComment]);
+      setCommentText("");
+      setMentionQuery(null);
+      showToast("Yorum gönderildi");
     } catch {
       showToast("Gönderilemedi");
     } finally {
-      setSendingFb(false);
+      setSendingComment(false);
     }
   }
 
@@ -194,15 +240,18 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
   const startedLog = logs.find((l) => l.action === "STARTED");
   const completedLog = [...logs].reverse().find((l) => l.action === "COMPLETED");
 
+  const filteredMentionUsers = mentionQuery !== null
+    ? users.filter((u) => u.name.toLowerCase().includes(mentionQuery)).slice(0, 5)
+    : [];
+
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: "detay", label: "Detay" },
     { key: "dosyalar", label: "Dosyalar", count: files.length },
-    { key: "yorumlar", label: "Yorumlar", count: feedbacks.length },
+    { key: "yorumlar", label: "Yorumlar", count: commentsLoaded ? comments.length : undefined },
     { key: "aktivite", label: "Aktivite", count: logs.length },
   ];
 
   return (
-    /* Wrapper: bottom-sheet on mobile, centered on sm+ */
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4">
       <div className="bg-white w-full sm:max-w-2xl max-h-[95vh] sm:max-h-[92vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-2xl">
 
@@ -225,7 +274,7 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
           </button>
         </div>
 
-        {/* Tab bar — scrollable on narrow screens */}
+        {/* Tab bar */}
         <div className="flex border-b border-gray-100 px-4 sm:px-6 flex-shrink-0 overflow-x-auto">
           {tabs.map((t) => (
             <button
@@ -386,46 +435,112 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
           {activeTab === "yorumlar" && (
             <div>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Yorumlar ({feedbacks.length})
+                Yorumlar {commentsLoaded && `(${comments.length})`}
               </h3>
-              {feedbacks.length > 0 && (
+
+              {!commentsLoaded && (
+                <div className="py-8 text-center text-xs text-gray-400">Yükleniyor...</div>
+              )}
+
+              {commentsLoaded && comments.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-8 border border-dashed border-gray-200 rounded-xl mb-4">Henüz yorum yok</p>
+              )}
+
+              {commentsLoaded && comments.length > 0 && (
                 <div className="space-y-2.5 mb-4">
-                  {feedbacks.map((fb) => {
-                    const isAdminMsg = fb.fromUser.role === "ADMIN";
+                  {comments.map((c) => {
+                    const isAdmin = c.user.role === "ADMIN";
+                    const isManager = c.user.role === "MANAGER";
+                    const colorCls = isAdmin
+                      ? "bg-[#FFF3E9] border-[#F57C28]/20"
+                      : isManager
+                      ? "bg-purple-50 border-purple-100"
+                      : "bg-indigo-50 border-indigo-100";
+                    const nameCls = isAdmin ? "text-[#F57C28]" : isManager ? "text-purple-600" : "text-indigo-600";
+                    const badgeCls = isAdmin
+                      ? "bg-[#F57C28]/15 text-[#F57C28]"
+                      : isManager
+                      ? "bg-purple-100 text-purple-500"
+                      : "bg-indigo-100 text-indigo-500";
+                    const rolLabel = isAdmin ? "Admin" : isManager ? "Yönetici" : "Çalışan";
+                    const textCls = isAdmin ? "text-orange-900" : isManager ? "text-purple-900" : "text-indigo-800";
+                    const timeCls = isAdmin ? "text-[#F57C28]/50" : isManager ? "text-purple-400" : "text-indigo-400";
+
+                    // Render @mentions as highlighted
+                    const parts = c.content.split(/(@\S+)/g);
+
                     return (
-                      <div key={fb.id} className={`rounded-xl p-3 border ${isAdminMsg ? "bg-[#FFF3E9] border-[#F57C28]/20" : "bg-indigo-50 border-indigo-100"}`}>
+                      <div key={c.id} className={`rounded-xl p-3 border ${colorCls}`}>
                         <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                          <span className={`text-[10px] font-bold ${isAdminMsg ? "text-[#F57C28]" : "text-indigo-600"}`}>{fb.fromUser.name}</span>
-                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${isAdminMsg ? "bg-[#F57C28]/15 text-[#F57C28]" : "bg-indigo-100 text-indigo-500"}`}>
-                            {isAdminMsg ? "Admin" : "Çalışan"}
-                          </span>
-                          <span className={`text-[10px] ml-auto ${isAdminMsg ? "text-[#F57C28]/50" : "text-indigo-400"}`}>{fmtDate(fb.createdAt)}</span>
+                          <div className="w-5 h-5 rounded-full bg-gray-300 flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                            {c.user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+                          </div>
+                          <span className={`text-[10px] font-bold ${nameCls}`}>{c.user.name}</span>
+                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${badgeCls}`}>{rolLabel}</span>
+                          <span className={`text-[10px] ml-auto ${timeCls}`}>{fmtDateTime(c.createdAt)}</span>
                         </div>
-                        <p className={`text-sm ${isAdminMsg ? "text-orange-900" : "text-indigo-800"}`}>{fb.message}</p>
+                        <p className={`text-sm ${textCls}`}>
+                          {parts.map((part, i) =>
+                            part.startsWith("@") ? (
+                              <span key={i} className="font-semibold text-[#F57C28]">{part}</span>
+                            ) : (
+                              <span key={i}>{part}</span>
+                            )
+                          )}
+                        </p>
                       </div>
                     );
                   })}
                 </div>
               )}
-              {feedbacks.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-8 border border-dashed border-gray-200 rounded-xl mb-4">Henüz yorum yok</p>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={feedbackMsg}
-                  onChange={(e) => setFeedbackMsg(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSendFeedback()}
-                  placeholder="Yorum yaz..."
-                  className="flex-1 px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
+
+              {/* Comment input */}
+              <div className="relative">
+                <textarea
+                  ref={commentRef}
+                  value={commentText}
+                  onChange={handleCommentChange}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setMentionQuery(null);
+                    if (e.key === "Enter" && !e.shiftKey && mentionQuery === null) {
+                      e.preventDefault();
+                      handleSendComment();
+                    }
+                  }}
+                  placeholder="Yorum yaz... (@isim ile bahsedin)"
+                  rows={2}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] resize-none"
                 />
-                <button
-                  onClick={handleSendFeedback}
-                  disabled={sendingFb || !feedbackMsg.trim()}
-                  className="px-4 py-2.5 bg-[#F57C28] hover:bg-[#D96A1A] disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0 min-w-[72px]"
-                >
-                  {sendingFb ? "..." : "Gönder"}
-                </button>
+
+                {/* Mention dropdown */}
+                {mentionQuery !== null && filteredMentionUsers.length > 0 && (
+                  <div className="absolute bottom-full mb-1 left-0 w-full bg-white border border-gray-200 rounded-xl shadow-lg z-10 overflow-hidden">
+                    {filteredMentionUsers.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); insertMention(u); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left transition-colors"
+                      >
+                        <div className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                          {u.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+                        </div>
+                        <span className="text-sm text-gray-700">{u.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center mt-2">
+                  <p className="text-[10px] text-gray-400">Enter gönder · Shift+Enter yeni satır · @ mention</p>
+                  <button
+                    onClick={handleSendComment}
+                    disabled={sendingComment || !commentText.trim()}
+                    className="px-4 py-2 bg-[#F57C28] hover:bg-[#D96A1A] disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0"
+                  >
+                    {sendingComment ? "..." : "Gönder"}
+                  </button>
+                </div>
               </div>
             </div>
           )}

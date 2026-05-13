@@ -33,13 +33,16 @@ model User {
   notifications    Notification[]
   meetingsCreated  Meeting[]        @relation("MeetingCreator")
   meetingAttendees MeetingAttendee[]
+  templates        TaskTemplate[]   @relation("TemplateCreator")
+  taskComments     TaskComment[]
+  loginLogs        LoginLog[]
 }
 
 model Notification {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  type      String   // TASK_ASSIGNED | LEAVE_APPROVED | LEAVE_REJECTED | FEEDBACK_RECEIVED
+  type      String   // TASK_ASSIGNED | LEAVE_APPROVED | LEAVE_REJECTED | FEEDBACK_RECEIVED | MENTIONED | COMMENTED
   message   String
   isRead    Boolean  @default(false)
   relatedId String?
@@ -58,22 +61,61 @@ model UserRelation {
   @@unique([managerId, subordinateId])
 }
 
+// recurringType: "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY"
+// recurringDay: 1-31 for MONTHLY, 0-6 for WEEKLY (0=Mon)
 model Task {
-  id           String    @id @default(cuid())
-  title        String
-  description  String?
-  status       String    @default("TODO")
-  priority     String    @default("MEDIUM")
-  assignedTo   User?     @relation("AssignedTo", fields: [assignedToId], references: [id])
-  assignedToId String?
-  dueDate      DateTime?
-  createdBy    User      @relation("CreatedBy", fields: [createdById], references: [id])
-  createdById  String
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  feedbacks    Feedback[]
-  files        File[]
-  logs         TaskLog[]
+  id             String    @id @default(cuid())
+  title          String
+  description    String?
+  status         String    @default("TODO")
+  priority       String    @default("MEDIUM")
+  assignedTo     User?     @relation("AssignedTo", fields: [assignedToId], references: [id])
+  assignedToId   String?
+  dueDate        DateTime?
+  createdBy      User      @relation("CreatedBy", fields: [createdById], references: [id])
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  isRecurring    Boolean   @default(false)
+  recurringType  String?
+  recurringDay   Int?
+  nextOccurrence DateTime?
+  feedbacks      Feedback[]
+  files          File[]
+  logs           TaskLog[]
+  comments       TaskComment[]
+}
+
+model TaskTemplate {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  priority      String   @default("MEDIUM")
+  estimatedDays Int?
+  department    String?
+  createdBy     User     @relation("TemplateCreator", fields: [createdById], references: [id])
+  createdById   String
+  createdAt     DateTime @default(now())
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model LoginLog {
+  id        String   @id @default(cuid())
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?
+  ip        String?
+  userAgent String?
+  success   Boolean  @default(true)
+  createdAt DateTime @default(now())
 }
 
 model TaskLog {

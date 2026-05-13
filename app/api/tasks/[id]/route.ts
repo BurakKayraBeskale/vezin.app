@@ -57,6 +57,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (body.priority !== undefined) allowed.priority = body.priority;
       if (body.assignedToId !== undefined) allowed.assignedToId = body.assignedToId || null;
       if (body.dueDate !== undefined) allowed.dueDate = body.dueDate ? new Date(body.dueDate) : null;
+      if (body.isRecurring !== undefined) allowed.isRecurring = body.isRecurring;
+      if (body.recurringType !== undefined) allowed.recurringType = body.recurringType || null;
+      if (body.recurringDay !== undefined) allowed.recurringDay = body.recurringDay ?? null;
+      if (body.nextOccurrence !== undefined) allowed.nextOccurrence = body.nextOccurrence ? new Date(body.nextOccurrence) : null;
     }
 
     const task = await prisma.task.update({
