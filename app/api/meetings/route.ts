@@ -18,9 +18,15 @@ export async function GET(req: NextRequest) {
   const month = parseInt(searchParams.get("month") ?? String(new Date().getMonth() + 1));
 
   const prefix = `${year}-${String(month).padStart(2, "0")}`;
+  const role = (session.user as any).role as string;
+  const department = (session.user as any).department as string;
+  const isAdmin = role === "ADMIN";
 
   const meetings = await (prisma as any).meeting.findMany({
-    where: { date: { startsWith: prefix } },
+    where: {
+      date: { startsWith: prefix },
+      ...(isAdmin ? {} : { department }),
+    },
     include: { createdBy: { select: { id: true, name: true } } },
     orderBy: [{ date: "asc" }, { time: "asc" }],
   });
