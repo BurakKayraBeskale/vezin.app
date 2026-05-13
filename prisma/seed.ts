@@ -152,8 +152,13 @@ async function main() {
     },
   ];
 
-  for (const t of tasks) {
-    await prisma.task.create({ data: t });
+  const existingTaskCount = await prisma.task.count();
+  if (existingTaskCount === 0) {
+    for (const t of tasks) {
+      await prisma.task.create({ data: t });
+    }
+  } else {
+    console.log(`   ⏭  Görevler atlandı (${existingTaskCount} kayıt mevcut)`);
   }
 
   // ── LeaveBalance (2026) ──────────────────────────────
