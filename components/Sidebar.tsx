@@ -325,7 +325,12 @@ export default function Sidebar({
           <div className="flex-1 min-w-0">
             <p className="text-white text-xs font-semibold truncate">{userName}</p>
             <p className="text-white/35 text-[10px] truncate">
-              {userRole === "ADMIN" ? "Admin" : userRole === "MANAGER" ? "Yönetici" : "Çalışan"}
+              {userDepartment === "OUTSOURCE" ? "Outsource"
+                : userDepartment === "BAGIMSIZ_DENETIM" ? "Bağımsız Denetim"
+                : userDepartment === "MUHASEBE" ? "Muhasebe"
+                : userDepartment === "YEMINLI_MALI_MUSAVIR" ? "YMM"
+                : userDepartment === "ADMIN" ? "Yönetim"
+                : userDepartment}
             </p>
           </div>
         </Link>
