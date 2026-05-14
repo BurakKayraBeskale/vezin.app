@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   if (!canManage(token)) return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
 
   const body = await req.json();
-  const { name, taxNumber, sector, startDate, notes } = body;
+  const { name, taxNumber, sector, startDate, notes, about } = body;
   if (!name?.trim()) return NextResponse.json({ error: "Firma adı zorunlu" }, { status: 400 });
 
   const company = await prisma.company.create({
@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
       sector: sector?.trim() || null,
       startDate: startDate ? new Date(startDate) : null,
       notes: notes?.trim() || null,
+      about: about?.trim() || null,
     },
     include: companyInclude,
   });

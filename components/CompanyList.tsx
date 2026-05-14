@@ -22,6 +22,7 @@ interface Company {
   sector: string | null;
   startDate: string | null;
   notes: string | null;
+  about: string | null;
   createdAt: string;
   assignments: Assignment[];
 }
@@ -47,7 +48,7 @@ function formatDate(d: string | null): string {
   return new Date(d).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" });
 }
 
-const EMPTY_FORM = { name: "", taxNumber: "", sector: "", startDate: "", notes: "" };
+const EMPTY_FORM = { name: "", taxNumber: "", sector: "", startDate: "", notes: "", about: "" };
 
 export default function CompanyList({ initialCompanies, users, canManage, role }: Props) {
   const [companies, setCompanies] = useState<Company[]>(initialCompanies);
@@ -67,6 +68,16 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
 
   // Detail modal
   const [detailCompany, setDetailCompany] = useState<Company | null>(null);
+  const [detailTab, setDetailTab] = useState<"genel" | "hakkinda">("genel");
+
+  function openDetail(c: Company) {
+    setDetailCompany(c);
+    setDetailTab("genel");
+  }
+  function closeDetail() {
+    setDetailCompany(null);
+    setDetailTab("genel");
+  }
 
   // Toast
   const [toast, setToast] = useState("");
@@ -91,6 +102,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
       sector: c.sector ?? "",
       startDate: c.startDate ? c.startDate.slice(0, 10) : "",
       notes: c.notes ?? "",
+      about: c.about ?? "",
     });
     setFormError("");
     setShowForm(true);
@@ -107,6 +119,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
         sector: form.sector.trim() || null,
         startDate: form.startDate || null,
         notes: form.notes.trim() || null,
+        about: form.about.trim() || null,
       };
       let res: Response;
       if (editingCompany) {
@@ -130,7 +143,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
       const updated: Company = await res.json();
       if (editingCompany) {
         setCompanies((prev) => prev.map((c) => c.id === updated.id ? updated : c));
-        if (detailCompany?.id === updated.id) setDetailCompany(updated);
+        if (detailCompany?.id === updated.id) openDetail(updated);
         showToast("Firma güncellendi");
       } else {
         setCompanies((prev) => [...prev, updated].sort((a, b) => a.name.localeCompare(b.name, "tr")));
@@ -285,7 +298,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
             return (
               <div
                 key={company.id}
-                onClick={() => setDetailCompany(company)}
+                onClick={() => openDetail(company)}
                 className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow p-4 flex flex-col gap-3 cursor-pointer"
               >
                 {/* Card header */}
@@ -491,9 +504,19 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
                 <textarea
                   value={form.notes}
                   onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                  placeholder="Firma hakkında notlar..."
+                  placeholder="Firma hakkında kısa notlar..."
                   rows={3}
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Firma Hakkında</label>
+                <textarea
+                  value={form.about}
+                  onChange={(e) => setForm((f) => ({ ...f, about: e.target.value }))}
+                  placeholder="Firma hakkında detaylı bilgi girin..."
+                  style={{ minHeight: "150px" }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] resize-y"
                 />
               </div>
               {formError && (
@@ -607,7 +630,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
         return (
           <div
             className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4"
-            onClick={() => setDetailCompany(null)}
+            onClick={closeDetail}
           >
             <div
               className="bg-white dark:bg-gray-900 w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh]"
@@ -627,7 +650,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
                   {c.sector && <p className="text-xs text-gray-400 mt-0.5">{c.sector}</p>}
                 </div>
                 <button
-                  onClick={() => setDetailCompany(null)}
+                  onClick={closeDetail}
                   className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -636,62 +659,101 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
                 </button>
               </div>
 
-              {/* Body */}
-              <div className="overflow-y-auto p-5 space-y-5 flex-1">
-                {/* Info grid */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Vergi No</p>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{c.taxNumber ?? "—"}</p>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Sektör</p>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{c.sector ?? "—"}</p>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Başlangıç Tarihi</p>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{formatDate(c.startDate)}</p>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Çalışma Süresi</p>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                      {c.startDate ? `${Math.floor(years)} yıl ${Math.floor((years % 1) * 12)} ay` : "—"}
-                    </p>
-                  </div>
-                </div>
+              {/* Tabs */}
+              <div className="flex border-b border-gray-100 dark:border-gray-800 flex-shrink-0 px-5">
+                {(["genel", "hakkinda"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setDetailTab(tab)}
+                    className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                      detailTab === tab
+                        ? "border-[#F57C28] text-[#F57C28]"
+                        : "border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    }`}
+                  >
+                    {tab === "genel" ? "Genel" : "Hakkında"}
+                  </button>
+                ))}
+              </div>
 
-                {/* Notes */}
-                {c.notes && (
+              {/* Body */}
+              <div className="overflow-y-auto p-5 flex-1">
+                {detailTab === "genel" ? (
+                  <div className="space-y-5">
+                    {/* Info grid */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Vergi No</p>
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{c.taxNumber ?? "—"}</p>
+                      </div>
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Sektör</p>
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{c.sector ?? "—"}</p>
+                      </div>
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Başlangıç Tarihi</p>
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{formatDate(c.startDate)}</p>
+                      </div>
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Çalışma Süresi</p>
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                          {c.startDate ? `${Math.floor(years)} yıl ${Math.floor((years % 1) * 12)} ay` : "—"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    {c.notes && (
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Notlar</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-xl p-3 whitespace-pre-wrap">{c.notes}</p>
+                      </div>
+                    )}
+
+                    {/* Assignees */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                        Atanan Kişiler ({c.assignments.length})
+                      </p>
+                      {c.assignments.length === 0 ? (
+                        <p className="text-sm text-gray-400">Kimse atanmamış</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {c.assignments.map((a) => (
+                            <div key={a.userId} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-800">
+                              <div className="w-7 h-7 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+                                {initials(a.user.name)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{a.user.name}</p>
+                                <p className="text-xs text-gray-400 truncate">{a.user.email}</p>
+                              </div>
+                              <p className="text-[10px] text-gray-400 flex-shrink-0">{formatDate(a.assignedAt)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
                   <div>
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Notlar</p>
-                    <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-xl p-3 whitespace-pre-wrap">{c.notes}</p>
+                    {c.about ? (
+                      <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{c.about}</p>
+                    ) : (
+                      <div className="py-12 text-center">
+                        <p className="text-gray-400 text-sm">Henüz bilgi girilmemiş</p>
+                        {canManage && (
+                          <button
+                            onClick={() => { closeDetail(); openEdit(c); }}
+                            className="mt-3 text-sm text-[#F57C28] hover:underline"
+                          >
+                            Düzenle sayfasından ekleyebilirsiniz
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
-
-                {/* Assignees */}
-                <div>
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                    Atanan Kişiler ({c.assignments.length})
-                  </p>
-                  {c.assignments.length === 0 ? (
-                    <p className="text-sm text-gray-400">Kimse atanmamış</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {c.assignments.map((a) => (
-                        <div key={a.userId} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-800">
-                          <div className="w-7 h-7 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-                            {initials(a.user.name)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{a.user.name}</p>
-                            <p className="text-xs text-gray-400 truncate">{a.user.email}</p>
-                          </div>
-                          <p className="text-[10px] text-gray-400 flex-shrink-0">{formatDate(a.assignedAt)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* Footer actions */}
@@ -716,7 +778,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
                 </button>
                 {canManage && (
                   <button
-                    onClick={() => { setDetailCompany(null); openEdit(c); }}
+                    onClick={() => { closeDetail(); openEdit(c); }}
                     className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-300 font-medium px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border border-gray-200 dark:border-gray-700 ml-auto"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

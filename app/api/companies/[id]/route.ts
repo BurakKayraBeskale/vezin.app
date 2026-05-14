@@ -62,26 +62,39 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
   if (!canManage(token)) return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
 
-  const body = await req.json();
-  const data: Record<string, unknown> = {};
-  if (body.name !== undefined) data.name = body.name.trim();
-  if (body.taxNumber !== undefined) data.taxNumber = body.taxNumber?.trim() || null;
-  if (body.sector !== undefined) data.sector = body.sector?.trim() || null;
-  if (body.startDate !== undefined) data.startDate = body.startDate ? new Date(body.startDate) : null;
-  if (body.notes !== undefined) data.notes = body.notes?.trim() || null;
+  try {
+    const body = await req.json();
+    const data: Record<string, unknown> = {};
+    if (body.name !== undefined) data.name = String(body.name).trim();
+    if (body.taxNumber !== undefined) data.taxNumber = body.taxNumber ? String(body.taxNumber).trim() || null : null;
+    if (body.sector !== undefined) data.sector = body.sector ? String(body.sector).trim() || null : null;
+    if (body.startDate !== undefined) data.startDate = body.startDate ? new Date(body.startDate) : null;
+    if (body.notes !== undefined) data.notes = body.notes ? String(body.notes).trim() || null : null;
+    if (body.about !== undefined) data.about = body.about ? String(body.about).trim() || null : null;
 
-  const company = await prisma.company.update({
-    where: { id: params.id },
-    data,
-    include: companyInclude,
-  });
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: "Güncellenecek alan yok" }, { status: 400 });
+    }
 
-  // Re-check 5-year rule on update
-  if (company.startDate) {
-    await send5YearNotifications(company.id, company.name, company.startDate);
+    const company = await prisma.company.update({
+      where: { id: params.id },
+      data,
+      include: companyInclude,
+    });
+
+    // Re-check 5-year rule on update
+    if (company.startDate) {
+      await send5YearNotifications(company.id, company.name, company.startDate);
+    }
+
+    return NextResponse.json(company);
+  } catch (err: any) {
+    if (err?.code === "P2025") {
+      return NextResponse.json({ error: "Firma bulunamadı" }, { status: 404 });
+    }
+    console.error("PATCH /api/companies/[id]:", err);
+    return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });
   }
-
-  return NextResponse.json(company);
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
