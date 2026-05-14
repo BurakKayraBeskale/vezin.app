@@ -270,6 +270,7 @@ export default function UserTable({ initialUsers, currentUserId }: Props) {
       const result = await res.json();
       if (editUser) {
         setUsers((prev) => prev.map((u) => u.id === result.id ? { ...result, taskCount: u.taskCount, subordinateIds: u.subordinateIds, relations: u.relations } : u));
+        setSearch("");
       } else {
         setUsers((prev) => [...prev, { ...result, taskCount: 0, subordinateIds: [], relations: [] }]);
       }

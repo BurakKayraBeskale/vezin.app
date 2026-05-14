@@ -65,6 +65,9 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
   // Delete confirm
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Detail modal
+  const [detailCompany, setDetailCompany] = useState<Company | null>(null);
+
   // Toast
   const [toast, setToast] = useState("");
 
@@ -127,6 +130,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
       const updated: Company = await res.json();
       if (editingCompany) {
         setCompanies((prev) => prev.map((c) => c.id === updated.id ? updated : c));
+        if (detailCompany?.id === updated.id) setDetailCompany(updated);
         showToast("Firma güncellendi");
       } else {
         setCompanies((prev) => [...prev, updated].sort((a, b) => a.name.localeCompare(b.name, "tr")));
@@ -163,6 +167,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
       const updated: Company = await res.json();
       setCompanies((prev) => prev.map((c) => c.id === updated.id ? updated : c));
       if (assigningCompany?.id === updated.id) setAssigningCompany(updated);
+      if (detailCompany?.id === updated.id) setDetailCompany(updated);
     } catch {
       showToast("Hata oluştu");
     } finally {
@@ -280,7 +285,8 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
             return (
               <div
                 key={company.id}
-                className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow p-4 flex flex-col gap-3"
+                onClick={() => setDetailCompany(company)}
+                className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow p-4 flex flex-col gap-3 cursor-pointer"
               >
                 {/* Card header */}
                 <div className="flex items-start justify-between gap-2">
@@ -360,7 +366,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
                 {/* Actions */}
                 <div className="flex items-center gap-1.5 pt-1 border-t border-gray-100 dark:border-gray-700 flex-wrap">
                   <button
-                    onClick={() => downloadPdf(company)}
+                    onClick={(e) => { e.stopPropagation(); downloadPdf(company); }}
                     className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600 font-medium px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                     title="PDF İndir"
                   >
@@ -370,7 +376,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
                     PDF
                   </button>
                   <button
-                    onClick={() => downloadExcel(company)}
+                    onClick={(e) => { e.stopPropagation(); downloadExcel(company); }}
                     className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 font-medium px-2 py-1 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
                     title="Excel İndir"
                   >
@@ -382,7 +388,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
                   {canManage && (
                     <>
                       <button
-                        onClick={() => setAssigningCompany(company)}
+                        onClick={(e) => { e.stopPropagation(); setAssigningCompany(company); }}
                         className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-600 font-medium px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -391,7 +397,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
                         Ata
                       </button>
                       <button
-                        onClick={() => openEdit(company)}
+                        onClick={(e) => { e.stopPropagation(); openEdit(company); }}
                         className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -401,7 +407,7 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
                       </button>
                       {role === "ADMIN" && (
                         <button
-                          onClick={() => setDeletingId(company.id)}
+                          onClick={(e) => { e.stopPropagation(); setDeletingId(company.id); }}
                           className="flex items-center gap-1 text-xs text-red-400 hover:text-red-500 font-medium px-2 py-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors ml-auto"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -592,6 +598,138 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
           </div>
         </div>
       )}
+
+      {/* Detail Modal */}
+      {detailCompany && (() => {
+        const c = detailCompany;
+        const years = yearsWorking(c.startDate);
+        const isFiveYears = years >= 5;
+        return (
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4"
+            onClick={() => setDetailCompany(null)}
+          >
+            <div
+              className="bg-white dark:bg-gray-900 w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between p-5 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
+                <div className="flex-1 min-w-0 pr-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-base font-bold text-gray-900 dark:text-white">{c.name}</h2>
+                    {isFiveYears && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 flex-shrink-0">
+                        ⭐ 5+ Yıl
+                      </span>
+                    )}
+                  </div>
+                  {c.sector && <p className="text-xs text-gray-400 mt-0.5">{c.sector}</p>}
+                </div>
+                <button
+                  onClick={() => setDetailCompany(null)}
+                  className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="overflow-y-auto p-5 space-y-5 flex-1">
+                {/* Info grid */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Vergi No</p>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{c.taxNumber ?? "—"}</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Sektör</p>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{c.sector ?? "—"}</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Başlangıç Tarihi</p>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{formatDate(c.startDate)}</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Çalışma Süresi</p>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      {c.startDate ? `${Math.floor(years)} yıl ${Math.floor((years % 1) * 12)} ay` : "—"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                {c.notes && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Notlar</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-xl p-3 whitespace-pre-wrap">{c.notes}</p>
+                  </div>
+                )}
+
+                {/* Assignees */}
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                    Atanan Kişiler ({c.assignments.length})
+                  </p>
+                  {c.assignments.length === 0 ? (
+                    <p className="text-sm text-gray-400">Kimse atanmamış</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {c.assignments.map((a) => (
+                        <div key={a.userId} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-800">
+                          <div className="w-7 h-7 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+                            {initials(a.user.name)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{a.user.name}</p>
+                            <p className="text-xs text-gray-400 truncate">{a.user.email}</p>
+                          </div>
+                          <p className="text-[10px] text-gray-400 flex-shrink-0">{formatDate(a.assignedAt)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer actions */}
+              <div className="p-5 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2 flex-shrink-0 flex-wrap">
+                <button
+                  onClick={() => downloadPdf(c)}
+                  className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-600 font-medium px-3 py-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors border border-red-200 dark:border-red-900"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  PDF
+                </button>
+                <button
+                  onClick={() => downloadExcel(c)}
+                  className="flex items-center gap-1.5 text-sm text-emerald-600 hover:text-emerald-700 font-medium px-3 py-2 rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors border border-emerald-200 dark:border-emerald-900"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Excel
+                </button>
+                {canManage && (
+                  <button
+                    onClick={() => { setDetailCompany(null); openEdit(c); }}
+                    className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-300 font-medium px-3 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border border-gray-200 dark:border-gray-700 ml-auto"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    Düzenle
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Toast */}
       {toast && (
