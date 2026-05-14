@@ -5,7 +5,7 @@ import PriorityBadge from "./PriorityBadge";
 
 type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
 type Priority = "LOW" | "MEDIUM" | "HIGH";
-type Tab = "detay" | "dosyalar" | "yorumlar" | "aktivite";
+type Tab = "detay" | "dosyalar" | "yorumlar" | "aktivite" | "zaman";
 
 interface User { id: string; name: string; email?: string; }
 interface FileRecord { id: string; filename: string; comment?: string | null; uploadedBy: { name: string }; createdAt: string; }
@@ -24,6 +24,9 @@ interface LogRecord {
   toStatus: string | null;
   timestamp: string;
   durationMinutes: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  manualEntry?: boolean;
 }
 interface AssigneeRecord {
   id: string;
@@ -107,6 +110,13 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
   const [toast, setToast] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Manual time entry state
+  const [manualStartedAt, setManualStartedAt] = useState("");
+  const [manualCompletedAt, setManualCompletedAt] = useState("");
+  const [submittingTime, setSubmittingTime] = useState(false);
+  const [timeLogs, setTimeLogs] = useState<LogRecord[]>([]);
+  const [timeLogsLoaded, setTimeLogsLoaded] = useState(false);
+
   // Comments state
   const [comments, setComments] = useState<CommentRecord[]>([]);
   const [commentsLoaded, setCommentsLoaded] = useState(false);
@@ -129,6 +139,15 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
         .then((d) => { setComments(Array.isArray(d) ? d : []); setCommentsLoaded(true); });
     }
   }, [activeTab, commentsLoaded, task.id]);
+
+  // Load time logs when zaman tab is first opened
+  useEffect(() => {
+    if (activeTab === "zaman" && !timeLogsLoaded) {
+      fetch(`/api/tasks/${task.id}/logs`)
+        .then((r) => r.json())
+        .then((d) => { setTimeLogs(Array.isArray(d) ? d : []); setTimeLogsLoaded(true); });
+    }
+  }, [activeTab, timeLogsLoaded, task.id]);
 
   async function patchTask(data: Record<string, unknown>) {
     const res = await fetch(`/api/tasks/${task.id}`, {
@@ -240,6 +259,32 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
     }
   }
 
+  async function handleManualTimeSubmit() {
+    if (!manualStartedAt || !manualCompletedAt) return;
+    setSubmittingTime(true);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/logs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startedAt: manualStartedAt, completedAt: manualCompletedAt }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        showToast(err.error ?? "Hata oluştu");
+        return;
+      }
+      const newLog = await res.json();
+      setTimeLogs((prev) => [...prev, newLog]);
+      setManualStartedAt("");
+      setManualCompletedAt("");
+      showToast("Zaman kaydedildi");
+    } catch {
+      showToast("Hata oluştu");
+    } finally {
+      setSubmittingTime(false);
+    }
+  }
+
   function fmtDate(d: string) {
     return new Date(d).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" });
   }
@@ -268,6 +313,7 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
     { key: "dosyalar", label: "Dosyalar", count: files.length },
     { key: "yorumlar", label: "Yorumlar", count: commentsLoaded ? comments.length : undefined },
     { key: "aktivite", label: "Aktivite", count: logs.length },
+    { key: "zaman", label: "Zaman Takibi", count: timeLogsLoaded ? timeLogs.length : undefined },
   ];
 
   return (
@@ -597,6 +643,95 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ── ZAMAN TAKİBİ ── */}
+          {activeTab === "zaman" && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Manuel Zaman Girişi</h3>
+              <div className="p-4 rounded-xl border border-dashed border-gray-200 bg-gray-50 mb-5 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Başlama Zamanı</label>
+                    <input
+                      type="datetime-local"
+                      value={manualStartedAt}
+                      onChange={(e) => setManualStartedAt(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Bitiş Zamanı</label>
+                    <input
+                      type="datetime-local"
+                      value={manualCompletedAt}
+                      onChange={(e) => setManualCompletedAt(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] bg-white"
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={handleManualTimeSubmit}
+                  disabled={submittingTime || !manualStartedAt || !manualCompletedAt}
+                  className="flex items-center gap-2 bg-[#F57C28] hover:bg-[#D96A1A] disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {submittingTime ? "Kaydediliyor..." : "Zamanı Kaydet"}
+                </button>
+              </div>
+
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Zaman Kayıtları {timeLogsLoaded && `(${timeLogs.length})`}
+              </h3>
+              {!timeLogsLoaded && (
+                <div className="py-8 text-center text-xs text-gray-400">Yükleniyor...</div>
+              )}
+              {timeLogsLoaded && timeLogs.length === 0 && (
+                <p className="text-xs text-gray-400 py-8 text-center border border-dashed border-gray-200 rounded-xl">
+                  Henüz zaman kaydı yok
+                </p>
+              )}
+              {timeLogsLoaded && timeLogs.length > 0 && (
+                <div className="space-y-2">
+                  {timeLogs.map((log) => (
+                    <div key={log.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50">
+                      <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-semibold text-gray-700">{log.user.name}</span>
+                          {log.manualEntry && (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-600">Manuel</span>
+                          )}
+                          {log.durationMinutes !== null && log.durationMinutes > 0 && (
+                            <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">
+                              {fmtDuration(log.durationMinutes)}
+                            </span>
+                          )}
+                        </div>
+                        {log.startedAt && log.completedAt && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {fmtDateTime(log.startedAt)} → {fmtDateTime(log.completedAt)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t border-gray-100">
+                    <p className="text-xs text-gray-500 font-medium">
+                      Toplam: <span className="text-indigo-600 font-bold">
+                        {fmtDuration(timeLogs.reduce((s, l) => s + (l.durationMinutes ?? 0), 0))}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

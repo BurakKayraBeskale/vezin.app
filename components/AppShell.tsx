@@ -11,6 +11,7 @@ interface AppShellProps {
   userName: string;
   userEmail: string;
   userRole: "ADMIN" | "MANAGER" | "EMPLOYEE";
+  userDepartment: string;
   overdueCount: number;
   unreadPetitions: number;
   pendingLeave: number;
@@ -24,6 +25,7 @@ export default function AppShell({
   userName,
   userEmail,
   userRole,
+  userDepartment,
   overdueCount: initOverdue,
   unreadPetitions: initPetitions,
   pendingLeave: initLeave,
@@ -162,6 +164,7 @@ export default function AppShell({
         userName={userName}
         userEmail={userEmail}
         userRole={userRole}
+        userDepartment={userDepartment}
         overdueCount={backlogBadge}
         unreadPetitions={badges.unreadPetitions}
         pendingLeave={badges.pendingLeave}

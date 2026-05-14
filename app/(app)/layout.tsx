@@ -34,6 +34,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       userName={session.user.name ?? ""}
       userEmail={session.user.email ?? ""}
       userRole={session.user.role}
+      userDepartment={(session.user as any).department ?? ""}
       overdueCount={overdueCount}
       unreadPetitions={unreadPetitions}
       pendingLeave={pendingLeave}

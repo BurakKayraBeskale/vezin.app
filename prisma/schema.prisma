@@ -38,13 +38,14 @@ model User {
   templates          TaskTemplate[]   @relation("TemplateCreator")
   taskComments       TaskComment[]
   loginLogs          LoginLog[]
+  companyAssignments CompanyAssignment[]
 }
 
 model Notification {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  type      String   // TASK_ASSIGNED | LEAVE_APPROVED | LEAVE_REJECTED | FEEDBACK_RECEIVED | MENTIONED | COMMENTED
+  type      String   // TASK_ASSIGNED | LEAVE_APPROVED | LEAVE_REJECTED | FEEDBACK_RECEIVED | MENTIONED | COMMENTED | COMPANY_5_YEARS
   message   String
   isRead    Boolean  @default(false)
   relatedId String?
@@ -132,16 +133,19 @@ model LoginLog {
 }
 
 model TaskLog {
-  id              String   @id @default(cuid())
-  task            Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  task            Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   taskId          String
-  user            User     @relation(fields: [userId], references: [id])
+  user            User      @relation(fields: [userId], references: [id])
   userId          String
-  action          String   // STARTED | COMPLETED | STATUS_CHANGED
+  action          String    // STARTED | COMPLETED | STATUS_CHANGED | MANUAL_TIME
   fromStatus      String?
   toStatus        String?
-  timestamp       DateTime @default(now())
+  timestamp       DateTime  @default(now())
   durationMinutes Int?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  manualEntry     Boolean   @default(false)
 }
 
 model Feedback {
@@ -232,4 +236,28 @@ model MeetingAttendee {
   status    String  @default("PENDING")
 
   @@unique([meetingId, userId])
+}
+
+model Company {
+  id          String    @id @default(cuid())
+  name        String
+  taxNumber   String?
+  sector      String?
+  startDate   DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  assignments CompanyAssignment[]
+}
+
+model CompanyAssignment {
+  id         String   @id @default(cuid())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId  String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  assignedAt DateTime @default(now())
+  assignedBy String   // userId of assigner
+
+  @@unique([companyId, userId])
 }
