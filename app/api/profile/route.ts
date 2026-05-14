@@ -71,6 +71,7 @@ export async function PATCH(req: NextRequest) {
     const valid = await bcrypt.compare(body.currentPassword, user.password);
     if (!valid) return NextResponse.json({ error: "Mevcut şifre hatalı" }, { status: 400 });
     data.password = await bcrypt.hash(body.newPassword, 10);
+    data.mustChangePassword = false;
   }
 
   if (Object.keys(data).length === 0) {

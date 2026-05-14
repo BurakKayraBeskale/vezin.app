@@ -13,29 +13,31 @@ datasource db {
 // Department: "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YEMINLI_MALI_MUSAVIR" | "ADMIN"
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  password     String
-  role         String   @default("EMPLOYEE")
-  department   String   @default("OUTSOURCE")
-  createdAt    DateTime @default(now())
-  assignedTasks    Task[]           @relation("AssignedTo")
-  createdTasks     Task[]           @relation("CreatedBy")
-  feedbacks        Feedback[]
-  files            File[]
-  taskLogs         TaskLog[]
-  petitions        Petition[]
-  leaveRequests    LeaveRequest[]   @relation("LeaveRequests")
-  leaveBalances    LeaveBalance[]   @relation("LeaveBalances")
-  manages          UserRelation[]   @relation("manages")
-  subordinateTo    UserRelation[]   @relation("subordinateTo")
-  notifications    Notification[]
-  meetingsCreated  Meeting[]        @relation("MeetingCreator")
-  meetingAttendees MeetingAttendee[]
-  templates        TaskTemplate[]   @relation("TemplateCreator")
-  taskComments     TaskComment[]
-  loginLogs        LoginLog[]
+  id                 String   @id @default(cuid())
+  name               String
+  email              String   @unique
+  password           String
+  role               String   @default("EMPLOYEE")
+  department         String   @default("OUTSOURCE")
+  mustChangePassword Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  assignedTasks      Task[]           @relation("AssignedTo")
+  createdTasks       Task[]           @relation("CreatedBy")
+  taskAssignees      TaskAssignee[]
+  feedbacks          Feedback[]
+  files              File[]
+  taskLogs           TaskLog[]
+  petitions          Petition[]
+  leaveRequests      LeaveRequest[]   @relation("LeaveRequests")
+  leaveBalances      LeaveBalance[]   @relation("LeaveBalances")
+  manages            UserRelation[]   @relation("manages")
+  subordinateTo      UserRelation[]   @relation("subordinateTo")
+  notifications      Notification[]
+  meetingsCreated    Meeting[]        @relation("MeetingCreator")
+  meetingAttendees   MeetingAttendee[]
+  templates          TaskTemplate[]   @relation("TemplateCreator")
+  taskComments       TaskComment[]
+  loginLogs          LoginLog[]
 }
 
 model Notification {
@@ -80,10 +82,21 @@ model Task {
   recurringType  String?
   recurringDay   Int?
   nextOccurrence DateTime?
+  assignees      TaskAssignee[]
   feedbacks      Feedback[]
   files          File[]
   logs           TaskLog[]
   comments       TaskComment[]
+}
+
+model TaskAssignee {
+  id     String @id @default(cuid())
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  @@unique([taskId, userId])
 }
 
 model TaskTemplate {

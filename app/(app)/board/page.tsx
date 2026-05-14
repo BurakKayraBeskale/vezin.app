@@ -35,6 +35,7 @@ export default async function BoardPage() {
       where: taskWhere,
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
+        assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
         createdBy: { select: { id: true, name: true } },
         files: {
           include: { uploadedBy: { select: { id: true, name: true } } },

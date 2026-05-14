@@ -21,6 +21,14 @@ export async function POST(req: NextRequest) {
     });
 
     if (assignedToId) {
+      // Sync TaskAssignee for each task
+      for (const taskId of ids) {
+        try {
+          await prisma.taskAssignee.deleteMany({ where: { taskId } });
+          await prisma.taskAssignee.create({ data: { taskId, userId: assignedToId } });
+        } catch { /* ignore */ }
+      }
+
       const tasks = await prisma.task.findMany({ where: { id: { in: ids } }, select: { id: true, title: true } });
       for (const t of tasks) {
         try {
@@ -49,6 +57,7 @@ export async function POST(req: NextRequest) {
     where: { id: { in: ids } },
     include: {
       assignedTo: { select: { id: true, name: true, email: true } },
+      assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
       createdBy: { select: { id: true, name: true } },
       files: { include: { uploadedBy: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" } },
       feedbacks: { include: { fromUser: { select: { id: true, name: true, role: true } } }, orderBy: { createdAt: "asc" } },

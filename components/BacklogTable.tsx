@@ -349,14 +349,37 @@ export default function BacklogTable({ initialTasks, users, isAdmin, templates }
                     <td className="px-4 py-3.5"><PriorityBadge priority={task.priority} /></td>
                     <td className="px-4 py-3.5"><StatusBadge status={task.status} /></td>
                     <td className="px-4 py-3.5">
-                      {task.assignedTo ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
-                            {task.assignedTo.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                      {(() => {
+                        const people = task.assignees?.length
+                          ? task.assignees.map((a: any) => a.user)
+                          : task.assignedTo ? [task.assignedTo] : [];
+                        if (people.length === 0) return <span className="text-sm text-gray-400">—</span>;
+                        const shown = people.slice(0, 3);
+                        const extra = people.length - 3;
+                        return (
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex -space-x-1.5">
+                              {shown.map((p: any, i: number) => (
+                                <div key={p.id}
+                                  className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0 border border-white"
+                                  style={{ zIndex: shown.length - i }}
+                                  title={p.name}
+                                >
+                                  {p.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
+                                </div>
+                              ))}
+                              {extra > 0 && (
+                                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-[9px] font-bold flex-shrink-0 border border-white">
+                                  +{extra}
+                                </div>
+                              )}
+                            </div>
+                            {people.length === 1 && (
+                              <span className="text-sm text-gray-600 whitespace-nowrap hidden sm:block">{people[0].name}</span>
+                            )}
                           </div>
-                          <span className="text-sm text-gray-600 whitespace-nowrap">{task.assignedTo.name}</span>
-                        </div>
-                      ) : <span className="text-sm text-gray-400">—</span>}
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3.5">
                       <span className={clsx("text-sm font-medium whitespace-nowrap", overdue ? "text-red-500" : "text-gray-600")}>

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
+  assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
   createdBy: { select: { id: true, name: true } },
   files: { include: { uploadedBy: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" as const } },
   feedbacks: { include: { fromUser: { select: { id: true, name: true, role: true } } }, orderBy: { createdAt: "asc" as const } },
@@ -37,30 +38,61 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const isAdmin = token.role === "ADMIN";
     const userId = token.id as string;
 
-    // Fetch current status before update (needed for log)
+    // Fetch current task before update
     const current = await prisma.task.findUnique({
       where: { id: params.id },
-      select: { status: true },
+      select: { status: true, assignedToId: true },
     });
     if (!current) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
 
     const allowed: Record<string, unknown> = {};
     if (body.status !== undefined) allowed.status = body.status;
 
-    const prevAssignedToId = current
-      ? await prisma.task.findUnique({ where: { id: params.id }, select: { assignedToId: true } }).then((t) => t?.assignedToId)
-      : null;
-
     if (isAdmin) {
       if (body.title !== undefined) allowed.title = body.title;
       if (body.description !== undefined) allowed.description = body.description;
       if (body.priority !== undefined) allowed.priority = body.priority;
-      if (body.assignedToId !== undefined) allowed.assignedToId = body.assignedToId || null;
       if (body.dueDate !== undefined) allowed.dueDate = body.dueDate ? new Date(body.dueDate) : null;
       if (body.isRecurring !== undefined) allowed.isRecurring = body.isRecurring;
       if (body.recurringType !== undefined) allowed.recurringType = body.recurringType || null;
       if (body.recurringDay !== undefined) allowed.recurringDay = body.recurringDay ?? null;
       if (body.nextOccurrence !== undefined) allowed.nextOccurrence = body.nextOccurrence ? new Date(body.nextOccurrence) : null;
+
+      // Multi-assignee: assigneeIds takes precedence; fall back to single assignedToId
+      if (Array.isArray(body.assigneeIds)) {
+        const ids: string[] = body.assigneeIds.filter(Boolean);
+        allowed.assignedToId = ids[0] ?? null;
+        // Sync TaskAssignee table
+        await prisma.taskAssignee.deleteMany({ where: { taskId: params.id } });
+        if (ids.length > 0) {
+          await prisma.taskAssignee.createMany({
+            data: ids.map((uid) => ({ taskId: params.id, userId: uid })),
+          });
+        }
+        // Send notifications to newly assigned users
+        for (const uid of ids) {
+          if (uid !== userId) {
+            try {
+              await prisma.notification.create({
+                data: {
+                  userId: uid,
+                  type: "TASK_ASSIGNED",
+                  message: `"${(await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } }))?.title}" görevi size atandı.`,
+                  relatedId: params.id,
+                },
+              });
+            } catch { /* ignore */ }
+          }
+        }
+      } else if (body.assignedToId !== undefined) {
+        // Legacy single-assign fallback
+        const newId: string | null = body.assignedToId || null;
+        allowed.assignedToId = newId;
+        if (newId) {
+          await prisma.taskAssignee.deleteMany({ where: { taskId: params.id } });
+          await prisma.taskAssignee.create({ data: { taskId: params.id, userId: newId } });
+        }
+      }
     }
 
     const task = await prisma.task.update({
@@ -69,7 +101,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       include: taskInclude,
     });
 
-    // Log status changes — failure here must NOT roll back the status update
+    // Log status changes
     if (body.status !== undefined && body.status !== current.status) {
       const fromStatus = current.status;
       const toStatus = body.status as string;
@@ -92,46 +124,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
       try {
         await prisma.taskLog.create({
-          data: {
-            taskId: params.id,
-            userId,
-            action,
-            fromStatus,
-            toStatus,
-            durationMinutes,
-          },
+          data: { taskId: params.id, userId, action, fromStatus, toStatus, durationMinutes },
         });
       } catch {
-        // Log kaydı başarısız olsa bile status güncellemesi geçerliydi — görevi döndür
         return NextResponse.json(task);
       }
 
-      // Re-fetch with updated logs
       const taskWithLogs = await prisma.task.findUnique({
         where: { id: params.id },
         include: taskInclude,
       });
       return NextResponse.json(taskWithLogs ?? task);
-    }
-
-    // Bildirim: atanan kişi değiştiyse
-    const newAssignedToId = (allowed as any).assignedToId;
-    if (
-      newAssignedToId !== undefined &&
-      newAssignedToId !== prevAssignedToId &&
-      newAssignedToId &&
-      newAssignedToId !== userId
-    ) {
-      try {
-        await (prisma as any).notification.create({
-          data: {
-            userId: newAssignedToId,
-            type: "TASK_ASSIGNED",
-            message: `"${task.title}" görevi size atandı.`,
-            relatedId: task.id,
-          },
-        });
-      } catch { /* bildirim hatası görevi etkilemesin */ }
     }
 
     return NextResponse.json(task);

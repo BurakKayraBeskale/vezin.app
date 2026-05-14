@@ -25,6 +25,11 @@ interface LogRecord {
   timestamp: string;
   durationMinutes: number | null;
 }
+interface AssigneeRecord {
+  id: string;
+  userId: string;
+  user: { id: string; name: string; email?: string };
+}
 
 export interface TaskFull {
   id: string;
@@ -34,6 +39,7 @@ export interface TaskFull {
   priority: Priority;
   assignedTo: User | null;
   assignedToId: string | null;
+  assignees: AssigneeRecord[];
   dueDate: string | null;
   createdBy: { name: string };
   createdAt: string;
@@ -85,6 +91,12 @@ interface Props {
 export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("detay");
   const [status, setStatus] = useState<Status>(task.status);
+  // Multi-assignee: use assignees array if present, else fall back to single assignedToId
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(
+    task.assignees?.length
+      ? task.assignees.map((a) => a.userId)
+      : task.assignedToId ? [task.assignedToId] : []
+  );
   const [assignedToId, setAssignedToId] = useState<string>(task.assignedToId ?? "");
   const [dueDate, setDueDate] = useState<string>(task.dueDate ? task.dueDate.slice(0, 10) : "");
   const [files, setFiles] = useState<FileRecord[]>(task.files);
@@ -140,10 +152,17 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
     }
   }
 
+  function toggleAssignee(uid: string) {
+    setAssigneeIds((prev) =>
+      prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid]
+    );
+  }
+
   async function handleAdminSave() {
     setSaving(true);
     try {
-      const updated = await patchTask({ assignedToId: assignedToId || null, dueDate: dueDate || null });
+      const updated = await patchTask({ assigneeIds, dueDate: dueDate || null });
+      setAssigneeIds(updated.assignees?.length ? updated.assignees.map((a) => a.userId) : (updated.assignedToId ? [updated.assignedToId] : []));
       onUpdate(updated);
       showToast("Kaydedildi");
     } catch {
@@ -319,22 +338,58 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
                 </div>
                 {isAdmin ? (
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Atanan Kişi</label>
-                    <select
-                      value={assignedToId}
-                      onChange={(e) => setAssignedToId(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] bg-white"
-                    >
-                      <option value="">— Atanmamış —</option>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">
+                      Atanan Kişiler {assigneeIds.length > 0 && <span className="text-[#F57C28]">({assigneeIds.length})</span>}
+                    </label>
+                    {/* Selected avatars preview */}
+                    {assigneeIds.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {assigneeIds.map((uid) => {
+                          const u = users.find((x) => x.id === uid);
+                          if (!u) return null;
+                          return (
+                            <span key={uid} className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 text-xs rounded-full px-2 py-0.5 font-medium">
+                              {u.name}
+                              <button type="button" onClick={() => toggleAssignee(uid)} className="hover:text-red-500 leading-none">×</button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
                       {users.map((u) => (
-                        <option key={u.id} value={u.id}>{u.name}</option>
+                        <label key={u.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={assigneeIds.includes(u.id)}
+                            onChange={() => toggleAssignee(u.id)}
+                            className="w-3.5 h-3.5 rounded accent-[#F57C28] flex-shrink-0"
+                          />
+                          <div className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                            {u.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
+                          </div>
+                          <span className="text-sm text-gray-700">{u.name}</span>
+                        </label>
                       ))}
-                    </select>
+                    </div>
                   </div>
                 ) : (
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Atanan</label>
-                    <p className="text-sm text-gray-700 py-2">{task.assignedTo?.name ?? "—"}</p>
+                    {(task.assignees?.length ?? 0) > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 py-1">
+                        {task.assignees.map((a) => (
+                          <span key={a.userId} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-100 text-orange-700 text-xs rounded-full px-2.5 py-1 font-medium">
+                            <span className="w-4 h-4 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[8px] font-bold">
+                              {a.user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)}
+                            </span>
+                            {a.user.name}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 py-2">—</p>
+                    )}
                   </div>
                 )}
               </div>

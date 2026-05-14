@@ -22,6 +22,10 @@ interface Props {
   onUpdate?: (task: TaskFull) => void;
 }
 
+function initials(name: string) {
+  return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+}
+
 export default function TaskFormModal({ task, users, templates, onClose, onCreate, onUpdate }: Props) {
   const isEdit = !!task;
   const [fromTemplate, setFromTemplate] = useState(false);
@@ -30,7 +34,12 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
   const [title, setTitle] = useState(task?.title ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
   const [priority, setPriority] = useState<string>(task?.priority ?? "MEDIUM");
-  const [assignedToId, setAssignedToId] = useState(task?.assignedToId ?? "");
+  // Multi-assignee state
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(
+    task?.assignees?.length
+      ? task.assignees.map((a) => a.userId)
+      : task?.assignedToId ? [task.assignedToId] : []
+  );
   const [dueDate, setDueDate] = useState(task?.dueDate ? task.dueDate.slice(0, 10) : "");
   const [isRecurring, setIsRecurring] = useState((task as any)?.isRecurring ?? false);
   const [recurringType, setRecurringType] = useState((task as any)?.recurringType ?? "WEEKLY");
@@ -40,6 +49,12 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  function toggleAssignee(id: string) {
+    setAssigneeIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
 
   function applyTemplate(id: string) {
     setSelectedTemplateId(id);
@@ -65,7 +80,7 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
       title: title.trim(),
       description: description.trim() || null,
       priority,
-      assignedToId: assignedToId || null,
+      assigneeIds,
       dueDate: dueDate || null,
       isRecurring,
     };
@@ -202,18 +217,57 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
             </div>
           </div>
 
+          {/* Multi-assignee picker */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Atanan Kişi</label>
-            <select
-              value={assignedToId}
-              onChange={(e) => setAssignedToId(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] bg-white"
-            >
-              <option value="">— Atanmamış —</option>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Atanan Kişiler
+              {assigneeIds.length > 0 && (
+                <span className="ml-1.5 text-[#F57C28] font-semibold">{assigneeIds.length} seçili</span>
+              )}
+            </label>
+
+            {/* Selected chips */}
+            {assigneeIds.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {assigneeIds.map((uid) => {
+                  const u = users.find((x) => x.id === uid);
+                  if (!u) return null;
+                  return (
+                    <span key={uid} className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 text-xs rounded-full px-2 py-0.5 font-medium">
+                      {u.name}
+                      <button type="button" onClick={() => toggleAssignee(uid)} className="hover:text-red-500 ml-0.5 leading-none">×</button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Scrollable checkbox list */}
+            <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
+              <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={assigneeIds.length === 0}
+                  onChange={() => setAssigneeIds([])}
+                  className="w-3.5 h-3.5 rounded accent-[#F57C28] flex-shrink-0"
+                />
+                <span className="text-sm text-gray-400 italic">— Atanmamış —</span>
+              </label>
               {users.map((u) => (
-                <option key={u.id} value={u.id}>{u.name}</option>
+                <label key={u.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={assigneeIds.includes(u.id)}
+                    onChange={() => toggleAssignee(u.id)}
+                    className="w-3.5 h-3.5 rounded accent-[#F57C28] flex-shrink-0"
+                  />
+                  <div className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                    {initials(u.name)}
+                  </div>
+                  <span className="text-sm text-gray-700">{u.name}</span>
+                </label>
               ))}
-            </select>
+            </div>
           </div>
 
           {/* Recurring task */}

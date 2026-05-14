@@ -45,17 +45,23 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           role: user.role as "ADMIN" | "MANAGER" | "EMPLOYEE",
           department: user.department,
+          mustChangePassword: user.mustChangePassword,
         };
       },
     }),
   ],
   session: { strategy: "jwt" },
   callbacks: {
-    jwt({ token, user }) {
+    jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.role = (user as any).role;
         token.department = (user as any).department;
+        token.mustChangePassword = (user as any).mustChangePassword ?? false;
+      }
+      // Allow client-side session.update() to clear mustChangePassword
+      if (trigger === "update" && session?.mustChangePassword !== undefined) {
+        token.mustChangePassword = session.mustChangePassword;
       }
       return token;
     },
@@ -64,6 +70,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).id = token.id as string;
         (session.user as any).role = token.role as string;
         (session.user as any).department = token.department as string;
+        (session.user as any).mustChangePassword = token.mustChangePassword as boolean;
       }
       return session;
     },

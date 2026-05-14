@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       password: await bcrypt.hash(password, 10),
       role: role || "EMPLOYEE",
       department: dept,
+      mustChangePassword: true,
     },
     select: { id: true, name: true, email: true, role: true, department: true, createdAt: true },
   });

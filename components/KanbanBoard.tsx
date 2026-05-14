@@ -95,14 +95,33 @@ function CardContent({ task, selected, onSelect }: { task: TaskFull; selected: b
               {task.files.length}
             </span>
           )}
-          {task.assignedTo && (
-            <div
-              className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0"
-              title={task.assignedTo.name}
-            >
-              {initials(task.assignedTo.name)}
-            </div>
-          )}
+          {/* Multi-assignee avatars — fall back to legacy assignedTo */}
+          {(() => {
+            const people = task.assignees?.length
+              ? task.assignees.map((a) => a.user)
+              : task.assignedTo ? [task.assignedTo] : [];
+            if (people.length === 0) return null;
+            const shown = people.slice(0, 3);
+            const extra = people.length - 3;
+            return (
+              <div className="flex -space-x-1.5">
+                {shown.map((p, i) => (
+                  <div key={p.id}
+                    className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0 border border-white"
+                    style={{ zIndex: shown.length - i }}
+                    title={p.name}
+                  >
+                    {initials(p.name)}
+                  </div>
+                ))}
+                {extra > 0 && (
+                  <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-[9px] font-bold flex-shrink-0 border border-white">
+                    +{extra}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </>
