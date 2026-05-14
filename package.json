@@ -6,8 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
+    "deploy": "prisma migrate deploy && next start",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:status": "prisma migrate status",
+    "db:seed": "npx prisma db seed",
     "db:studio": "prisma studio"
   },
   "prisma": {
