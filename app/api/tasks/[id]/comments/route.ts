@@ -44,7 +44,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (task.assignedToId && task.assignedToId !== userId) notifyIds.add(task.assignedToId);
     if (task.createdById && task.createdById !== userId) notifyIds.add(task.createdById);
 
-    for (const uid of notifyIds) {
+    for (const uid of Array.from(notifyIds)) {
       try {
         await prisma.notification.create({
           data: {
