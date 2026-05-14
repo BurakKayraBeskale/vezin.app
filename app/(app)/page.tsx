@@ -86,6 +86,7 @@ function TaskStatusBar({ data }: { data: TasksByStatus }) {
 export default function DashboardPage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
+  const firstName = (session?.user?.name ?? "").split(" ")[0] || null;
   const [data, setData] = useState<DashboardData | null>(null);
   const [generatingPdf, setGeneratingPdf] = useState(false);
 
@@ -271,7 +272,9 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 sm:mb-8">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Dashboard</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">
+            {firstName ? `Merhaba, ${firstName}!` : "Dashboard"}
+          </h1>
           <p className="text-sm text-gray-400 mt-1 capitalize">{today}</p>
         </div>
         <button

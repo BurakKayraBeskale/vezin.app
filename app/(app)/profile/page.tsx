@@ -186,6 +186,20 @@ export default function ProfilePage() {
               className={inputClass}
             />
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Departman</label>
+              <div className="px-3.5 py-2.5 rounded-xl border border-gray-100 bg-gray-50 text-sm text-gray-600 select-none">
+                {DEPT_LABELS[user.department] ?? user.department}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Rol</label>
+              <div className="px-3.5 py-2.5 rounded-xl border border-gray-100 bg-gray-50 text-sm text-gray-600 select-none">
+                {user.role === "ADMIN" ? "Admin" : user.role === "MANAGER" ? "Yönetici" : "Çalışan"}
+              </div>
+            </div>
+          </div>
           {infoMsg && (
             <p className={clsx("text-sm rounded-xl px-4 py-2.5", infoMsg.type === "ok" ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600")}>
               {infoMsg.text}
