@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
+import { useSession } from "next-auth/react";
 import { TaskFull } from "./TaskModal";
 
 interface User { id: string; name: string; }
+interface CompanyOption { id: string; name: string; }
 
 interface Template {
   id: string;
@@ -28,6 +30,20 @@ function initials(name: string) {
 
 export default function TaskFormModal({ task, users, templates, onClose, onCreate, onUpdate }: Props) {
   const isEdit = !!task;
+  const { data: session } = useSession();
+  const isBAGIMSIZ = (session?.user as any)?.department === "BAGIMSIZ_DENETIM";
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [companyId, setCompanyId] = useState<string>((task as any)?.companyId ?? "");
+
+  useEffect(() => {
+    if (!isBAGIMSIZ) return;
+    fetch("/api/companies")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => {
+        if (Array.isArray(data)) setCompanies(data.map((c: any) => ({ id: c.id, name: c.name })));
+      })
+      .catch(() => {});
+  }, [isBAGIMSIZ]);
   const [fromTemplate, setFromTemplate] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
@@ -78,6 +94,7 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
 
     const payload: Record<string, unknown> = {
       title: title.trim(),
+      ...(isBAGIMSIZ && { companyId: companyId || null }),
       description: description.trim() || null,
       priority,
       assigneeIds,
@@ -216,6 +233,23 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
               />
             </div>
           </div>
+
+          {/* Company selector — only for BAGIMSIZ_DENETIM */}
+          {isBAGIMSIZ && companies.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Firma (İsteğe Bağlı)</label>
+              <select
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
+              >
+                <option value="">— Firma seçin —</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Multi-assignee picker */}
           <div>

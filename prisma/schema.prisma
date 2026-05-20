@@ -83,6 +83,8 @@ model Task {
   recurringType  String?
   recurringDay   Int?
   nextOccurrence DateTime?
+  companyId      String?
+  company        Company?  @relation(fields: [companyId], references: [id])
   assignees      TaskAssignee[]
   feedbacks      Feedback[]
   files          File[]
@@ -249,6 +251,7 @@ model Company {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   assignments CompanyAssignment[]
+  tasks       Task[]
 }
 
 model CompanyAssignment {

@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   // All authenticated users can create tasks (employees via templates, admins/managers directly)
 
   const body = await req.json();
-  const { title, description, priority, assignedToId, dueDate } = body;
+  const { title, description, priority, assignedToId, dueDate, companyId } = body;
   const assigneeIds: string[] = Array.isArray(body.assigneeIds) ? body.assigneeIds.filter(Boolean) : [];
 
   if (!title?.trim()) return NextResponse.json({ error: "Başlık gerekli" }, { status: 400 });
@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
       recurringType: body.recurringType ?? null,
       recurringDay: body.recurringDay ?? null,
       nextOccurrence: body.nextOccurrence ? new Date(body.nextOccurrence) : null,
+      companyId: companyId || null,
     },
     include: taskInclude,
   });
