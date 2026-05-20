@@ -168,7 +168,6 @@ export default function CompanyList({ initialCompanies, users, canManage, role }
       const updated: Company = await res.json();
       setCompanies((prev) => prev.map((c) => c.id === updated.id ? updated : c));
       if (assigningCompany?.id === updated.id) setAssigningCompany(updated);
-      if (detailCompany?.id === updated.id) setDetailCompany(updated);
     } catch {
       showToast("Hata oluştu");
     } finally {
