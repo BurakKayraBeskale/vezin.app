@@ -4,10 +4,34 @@ import openai from "@/lib/openai";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
-const PROMPT = `Bu metin dosyasındaki verileri analiz et ve yapılandırılmış tablo formatına dönüştür.
-Sütun başlıklarını belirle, verileri satırlara yerleştir.
-JSON formatında döndür: {"headers": ["Sütun1", "Sütun2", ...], "rows": [["değer1", "değer2", ...], ...]}
-Sadece JSON objesi döndür, başka açıklama ekleme.`;
+const PROMPT = `Sen bir Türk muhasebe uzmanısın.
+Sana verilen TXT dosyası bir mizan (trial balance) veya muhasebe raporu içeriyor.
+
+ÇIKTI KURALLARI:
+1. Sütun başlıklarını Türkçe yaz:
+   - Hesap kodu → "Hesap Kodu"
+   - Hesap adı/açıklaması → "Hesap Adı"
+   - Tip (BASLIK/HESAP/ARA TOPLAM) → "Tip"
+   - Seviye → "Seviye"
+   - Para birimi → "Para"
+   - Açılış bakiyesi → "Açılış Bakiyesi"
+   - Borç/Debit → "Borç (Debit) TRY"
+   - Alacak/Credit → "Alacak (Credit) TRY"
+   - Kapanış bakiyesi/Total → "Kapanış Bakiyesi"
+
+2. Türkçe karakterleri koru (ş,ğ,ü,ö,ç,ı)
+3. Sayısal değerleri tam olarak al, kısaltma
+4. BASLIK satırları: sadece Hesap Kodu ve Hesap Adı dolu
+5. ARA TOPLAM satırları: "TOTAL XXX" formatında
+6. Negatif değerleri eksi işaretiyle göster
+
+JSON formatında döndür:
+{
+  "headers": ["Hesap Kodu", "Hesap Adı", "Tip", "Seviye", "Para", "Açılış Bakiyesi", "Borç (Debit) TRY", "Alacak (Credit) TRY", "Kapanış Bakiyesi"],
+  "rows": [...]
+}
+
+Sadece JSON döndür, başka açıklama yazma.`;
 
 export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
