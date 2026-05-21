@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
       model: "gpt-5.4-nano",
       messages: [{ role: "user", content: messageContent }],
       response_format: { type: "json_object" },
-      max_tokens: 3000,
+      max_completion_tokens: 3000,
     });
 
     const raw = response.choices[0].message.content ?? "{}";
