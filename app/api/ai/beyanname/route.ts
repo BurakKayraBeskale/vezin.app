@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     let messageContent: any[];
 
     if (file.type === "application/pdf") {
-      const pdfParse = (await import("pdf-parse")).default;
+      const pdfParse = require("pdf-parse");
       const pdfData = await pdfParse(buffer);
       if (!pdfData.text?.trim()) {
         return NextResponse.json({ error: "PDF'den metin çıkarılamadı. Lütfen görsel olarak yükleyin" }, { status: 400 });
