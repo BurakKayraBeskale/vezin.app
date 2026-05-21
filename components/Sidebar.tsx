@@ -247,7 +247,7 @@ export default function Sidebar({
           />
         )}
 
-        {userDepartment === "YEMINLI_MALI_MUSAVIR" && (
+        {(userDepartment === "YEMINLI_MALI_MUSAVIR" || userRole === "ADMIN") && (
           <NavLink
             href="/beyanname"
             label="Beyanname Oluştur"

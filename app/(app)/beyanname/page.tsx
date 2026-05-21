@@ -6,8 +6,8 @@ export default async function BeyannamePage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  const { department } = session.user as any;
-  if (department !== "YEMINLI_MALI_MUSAVIR") redirect("/");
+  const { role, department } = session.user as any;
+  if (role !== "ADMIN" && department !== "YEMINLI_MALI_MUSAVIR") redirect("/");
 
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto">
