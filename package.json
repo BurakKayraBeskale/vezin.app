@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "deploy": "prisma migrate deploy && next start",
+    "deploy": "git stash && git pull origin main && npm install && npm run build && pm2 restart vezin",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
