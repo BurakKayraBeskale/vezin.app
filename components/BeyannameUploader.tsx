@@ -3,34 +3,63 @@
 import { useRef, useState } from "react";
 import clsx from "clsx";
 
-function flattenObject(obj: any, prefix = ""): Record<string, string> {
-  return Object.keys(obj).reduce((acc, key) => {
-    const fullKey = prefix ? `${prefix} › ${key}` : key;
-    const value = obj[key];
-    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-      Object.assign(acc, flattenObject(value, fullKey));
-    } else if (Array.isArray(value)) {
-      acc[fullKey] = value.join(", ");
-    } else {
-      acc[fullKey] = value == null ? "" : String(value);
-    }
-    return acc;
-  }, {} as Record<string, string>);
+interface VeriSatiri {
+  alan: string;
+  deger: string;
+  birim?: string;
 }
 
-async function downloadExcel(data: Record<string, string>) {
+interface BeyannameResult {
+  belge_turu: string;
+  mukellef?: string;
+  vergi_no?: string;
+  donem?: string;
+  veriler: VeriSatiri[];
+  ozet?: string;
+}
+
+async function downloadExcel(result: BeyannameResult) {
   const XLSX = await import("xlsx");
-  const rows = Object.entries(data).map(([alan, deger]) => ({ Alan: alan, Değer: deger }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  ws["!cols"] = [{ wch: 35 }, { wch: 45 }];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Beyanname");
+
+  // --- Sheet 1: Özet ---
+  const ozetRows = [
+    { Alan: "Belge Türü", Değer: result.belge_turu },
+    { Alan: "Mükellef", Değer: result.mukellef ?? "" },
+    { Alan: "Vergi No", Değer: result.vergi_no ?? "" },
+    { Alan: "Dönem", Değer: result.donem ?? "" },
+    { Alan: "Özet", Değer: result.ozet ?? "" },
+  ];
+  const wsOzet = XLSX.utils.json_to_sheet(ozetRows);
+  wsOzet["!cols"] = [{ wch: 20 }, { wch: 55 }];
+  XLSX.utils.book_append_sheet(wb, wsOzet, "Özet");
+
+  // --- Sheet 2: Veriler ---
+  const veriRows = result.veriler.map((v) => {
+    const numericVal = parseFloat(String(v.deger).replace(/[^0-9.,\-]/g, "").replace(",", "."));
+    const deger = !isNaN(numericVal) ? numericVal : v.deger;
+    return { Alan: v.alan, Değer: deger, Birim: v.birim ?? "" };
+  });
+  const wsVeriler = XLSX.utils.json_to_sheet(veriRows);
+  wsVeriler["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 10 }];
+
+  // TRY para formatı uygula sayısal hücrelere
+  const TRY_FORMAT = '#,##0.00 [$₺-tr-TR]';
+  veriRows.forEach((row, i) => {
+    if (typeof row["Değer"] === "number") {
+      const cellAddr = XLSX.utils.encode_cell({ r: i + 1, c: 1 }); // +1 header satırı
+      if (wsVeriler[cellAddr]) wsVeriler[cellAddr].z = TRY_FORMAT;
+    }
+  });
+
+  XLSX.utils.book_append_sheet(wb, wsVeriler, "Veriler");
+
   const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "beyanname.xlsx";
+  a.download = `${result.belge_turu || "beyanname"}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -40,20 +69,13 @@ export default function BeyannameUploader() {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<Record<string, string> | null>(null);
+  const [result, setResult] = useState<BeyannameResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function handleFile(f: File) {
     setFile(f);
     setResult(null);
     setError(null);
-  }
-
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragging(false);
-    const f = e.dataTransfer.files[0];
-    if (f) handleFile(f);
   }
 
   async function convert() {
@@ -70,7 +92,7 @@ export default function BeyannameUploader() {
         setError(json.error ?? "Bilinmeyen bir hata oluştu");
         return;
       }
-      setResult(flattenObject(json.data));
+      setResult(json.data);
     } catch {
       setError("Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin");
     } finally {
@@ -84,10 +106,10 @@ export default function BeyannameUploader() {
       <div
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
         onClick={() => inputRef.current?.click()}
         className={clsx(
-          "relative rounded-2xl border-2 border-dashed p-10 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
+          "rounded-2xl border-2 border-dashed p-10 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
           dragging
             ? "border-[#F57C28] bg-[#F57C28]/5"
             : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] hover:border-[#F57C28]/50 hover:bg-[#F57C28]/[0.03]"
@@ -98,7 +120,7 @@ export default function BeyannameUploader() {
           type="file"
           accept=".pdf,.jpg,.jpeg,.png,.webp"
           className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }}
         />
         <div className="w-12 h-12 rounded-xl bg-[#F57C28]/10 flex items-center justify-center mb-4">
           <svg className="w-6 h-6 text-[#F57C28]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -153,39 +175,96 @@ export default function BeyannameUploader() {
         </div>
       )}
 
-      {/* Result table */}
-      {result && Object.keys(result).length > 0 && (
-        <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10">
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-white">Çıkarılan Veriler</h3>
-            <button
-              onClick={() => downloadExcel(result)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-              Excel İndir
-            </button>
+      {/* Result */}
+      {result && (
+        <div className="space-y-4">
+          {/* Header: belge türü + kimlik bilgileri */}
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 p-5 bg-white dark:bg-white/[0.02] space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2">
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-[#F57C28]/10 text-[#F57C28] uppercase tracking-wide">
+                  {result.belge_turu}
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-1 mt-2">
+                  {result.mukellef && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Mükellef</p>
+                      <p className="text-sm font-semibold text-gray-800 dark:text-white">{result.mukellef}</p>
+                    </div>
+                  )}
+                  {result.vergi_no && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Vergi No</p>
+                      <p className="text-sm font-semibold text-gray-800 dark:text-white font-mono">{result.vergi_no}</p>
+                    </div>
+                  )}
+                  {result.donem && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Dönem</p>
+                      <p className="text-sm font-semibold text-gray-800 dark:text-white">{result.donem}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => downloadExcel(result)}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Excel İndir
+              </button>
+            </div>
+
+            {/* Özet */}
+            {result.ozet && (
+              <p className="text-xs text-gray-500 dark:text-white/40 leading-relaxed border-t border-gray-100 dark:border-white/5 pt-3">
+                {result.ozet}
+              </p>
+            )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 dark:border-white/5">
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider w-1/2">Alan</th>
-                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider w-1/2">Değer</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(result).map(([alan, deger], i) => (
-                  <tr key={i} className={clsx("border-b border-gray-50 dark:border-white/5 last:border-0", i % 2 === 0 ? "" : "bg-gray-50/50 dark:bg-white/[0.02]")}>
-                    <td className="px-5 py-2.5 text-gray-600 dark:text-white/50 font-medium">{alan}</td>
-                    <td className="px-5 py-2.5 text-gray-900 dark:text-white font-medium">{deger || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+
+          {/* Veriler tablosu */}
+          {result.veriler?.length > 0 && (
+            <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+              <div className="px-5 py-3 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10">
+                <h3 className="text-sm font-semibold text-gray-800 dark:text-white">
+                  Veriler — {result.veriler.length} kalem
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 dark:border-white/5">
+                      <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Alan</th>
+                      <th className="text-right px-5 py-2.5 text-xs font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Değer</th>
+                      <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider w-16">Birim</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.veriler.map((v, i) => {
+                      const isCurrency = v.birim === "TRY";
+                      const numVal = parseFloat(String(v.deger).replace(/[^0-9.,\-]/g, "").replace(",", "."));
+                      const displayVal = isCurrency && !isNaN(numVal)
+                        ? numVal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : v.deger;
+
+                      return (
+                        <tr key={i} className={clsx("border-b border-gray-50 dark:border-white/5 last:border-0", i % 2 === 1 ? "bg-gray-50/50 dark:bg-white/[0.02]" : "")}>
+                          <td className="px-5 py-2.5 text-gray-600 dark:text-white/60">{v.alan}</td>
+                          <td className={clsx("px-5 py-2.5 text-right font-semibold tabular-nums", isCurrency ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-white/80")}>
+                            {isCurrency && "₺ "}{displayVal}
+                          </td>
+                          <td className="px-5 py-2.5 text-xs text-gray-400 dark:text-white/30">{v.birim || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

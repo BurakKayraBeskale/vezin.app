@@ -4,9 +4,84 @@ import openai from "@/lib/openai";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
-const PROMPT = `Bu beyanname belgesindeki tüm verileri çıkar.
-Mükellef adı, vergi no, dönem, matrah, vergi tutarları, KDV, stopaj vb. tüm alanları JSON formatında döndür.
-Sadece JSON objesi döndür, başka açıklama ekleme.`;
+const PROMPT = `Sen bir Türk vergi ve muhasebe uzmanısın.
+Sana verilen belgeyi analiz et ve türünü tespit et.
+
+BELGE TÜRLERİ VE ÇIKARILACAK ALANLAR:
+
+1. KDV BEYANNAMESİ:
+- Mükellef adı/unvanı
+- Vergi kimlik numarası
+- Dönem (ay/yıl)
+- Teslim ve hizmetlerin karşılığını teşkil eden bedel
+- Hesaplanan KDV
+- İndirilecek KDV
+- Ödenmesi gereken KDV
+- İade edilecek KDV
+- Kısmi tevkifat bilgileri
+
+2. MUHTASAR BEYANNAMESİ:
+- Mükellef bilgileri
+- Dönem
+- Çalışan sayısı
+- Ücret ödemeleri ve stopaj
+- Serbest meslek stopajı
+- Kira stopajı
+- Diğer stopaj kalemleri
+- Ödenecek vergi tutarı
+
+3. GELİR VERGİSİ BEYANNAMESİ:
+- Mükellef bilgileri
+- Vergilendirme dönemi
+- Gelir unsurları (ticari, zirai, serbest meslek vb.)
+- Toplam gelir
+- İndirimler
+- Matrah
+- Hesaplanan vergi
+- Mahsup edilecek vergiler
+- Ödenecek/iade vergi
+
+4. KURUMLAR VERGİSİ BEYANNAMESİ:
+- Kurum bilgileri
+- Hesap dönemi
+- Ticari bilanço karı/zararı
+- KKEG (Kanunen Kabul Edilmeyen Giderler)
+- İstisnalar
+- Matrah
+- Hesaplanan vergi
+- Mahsup edilecek vergiler
+- Ödenecek vergi
+
+5. SGK BİLDİRGESİ:
+- İşyeri bilgileri
+- Dönem
+- Sigortalı sayısı
+- Prime esas kazanç
+- İşçi payı
+- İşveren payı
+- Toplam prim
+
+6. DAMGA VERGİSİ:
+- Mükellef bilgileri
+- Dönem
+- Belge türleri ve tutarları
+- Ödenecek damga vergisi
+
+Belge türünü otomatik tespit et.
+Tespit edemezsen "BELİRSİZ" yaz ve gördüğün tüm verileri çıkar.
+
+ÇIKTI FORMATI (sadece JSON döndür, başka hiçbir şey yazma):
+{
+  "belge_turu": "KDV BEYANNAMESİ",
+  "mukellef": "...",
+  "vergi_no": "...",
+  "donem": "...",
+  "veriler": [
+    {"alan": "Hesaplanan KDV", "deger": "1000.00", "birim": "TRY"},
+    {"alan": "İndirilecek KDV", "deger": "500.00", "birim": "TRY"}
+  ],
+  "ozet": "Kısa açıklama"
+}`;
 
 export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -74,7 +149,7 @@ export async function POST(req: NextRequest) {
       model: "gpt-5.4-nano",
       messages: [{ role: "user", content: messageContent }],
       response_format: { type: "json_object" },
-      max_tokens: 2000,
+      max_tokens: 3000,
     });
 
     const raw = response.choices[0].message.content ?? "{}";
