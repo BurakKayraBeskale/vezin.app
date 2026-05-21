@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import openai from "@/lib/openai";
 
-export const maxDuration = 60; // saniye — büyük dosyalar için timeout uzatma
+export const maxDuration = 120; // saniye — Vercel/Next.js timeout
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-const CHUNK_SIZE = 10_000; // karakter başına chunk boyutu
 
-const PROMPT = `Sen bir Türk muhasebe uzmanısın.
+const FIRST_CHUNK_PROMPT = `Sen bir Türk muhasebe uzmanısın.
 Sana verilen TXT dosyası bir mizan (trial balance) veya muhasebe raporu içeriyor.
 
 ÇIKTI KURALLARI:
@@ -36,30 +35,21 @@ JSON formatında döndür:
 
 Sadece JSON döndür, başka açıklama yazma.`;
 
-/** Metni satır sınırlarına göre chunk'lara böl */
-function splitIntoChunks(text: string, maxChars: number): string[] {
-  if (text.length <= maxChars) return [text];
+function buildContinuationPrompt(headers: string[]): string {
+  return `Sen bir Türk muhasebe uzmanısın.
+Aşağıdaki metin daha önce işlemeye başladığın mizanın devamıdır.
+Sütun başlıkları zaten belirlendi: ${JSON.stringify(headers)}
 
-  const lines = text.split("\n");
-  const chunks: string[] = [];
-  let current = "";
-
-  for (const line of lines) {
-    // +1 for the newline character
-    if (current.length > 0 && current.length + line.length + 1 > maxChars) {
-      chunks.push(current);
-      current = line;
-    } else {
-      current = current ? `${current}\n${line}` : line;
-    }
-  }
-  if (current.trim()) chunks.push(current);
-
-  return chunks;
+Bu metin parçasındaki satırları aynı sütun sırasına göre dönüştür.
+Türkçe karakterleri koru. Sayısal değerleri tam al.
+JSON formatında döndür: {"rows": [...]}
+Sadece JSON döndür, başka açıklama yazma.`;
 }
 
 /** OpenAI çağrısı — JSON parse hatası olursa conversation retry ile düzeltir */
-async function callOpenAI(messages: { role: "user" | "assistant"; content: string }[]): Promise<any> {
+async function callOpenAI(
+  messages: { role: "user" | "assistant"; content: string }[]
+): Promise<any> {
   const response = await openai.chat.completions.create({
     model: "gpt-5.4-nano",
     messages,
@@ -72,7 +62,7 @@ async function callOpenAI(messages: { role: "user" | "assistant"; content: strin
   try {
     return JSON.parse(raw);
   } catch {
-    // JSON geçersiz — modele conversation üzerinden düzeltme iste
+    // JSON geçersiz — conversation üzerinden düzeltme iste
     const retryResponse = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
       messages: [
@@ -80,7 +70,8 @@ async function callOpenAI(messages: { role: "user" | "assistant"; content: strin
         { role: "assistant", content: raw },
         {
           role: "user",
-          content: "Verdiğin yanıt geçerli JSON değil. Sadece geçerli bir JSON objesi döndür, hiçbir açıklama veya markdown ekleme.",
+          content:
+            "Verdiğin yanıt geçerli JSON değil. Sadece geçerli bir JSON objesi döndür, hiçbir açıklama veya markdown ekleme.",
         },
       ],
       response_format: { type: "json_object" },
@@ -101,7 +92,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
   }
 
+  // FormData veya JSON kabul et
   let text = "";
+  let knownHeaders: string[] | null = null;
+
   const contentType = req.headers.get("content-type") ?? "";
 
   if (contentType.includes("multipart/form-data")) {
@@ -114,6 +108,15 @@ export async function POST(req: NextRequest) {
 
     const file = formData.get("file") as File | null;
     const rawText = formData.get("text") as string | null;
+    const headersParam = formData.get("headers") as string | null;
+
+    if (headersParam) {
+      try {
+        knownHeaders = JSON.parse(headersParam);
+      } catch {
+        return NextResponse.json({ error: "Geçersiz headers parametresi" }, { status: 400 });
+      }
+    }
 
     if (file) {
       if (file.size > MAX_SIZE) {
@@ -128,6 +131,7 @@ export async function POST(req: NextRequest) {
   } else {
     const body = await req.json().catch(() => ({}));
     text = body.text ?? "";
+    if (body.headers) knownHeaders = body.headers;
   }
 
   if (!text.trim()) {
@@ -135,56 +139,40 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const chunks = splitIntoChunks(text, CHUNK_SIZE);
-    let headers: string[] = [];
-    let allRows: any[][] = [];
+    let result: any;
 
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
+    if (knownHeaders) {
+      // Devam chunk'ı: sadece rows döndür
+      result = await callOpenAI([
+        {
+          role: "user",
+          content: `${buildContinuationPrompt(knownHeaders)}\n\nMetin devamı:\n${text}`,
+        },
+      ]);
 
-      if (i === 0) {
-        // İlk chunk: headers + rows birlikte belirle
-        const result = await callOpenAI([
-          { role: "user", content: `${PROMPT}\n\nMetin içeriği:\n${chunk}` },
-        ]);
-
-        if (!Array.isArray(result.headers) || !Array.isArray(result.rows)) {
-          return NextResponse.json(
-            { error: "Metin tablo formatına dönüştürülemedi. Daha yapılandırılmış bir metin deneyin" },
-            { status: 422 }
-          );
-        }
-
-        headers = result.headers;
-        allRows = result.rows;
-      } else {
-        // Sonraki chunklar: aynı headerları kullan, sadece rows döndür
-        const continuationPrompt = `Sen bir Türk muhasebe uzmanısın.
-Aşağıdaki metin daha önce işlemeye başladığın mizanın devamıdır.
-Sütun başlıkları zaten belirlendi: ${JSON.stringify(headers)}
-
-Bu metin parçasındaki satırları aynı sütun sırasına göre dönüştür.
-JSON formatında döndür: {"rows": [...]}
-Sadece JSON döndür, başka açıklama yazma.`;
-
-        const result = await callOpenAI([
-          { role: "user", content: `${continuationPrompt}\n\nMetin devamı:\n${chunk}` },
-        ]);
-
-        if (Array.isArray(result.rows) && result.rows.length > 0) {
-          allRows = [...allRows, ...result.rows];
-        }
+      // rows array'i garantile
+      if (!Array.isArray(result.rows)) {
+        return NextResponse.json({ rows: [] });
       }
-    }
+      return NextResponse.json({ rows: result.rows });
+    } else {
+      // İlk chunk: headers + rows
+      result = await callOpenAI([
+        { role: "user", content: `${FIRST_CHUNK_PROMPT}\n\nMetin içeriği:\n${text}` },
+      ]);
 
-    if (!headers.length) {
-      return NextResponse.json(
-        { error: "Başlıklar çıkarılamadı. Dosya içeriğini kontrol edin" },
-        { status: 422 }
-      );
-    }
+      if (!Array.isArray(result.headers) || !Array.isArray(result.rows)) {
+        return NextResponse.json(
+          {
+            error:
+              "Metin tablo formatına dönüştürülemedi. Daha yapılandırılmış bir metin deneyin",
+          },
+          { status: 422 }
+        );
+      }
 
-    return NextResponse.json({ headers, rows: allRows });
+      return NextResponse.json({ headers: result.headers, rows: result.rows });
+    }
   } catch (err: any) {
     console.error("[txt-to-excel]", err);
     if (err?.code === "invalid_api_key") {
