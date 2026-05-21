@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import * as XLSX from "xlsx";
 import openai from "@/lib/openai";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_ROWS = 150; // token limitini aşmamak için
@@ -30,7 +32,8 @@ JSON formatında döndür:
 }
 Sadece JSON objesi döndür.`;
 
-function excelToText(buffer: Buffer, label: string): { text: string; rowCount: number } {
+async function excelToText(buffer: Buffer, label: string): Promise<{ text: string; rowCount: number }> {
+  const XLSX = await import("xlsx");
   const workbook = XLSX.read(buffer, { type: "buffer" });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
@@ -87,8 +90,10 @@ export async function POST(req: NextRequest) {
       file2.arrayBuffer().then(Buffer.from),
     ]);
 
-    const { text: text1, rowCount: rc1 } = excelToText(buf1, `Dosya 1 (${file1.name})`);
-    const { text: text2, rowCount: rc2 } = excelToText(buf2, `Dosya 2 (${file2.name})`);
+    const [{ text: text1, rowCount: rc1 }, { text: text2, rowCount: rc2 }] = await Promise.all([
+      excelToText(buf1, `Dosya 1 (${file1.name})`),
+      excelToText(buf2, `Dosya 2 (${file2.name})`),
+    ]);
 
     const truncationNote =
       rc1 > MAX_ROWS || rc2 > MAX_ROWS
