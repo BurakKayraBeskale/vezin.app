@@ -4,10 +4,10 @@ import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-const BACKEND_CHUNK_LINES = 200;   // her OpenAI çağrısına gönderilen max satır sayısı
+const BACKEND_CHUNK_LINES = 50;    // her OpenAI çağrısına gönderilen max satır sayısı
 
 function buildContinuationPrompt(headers: string[]): string {
   return `Sen bir Türk muhasebe uzmanısın.
