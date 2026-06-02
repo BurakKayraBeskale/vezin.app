@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
+import { extractText } from "unpdf";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -24,10 +25,9 @@ async function extractFileContent(file: File): Promise<{ text: string; isImage: 
   }
 
   if (file.type === "application/pdf") {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const pdfParse = require("pdf-parse");
-    const data = await pdfParse(buffer);
-    return { text: `[PDF: ${file.name}]\n${data.text.slice(0, 6000)}`, isImage: false };
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    const { text } = await extractText(buffer, { mergePages: true });
+    return { text: `[PDF: ${file.name}]\n${(text ?? "").slice(0, 6000)}`, isImage: false };
   }
 
   if (

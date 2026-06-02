@@ -2,7 +2,7 @@
 const nextConfig = {
   images: { unoptimized: true },
   experimental: {
-    serverComponentsExternalPackages: ["pdf-parse"],
+    serverComponentsExternalPackages: ["unpdf"],
   },
   async headers() {
     return [

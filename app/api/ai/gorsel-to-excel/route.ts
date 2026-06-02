@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
+import { extractText } from "unpdf";
 
 export const dynamic = "force-dynamic";
 
@@ -46,15 +47,15 @@ export async function POST(req: NextRequest) {
     let messageContent: any[];
 
     if (file.type === "application/pdf") {
-      const pdfParse = require("pdf-parse");
-      const pdfData = await pdfParse(buffer);
-      if (!pdfData.text?.trim()) {
+      const pdfBuffer = new Uint8Array(await file.arrayBuffer());
+      const { text: pdfText } = await extractText(pdfBuffer, { mergePages: true });
+      if (!pdfText?.trim()) {
         return NextResponse.json({ error: "PDF'den metin çıkarılamadı. Lütfen görsel olarak yükleyin" }, { status: 400 });
       }
       messageContent = [
         {
           type: "text",
-          text: `${prompt}\n\nBelge içeriği:\n${pdfData.text.slice(0, 8000)}`,
+          text: `${prompt}\n\nBelge içeriği:\n${pdfText.slice(0, 8000)}`,
         },
       ];
     } else {
