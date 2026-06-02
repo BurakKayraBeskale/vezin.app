@@ -67,6 +67,36 @@ async function downloadExcel(result: TableResult, filename = "veri.xlsx") {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Hesap koduna göre TIP ve SEVİYE sütunlarını düzeltir.
+ * - 1-3 karakter → TIP = "BASLIK", SEVİYE = uzunluk
+ * - 4+  karakter → TIP = "HESAP",  SEVİYE = uzunluk
+ */
+function fixTipSeviye(headers: string[], rows: any[][]): any[][] {
+  const norm = (s: string) =>
+    s.toUpperCase()
+      .replace(/İ/g, "I").replace(/Ş/g, "S").replace(/Ğ/g, "G")
+      .replace(/Ü/g, "U").replace(/Ö/g, "O").replace(/Ç/g, "C");
+
+  const nh = headers.map(norm);
+  // Hesap kodu sütunu: "KOD" içeren veya tam olarak "HESAP"
+  const kodIdx = nh.findIndex((h) => h.includes("KOD") || h === "HESAP");
+  const tipIdx = nh.findIndex((h) => h === "TIP");
+  const sevIdx = nh.findIndex((h) => h === "SEVIYE");
+
+  if (kodIdx === -1 || (tipIdx === -1 && sevIdx === -1)) return rows;
+
+  return rows.map((row) => {
+    const r = [...row];
+    const kod = String(r[kodIdx] ?? "").trim();
+    if (!kod) return r;
+    const len = kod.length;
+    if (tipIdx !== -1) r[tipIdx] = len >= 4 ? "HESAP" : "BASLIK";
+    if (sevIdx !== -1) r[sevIdx] = len;
+    return r;
+  });
+}
+
 /** API'ye tek bir chunk gönderir */
 async function sendChunk(
   text: string,
@@ -179,7 +209,8 @@ export default function TxtToExcelConverter() {
         setProgress({ current: i + 1, total: chunks.length, label: "" });
       }
 
-      const result: TableResult = { headers, rows: allRows };
+      const fixedRows = fixTipSeviye(headers, allRows);
+      const result: TableResult = { headers, rows: fixedRows };
       setFinalResult(result);
       setPhase("done");
 
@@ -331,7 +362,7 @@ export default function TxtToExcelConverter() {
             </div>
           ) : (
             <p className="text-sm text-gray-500 dark:text-white/40">
-              {progress.label || "Dosya işleniyor..."}
+              {progress.label || "Dönüştürülüyor..."}
             </p>
           )}
         </div>
