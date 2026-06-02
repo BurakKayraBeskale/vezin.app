@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import openai from "@/lib/openai";
+import { getAiPrompt } from "@/lib/ai-prompts";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
+// Varsayılan prompt (DB'de kayıt yoksa kullanılır)
 const PROMPT = `Sen bir Türk vergi ve muhasebe uzmanısın.
 Sana verilen belgeyi analiz et ve türünü tespit et.
 
@@ -109,6 +111,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Dosya boyutu 10MB'ı geçemez" }, { status: 400 });
   }
 
+  const prompt = await getAiPrompt("BEYANNAME");
   const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
   if (!allowedTypes.includes(file.type)) {
     return NextResponse.json({ error: "Yalnızca PDF, JPG veya PNG dosyaları desteklenmektedir" }, { status: 400 });
@@ -127,14 +130,14 @@ export async function POST(req: NextRequest) {
       messageContent = [
         {
           type: "text",
-          text: `${PROMPT}\n\nBelge içeriği:\n${pdfData.text.slice(0, 8000)}`,
+          text: `${prompt}\n\nBelge içeriği:\n${pdfData.text.slice(0, 8000)}`,
         },
       ];
     } else {
       const base64 = buffer.toString("base64");
       const mimeType = file.type as "image/jpeg" | "image/png" | "image/webp";
       messageContent = [
-        { type: "text", text: PROMPT },
+        { type: "text", text: prompt },
         {
           type: "image_url",
           image_url: {

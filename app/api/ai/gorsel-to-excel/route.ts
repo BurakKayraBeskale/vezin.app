@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import openai from "@/lib/openai";
+import { getAiPrompt } from "@/lib/ai-prompts";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -50,6 +51,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const prompt = await getAiPrompt("TARAYICI");
     const buffer = Buffer.from(await file.arrayBuffer());
     let messageContent: any[];
 
@@ -62,14 +64,14 @@ export async function POST(req: NextRequest) {
       messageContent = [
         {
           type: "text",
-          text: `${PROMPT}\n\nBelge içeriği:\n${pdfData.text.slice(0, 8000)}`,
+          text: `${prompt}\n\nBelge içeriği:\n${pdfData.text.slice(0, 8000)}`,
         },
       ];
     } else {
       const base64 = buffer.toString("base64");
       const mimeType = file.type as "image/jpeg" | "image/png" | "image/webp";
       messageContent = [
-        { type: "text", text: PROMPT },
+        { type: "text", text: prompt },
         {
           type: "image_url",
           image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },

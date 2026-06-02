@@ -265,3 +265,12 @@ model CompanyAssignment {
 
   @@unique([companyId, userId])
 }
+
+// module: "BEYANNAME" | "TXT_EXCEL" | "KARSILASTIRMA" | "TARAYICI"
+model AiPrompt {
+  id        String   @id @default(cuid())
+  module    String   @unique
+  prompt    String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}

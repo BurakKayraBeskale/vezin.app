@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import openai from "@/lib/openai";
+import { getAiPrompt } from "@/lib/ai-prompts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -85,6 +86,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const prompt = await getAiPrompt("KARSILASTIRMA");
     const [buf1, buf2] = await Promise.all([
       file1.arrayBuffer().then(Buffer.from),
       file2.arrayBuffer().then(Buffer.from),
@@ -105,7 +107,7 @@ export async function POST(req: NextRequest) {
       messages: [
         {
           role: "user",
-          content: `${PROMPT}${truncationNote}\n\n${text1}\n\n${text2}`,
+          content: `${prompt}${truncationNote}\n\n${text1}\n\n${text2}`,
         },
       ],
       response_format: { type: "json_object" },

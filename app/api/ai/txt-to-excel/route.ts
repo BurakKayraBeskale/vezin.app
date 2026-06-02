@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import openai from "@/lib/openai";
+import { getAiPrompt } from "@/lib/ai-prompts";
 
 export const maxDuration = 120; // saniye — Vercel/Next.js timeout
 
@@ -157,8 +158,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ rows: result.rows });
     } else {
       // İlk chunk: headers + rows
+      const firstChunkPrompt = await getAiPrompt("TXT_EXCEL");
       result = await callOpenAI([
-        { role: "user", content: `${FIRST_CHUNK_PROMPT}\n\nMetin içeriği:\n${text}` },
+        { role: "user", content: `${firstChunkPrompt}\n\nMetin içeriği:\n${text}` },
       ]);
 
       if (!Array.isArray(result.headers) || !Array.isArray(result.rows)) {
