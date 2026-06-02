@@ -1,15 +1,14 @@
 #!/bin/bash
 cd /var/www/vezin
 
-# .env dosyasını yedekle
-cp .env .env.backup
+# .env.local dosyasını yedekle
+cp .env.local /tmp/env.backup
 
 # git güncelle
-git stash
 git pull origin main
 
-# .env dosyasını geri yükle
-cp .env.backup .env
+# .env.local dosyasını geri yükle
+cp /tmp/env.backup .env.local
 
 npm install
 npm run build
