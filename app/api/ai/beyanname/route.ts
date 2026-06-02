@@ -60,10 +60,12 @@ export async function POST(req: NextRequest) {
         },
       ],
       response_format: { type: "json_object" },
-      max_completion_tokens: 3000,
+      temperature: 0,
+      max_tokens: 4000,
     });
 
     const raw = response.choices[0].message.content ?? "{}";
+    console.log("[beyanname] Ham içerik:", raw?.slice(0, 500));
 
     let parsed: any;
     try {
