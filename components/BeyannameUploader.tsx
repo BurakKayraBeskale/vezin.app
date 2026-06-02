@@ -25,14 +25,29 @@ interface BeyannameResult {
   ozet?: string;
 }
 
+/** Herhangi bir değeri güvenli string'e çevirir — React'a obje geçmesini önler */
+function safeStr(val: any): string {
+  if (val == null) return "";
+  if (typeof val === "string") return val;
+  if (typeof val === "number" || typeof val === "boolean") return String(val);
+  if (typeof val === "object") {
+    // Anlamlı string alanları ara
+    const str =
+      val.metin ?? val.text ?? val.unvan ?? val.value ?? val.deger ?? val.label ?? val.ad;
+    if (str != null) return safeStr(str);
+    return JSON.stringify(val);
+  }
+  return String(val);
+}
+
 /** mukellef alanı string veya obje olabilir, güvenli erişim */
 function getMukellefStr(m: Mukellef | string | undefined): { unvan: string; vergiNo: string; vergiDairesi: string } {
   if (!m) return { unvan: "", vergiNo: "", vergiDairesi: "" };
   if (typeof m === "string") return { unvan: m, vergiNo: "", vergiDairesi: "" };
   return {
-    unvan:        m.unvan              ?? "",
-    vergiNo:      m.vergi_kimlik_no    ?? "",
-    vergiDairesi: m.vergi_dairesi      ?? "",
+    unvan:        safeStr(m.unvan)           ,
+    vergiNo:      safeStr(m.vergi_kimlik_no) ,
+    vergiDairesi: safeStr(m.vergi_dairesi)   ,
   };
 }
 
@@ -203,7 +218,7 @@ export default function BeyannameUploader() {
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-[#F57C28]/10 text-[#F57C28] uppercase tracking-wide">
-                  {result.belge_turu}
+                  {safeStr(result.belge_turu)}
                 </span>
                 {(() => {
                   const mk = getMukellefStr(result.mukellef);
@@ -213,25 +228,25 @@ export default function BeyannameUploader() {
                       {mk.unvan && (
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Ünvan</p>
-                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{mk.unvan}</p>
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{safeStr(mk.unvan)}</p>
                         </div>
                       )}
                       {vergiNo && (
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Vergi No</p>
-                          <p className="text-sm font-semibold text-gray-800 dark:text-white font-mono">{vergiNo}</p>
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white font-mono">{safeStr(vergiNo)}</p>
                         </div>
                       )}
                       {mk.vergiDairesi && (
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Vergi Dairesi</p>
-                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{mk.vergiDairesi}</p>
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{safeStr(mk.vergiDairesi)}</p>
                         </div>
                       )}
                       {result.donem && (
                         <div>
                           <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Dönem</p>
-                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{result.donem}</p>
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{safeStr(result.donem)}</p>
                         </div>
                       )}
                     </div>
@@ -252,7 +267,7 @@ export default function BeyannameUploader() {
             {/* Özet */}
             {result.ozet && (
               <p className="text-xs text-gray-500 dark:text-white/40 leading-relaxed border-t border-gray-100 dark:border-white/5 pt-3">
-                {result.ozet}
+                {safeStr(result.ozet)}
               </p>
             )}
           </div>
@@ -276,19 +291,22 @@ export default function BeyannameUploader() {
                   </thead>
                   <tbody>
                     {result.veriler.map((v, i) => {
-                      const isCurrency = v.birim === "TRY";
-                      const numVal = parseFloat(String(v.deger).replace(/[^0-9.,\-]/g, "").replace(",", "."));
+                      const alanStr  = safeStr(v.alan);
+                      const degerStr = safeStr(v.deger);
+                      const birimStr = safeStr(v.birim);
+                      const isCurrency = birimStr === "TRY";
+                      const numVal = parseFloat(degerStr.replace(/[^0-9.,-]/g, "").replace(",", "."));
                       const displayVal = isCurrency && !isNaN(numVal)
                         ? numVal.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                        : v.deger;
+                        : degerStr;
 
                       return (
                         <tr key={i} className={clsx("border-b border-gray-50 dark:border-white/5 last:border-0", i % 2 === 1 ? "bg-gray-50/50 dark:bg-white/[0.02]" : "")}>
-                          <td className="px-5 py-2.5 text-gray-600 dark:text-white/60">{v.alan}</td>
+                          <td className="px-5 py-2.5 text-gray-600 dark:text-white/60">{alanStr}</td>
                           <td className={clsx("px-5 py-2.5 text-right font-semibold tabular-nums", isCurrency ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-white/80")}>
                             {isCurrency && "₺ "}{displayVal}
                           </td>
-                          <td className="px-5 py-2.5 text-xs text-gray-400 dark:text-white/30">{v.birim || "—"}</td>
+                          <td className="px-5 py-2.5 text-xs text-gray-400 dark:text-white/30">{birimStr || "—"}</td>
                         </tr>
                       );
                     })}
