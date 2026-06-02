@@ -3,26 +3,59 @@
 import { useRef, useState } from "react";
 import clsx from "clsx";
 
-const PREVIEW_LINES = 100;  // önizleme için kaç satır gönderilir
-const CHUNK_LINES  = 1500;  // tam işlemde parça başına satır sayısı (timeout riskini azaltır)
+const FIRST_CHUNK_LINES = 100;  // ilk API çağrısı için satır sayısı
+const CHUNK_LINES       = 1500; // devam chunk'ları için satır sayısı
 
 interface TableResult {
   headers: string[];
   rows: any[][];
 }
 
+/** Excel indir — auto-fit sütun genişliği, bold başlık, hizalama */
 async function downloadExcel(result: TableResult, filename = "veri.xlsx") {
   const XLSX = await import("xlsx");
-  const data = result.rows.map((row) =>
-    result.headers.reduce(
-      (acc, h, i) => ({ ...acc, [h]: row[i] ?? "" }),
-      {} as Record<string, any>
-    )
-  );
-  const ws = XLSX.utils.json_to_sheet(data);
+
+  // Başlık + veri satırlarını birleştir
+  const aoaData: any[][] = [result.headers, ...result.rows];
+  const ws = XLSX.utils.aoa_to_sheet(aoaData);
+
+  // ── Sütun genişlikleri (auto-fit, min 12 max 50) ──────────────────────────
+  ws["!cols"] = result.headers.map((h, colIdx) => {
+    const maxLen = Math.max(
+      h.length,
+      ...result.rows.map((row) => String(row[colIdx] ?? "").length)
+    );
+    return { wch: Math.min(50, Math.max(12, maxLen)) };
+  });
+
+  // ── Başlık satırı: bold 12pt, ortalı ─────────────────────────────────────
+  result.headers.forEach((_, colIdx) => {
+    const ref = XLSX.utils.encode_cell({ r: 0, c: colIdx });
+    if (ws[ref]) {
+      ws[ref].s = {
+        font: { bold: true, sz: 12 },
+        alignment: { horizontal: "center", vertical: "center" },
+      };
+    }
+  });
+
+  // ── Veri hücreleri: sayısal → sağa, diğer → ortaya ───────────────────────
+  result.rows.forEach((row, rowIdx) => {
+    row.forEach((cell, colIdx) => {
+      const ref = XLSX.utils.encode_cell({ r: rowIdx + 1, c: colIdx });
+      if (ws[ref]) {
+        const val = String(cell ?? "").trim();
+        const isNumeric = val !== "" && !isNaN(Number(val.replace(/[.,\s]/g, "")));
+        ws[ref].s = {
+          alignment: { horizontal: isNumeric ? "right" : "center" },
+        };
+      }
+    });
+  });
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Veri");
-  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array", cellStyles: true });
   const blob = new Blob([buf], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
@@ -34,7 +67,7 @@ async function downloadExcel(result: TableResult, filename = "veri.xlsx") {
   URL.revokeObjectURL(url);
 }
 
-/** API'ye tek bir chunk gönderir. knownHeaders verilirse continuation modunda çalışır. */
+/** API'ye tek bir chunk gönderir */
 async function sendChunk(
   text: string,
   knownHeaders?: string[]
@@ -45,7 +78,6 @@ async function sendChunk(
 
   const res = await fetch("/api/ai/txt-to-excel", { method: "POST", body: fd });
 
-  // Önce ham HTTP gövdesini oku — parse etmeden önce logla
   const raw = await res.text();
   console.log("[txt-to-excel] HTTP durum:", res.status);
   console.log("[txt-to-excel] Ham HTTP yanıtı (parse öncesi):", raw);
@@ -60,23 +92,17 @@ async function sendChunk(
   let json: any;
   try {
     json = JSON.parse(raw);
-    // OpenAI'den gelen ham içerik varsa onu da logla
-    if (json.raw) {
-      console.log("[txt-to-excel] OpenAI ham yanıtı (model çıktısı):", json.raw);
-    }
-    if (json.debug) {
-      console.error("[txt-to-excel] Hata debug:", json.debug);
-    }
+    if (json.raw)   console.log("[txt-to-excel] OpenAI ham yanıtı:", json.raw);
+    if (json.debug) console.error("[txt-to-excel] Hata debug:", json.debug);
   } catch {
     throw new Error(
-      `Sunucu geçersiz JSON döndürdü (HTTP ${res.status}). ` +
-      `Ham yanıt: ${raw.slice(0, 200)}`
+      `Sunucu geçersiz JSON döndürdü (HTTP ${res.status}). Ham yanıt: ${raw.slice(0, 200)}`
     );
   }
 
   if (!res.ok) {
     const msg = json.error ?? `Sunucu hatası (HTTP ${res.status})`;
-    const rawDetail = json.raw ? `\n\nModel ham çıktısı:\n${json.raw}` : "";
+    const rawDetail   = json.raw   ? `\n\nModel ham çıktısı:\n${json.raw}` : "";
     const debugDetail = json.debug
       ? `\n\nHata detayı: status=${json.debug.status} code=${json.debug.code}\n${json.debug.message}`
       : "";
@@ -86,11 +112,11 @@ async function sendChunk(
   return json;
 }
 
-type Phase = "idle" | "preview_loading" | "preview" | "processing" | "done";
+type Phase = "idle" | "processing" | "done";
 
 export default function TxtToExcelConverter() {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const allLinesRef = useRef<string[]>([]);   // önbellek — re-render gerektirmez
+  const inputRef  = useRef<HTMLInputElement>(null);
+  const allLinesRef = useRef<string[]>([]);
 
   const [inputMode, setInputMode] = useState<"file" | "text">("file");
   const [file, setFile]     = useState<File | null>(null);
@@ -98,104 +124,88 @@ export default function TxtToExcelConverter() {
   const [dragging, setDragging] = useState(false);
   const [phase, setPhase]   = useState<Phase>("idle");
   const [error, setError]   = useState<string | null>(null);
-
-  // Önizleme aşaması
-  const [previewResult, setPreviewResult] = useState<TableResult | null>(null);
-
-  // Tam işlem aşaması
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [progress, setProgress] = useState({ current: 0, total: 0, label: "" });
   const [finalResult, setFinalResult] = useState<TableResult | null>(null);
 
   function resetState() {
     setPhase("idle");
     setError(null);
-    setPreviewResult(null);
     setFinalResult(null);
-    setProgress({ current: 0, total: 0 });
+    setProgress({ current: 0, total: 0, label: "" });
     allLinesRef.current = [];
+  }
+
+  // ── Otomatik işleme (dosya seçilince veya "Dönüştür" tıklanınca) ──────────
+  async function startProcessing(rawText: string, filename: string) {
+    setPhase("processing");
+    setError(null);
+    setFinalResult(null);
+
+    try {
+      const lines = rawText.split("\n");
+      allLinesRef.current = lines;
+
+      // 1. İlk chunk → headers + ilk satırlar
+      setProgress({ current: 0, total: 0, label: "Dosya işleniyor..." });
+      const firstText = lines.slice(0, FIRST_CHUNK_LINES).join("\n");
+      const first = await sendChunk(firstText);
+
+      if (!first.headers?.length) {
+        setError("Başlıklar çıkarılamadı. Dosya içeriğini kontrol edin.");
+        setPhase("idle");
+        return;
+      }
+
+      const { headers } = first;
+      let allRows: any[][] = [...(first.rows ?? [])];
+
+      // 2. Kalan satırları chunk'lara böl
+      const remaining = lines.slice(FIRST_CHUNK_LINES);
+      const chunks: string[] = [];
+      for (let i = 0; i < remaining.length; i += CHUNK_LINES) {
+        const chunk = remaining.slice(i, i + CHUNK_LINES).join("\n").trim();
+        if (chunk) chunks.push(chunk);
+      }
+
+      setProgress({ current: 0, total: chunks.length, label: "" });
+
+      for (let i = 0; i < chunks.length; i++) {
+        try {
+          const res = await sendChunk(chunks[i], headers);
+          if (Array.isArray(res.rows)) allRows = [...allRows, ...res.rows];
+        } catch (err: any) {
+          setError(`Parça ${i + 1}/${chunks.length} hatası: ${err.message}`);
+        }
+        setProgress({ current: i + 1, total: chunks.length, label: "" });
+      }
+
+      const result: TableResult = { headers, rows: allRows };
+      setFinalResult(result);
+      setPhase("done");
+
+      // Otomatik indir
+      await downloadExcel(result, filename.replace(/\.[^.]+$/, ".xlsx"));
+    } catch (err: any) {
+      setError(err.message ?? "Bilinmeyen hata");
+      setPhase("idle");
+    }
   }
 
   function handleFile(f: File) {
     setFile(f);
     resetState();
+    f.text().then((rawText) => startProcessing(rawText, f.name));
   }
 
-  // ─── AŞAMA 1: İlk 100 satırı işle, önizle ───────────────────────────────
-  async function loadPreview() {
-    setPhase("preview_loading");
-    setError(null);
-
-    try {
-      let rawText = "";
-      if (inputMode === "file" && file) {
-        rawText = await file.text();
-      } else if (inputMode === "text" && text.trim()) {
-        rawText = text;
-      } else {
-        setError("Lütfen bir dosya seçin veya metin girin");
-        setPhase("idle");
-        return;
-      }
-
-      const lines = rawText.split("\n");
-      allLinesRef.current = lines; // tüm satırları sakla
-
-      const previewText = lines.slice(0, PREVIEW_LINES).join("\n");
-      const result = await sendChunk(previewText);
-
-      if (!result.headers?.length) {
-        setError("Başlıklar çıkarılamadı. Dosya içeriğini kontrol edin");
-        setPhase("idle");
-        return;
-      }
-
-      setPreviewResult({ headers: result.headers, rows: result.rows });
-      setPhase("preview");
-    } catch (err: any) {
-      setError(err.message ?? "Sunucuya bağlanılamadı");
-      setPhase("idle");
-    }
+  function handleTextConvert() {
+    if (!text.trim()) return;
+    resetState();
+    startProcessing(text, "veri.xlsx");
   }
 
-  // ─── AŞAMA 2: Kalan satırları chunk'lara bölerek işle ────────────────────
-  async function processAll() {
-    if (!previewResult) return;
-    setPhase("processing");
-    setError(null);
-
-    const { headers, rows: previewRows } = previewResult;
-    const remainingLines = allLinesRef.current.slice(PREVIEW_LINES);
-
-    // 3000 satırlık chunk'lara böl
-    const chunks: string[] = [];
-    for (let i = 0; i < remainingLines.length; i += CHUNK_LINES) {
-      const chunk = remainingLines.slice(i, i + CHUNK_LINES).join("\n").trim();
-      if (chunk) chunks.push(chunk);
-    }
-
-    setProgress({ current: 0, total: chunks.length });
-
-    let allRows: any[][] = [...previewRows];
-
-    for (let i = 0; i < chunks.length; i++) {
-      try {
-        const result = await sendChunk(chunks[i], headers);
-        if (Array.isArray(result.rows)) {
-          allRows = [...allRows, ...result.rows];
-        }
-      } catch (err: any) {
-        setError(`Parça ${i + 1}/${chunks.length} işlenirken hata: ${err.message}`);
-        // Hata olsa da devam et — kısmi sonucu göster
-      }
-      setProgress({ current: i + 1, total: chunks.length });
-    }
-
-    setFinalResult({ headers, rows: allRows });
-    setPhase("done");
-  }
-
-  const canPreview =
-    inputMode === "file" ? !!file : text.trim().length > 0;
+  const pct = progress.total > 0
+    ? Math.round((progress.current / progress.total) * 100)
+    : null;
 
   return (
     <div className="space-y-5">
@@ -204,7 +214,7 @@ export default function TxtToExcelConverter() {
         {(["file", "text"] as const).map((mode) => (
           <button
             key={mode}
-            onClick={() => { setInputMode(mode); resetState(); }}
+            onClick={() => { setInputMode(mode); resetState(); setFile(null); setText(""); }}
             className={clsx(
               "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
               inputMode === mode
@@ -217,7 +227,7 @@ export default function TxtToExcelConverter() {
         ))}
       </div>
 
-      {/* Dosya yükleme */}
+      {/* Dosya yükleme — dosya seçilince otomatik başlar */}
       {inputMode === "file" && (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -228,9 +238,10 @@ export default function TxtToExcelConverter() {
             const f = e.dataTransfer.files[0];
             if (f) handleFile(f);
           }}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => phase === "idle" && inputRef.current?.click()}
           className={clsx(
-            "rounded-2xl border-2 border-dashed p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
+            "rounded-2xl border-2 border-dashed p-8 flex flex-col items-center justify-center text-center transition-all",
+            phase === "idle" ? "cursor-pointer" : "cursor-default",
             dragging
               ? "border-[#F57C28] bg-[#F57C28]/5"
               : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] hover:border-[#F57C28]/50 hover:bg-[#F57C28]/[0.03]"
@@ -253,16 +264,14 @@ export default function TxtToExcelConverter() {
           {file ? (
             <div>
               <p className="text-sm font-semibold text-gray-800 dark:text-white">{file.name}</p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {(file.size / 1024).toFixed(0)} KB
-              </p>
+              <p className="text-xs text-gray-400 mt-0.5">{(file.size / 1024).toFixed(0)} KB</p>
             </div>
           ) : (
             <div>
               <p className="text-sm font-medium text-gray-600 dark:text-white/60">
                 TXT, CSV veya TSV dosyası sürükleyin
               </p>
-              <p className="text-xs text-gray-400 dark:text-white/30 mt-1">Maks 10MB</p>
+              <p className="text-xs text-gray-400 dark:text-white/30 mt-1">Maks 10MB · Seçince otomatik başlar</p>
             </div>
           )}
         </div>
@@ -270,13 +279,23 @@ export default function TxtToExcelConverter() {
 
       {/* Metin girişi */}
       {inputMode === "text" && (
-        <textarea
-          value={text}
-          onChange={(e) => { setText(e.target.value); resetState(); }}
-          placeholder="Verileri buraya yapıştırın..."
-          rows={8}
-          className="w-full rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] px-4 py-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/25 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]/50 resize-none font-mono"
-        />
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => { setText(e.target.value); resetState(); }}
+            placeholder="Verileri buraya yapıştırın..."
+            rows={8}
+            className="w-full rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] px-4 py-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/25 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]/50 resize-none font-mono"
+          />
+          {phase === "idle" && text.trim() && (
+            <button
+              onClick={handleTextConvert}
+              className="w-full py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors"
+            >
+              Dönüştür
+            </button>
+          )}
+        </>
       )}
 
       {/* Hata */}
@@ -289,83 +308,31 @@ export default function TxtToExcelConverter() {
         </div>
       )}
 
-      {/* ─── İlk "Önizle" butonu ─── */}
-      {phase === "idle" && canPreview && (
-        <button
-          onClick={loadPreview}
-          className="w-full py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors"
-        >
-          Önizle (İlk {PREVIEW_LINES} satır)
-        </button>
-      )}
-
-      {/* ─── Önizleme yükleniyor ─── */}
-      {phase === "preview_loading" && (
-        <div className="flex flex-col items-center gap-3 py-6">
-          <svg className="w-8 h-8 text-[#F57C28] animate-spin" fill="none" viewBox="0 0 24 24">
+      {/* ─── İşleniyor ─── */}
+      {phase === "processing" && (
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 p-6 flex flex-col items-center gap-4">
+          <svg className="w-8 h-8 text-[#F57C28] animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4l-3 3-3-3h4z" />
           </svg>
-          <p className="text-sm text-gray-500 dark:text-white/40">
-            İlk {PREVIEW_LINES} satır analiz ediliyor...
-          </p>
-        </div>
-      )}
 
-      {/* ─── Önizleme + onay butonları ─── */}
-      {phase === "preview" && previewResult && (
-        <div className="space-y-4">
-          <PreviewTable result={previewResult} label={`Önizleme — İlk ${PREVIEW_LINES} satır`} />
-
-          <div className="flex gap-3">
-            <button
-              onClick={processAll}
-              className="flex-1 py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors"
-            >
-              Devam Et — Tümünü Dönüştür
-            </button>
-            <button
-              onClick={resetState}
-              className="px-5 py-3 rounded-xl border border-gray-200 dark:border-white/10 text-sm font-medium text-gray-500 dark:text-white/40 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
-            >
-              İptal
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ─── İşleniyor + ilerleme ─── */}
-      {phase === "processing" && (
-        <div className="space-y-3">
-          <div className="rounded-2xl border border-gray-200 dark:border-white/10 p-6 flex flex-col items-center gap-4">
-            <svg className="w-8 h-8 text-[#F57C28] animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4l-3 3-3-3h4z" />
-            </svg>
-
-            {progress.total > 0 ? (
-              <div className="w-full space-y-2">
-                <div className="flex justify-between text-xs text-gray-500 dark:text-white/40">
-                  <span>
-                    Parça {progress.current} / {progress.total} işlendi
-                  </span>
-                  <span>{Math.round((progress.current / progress.total) * 100)}%</span>
-                </div>
-                <div className="w-full h-2 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#F57C28] rounded-full transition-all duration-300"
-                    style={{ width: `${(progress.current / progress.total) * 100}%` }}
-                  />
-                </div>
+          {pct !== null ? (
+            <div className="w-full space-y-2">
+              <div className="flex justify-between text-xs text-gray-500 dark:text-white/40">
+                <span>Parça {progress.current} / {progress.total} işlendi</span>
+                <span>{pct}%</span>
               </div>
-            ) : (
-              <p className="text-sm text-gray-500 dark:text-white/40">Veriler işleniyor...</p>
-            )}
-          </div>
-
-          {/* Hata olsa bile önizlemeyi göster */}
-          {error && previewResult && (
-            <PreviewTable result={previewResult} label="Önizleme (kısmi)" />
+              <div className="w-full h-2 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#F57C28] rounded-full transition-all duration-300"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-white/40">
+              {progress.label || "Dosya işleniyor..."}
+            </p>
           )}
         </div>
       )}
@@ -375,6 +342,8 @@ export default function TxtToExcelConverter() {
         <ResultTable
           result={finalResult}
           filename={file ? file.name.replace(/\.[^.]+$/, ".xlsx") : "veri.xlsx"}
+          onDownload={() => downloadExcel(finalResult, file ? file.name.replace(/\.[^.]+$/, ".xlsx") : "veri.xlsx")}
+          onReset={resetState}
         />
       )}
     </div>
@@ -383,35 +352,40 @@ export default function TxtToExcelConverter() {
 
 // ─── Alt bileşenler ──────────────────────────────────────────────────────────
 
-function PreviewTable({ result, label }: { result: TableResult; label: string }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
-      <div className="px-5 py-3 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10">
-        <p className="text-sm font-semibold text-gray-800 dark:text-white">
-          {label} · {result.headers.length} sütun
-        </p>
-      </div>
-      <TableBody result={result} maxRows={20} />
-    </div>
-  );
-}
-
-function ResultTable({ result, filename }: { result: TableResult; filename: string }) {
+function ResultTable({
+  result,
+  filename,
+  onDownload,
+  onReset,
+}: {
+  result: TableResult;
+  filename: string;
+  onDownload: () => void;
+  onReset: () => void;
+}) {
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
       <div className="flex items-center justify-between px-5 py-3.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-white">
           Sonuç — {result.rows.length} satır, {result.headers.length} sütun
         </h3>
-        <button
-          onClick={() => downloadExcel(result, filename)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-          </svg>
-          Excel İndir
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={onReset}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 text-xs font-medium text-gray-500 dark:text-white/40 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+          >
+            Yeni Dosya
+          </button>
+          <button
+            onClick={onDownload}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Excel İndir
+          </button>
+        </div>
       </div>
       <TableBody result={result} maxRows={50} />
       {result.rows.length > 50 && (
