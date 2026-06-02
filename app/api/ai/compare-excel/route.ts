@@ -360,7 +360,7 @@ export async function POST(req: NextRequest) {
     // ── Çıktıyı buffer'a yaz ──────────────────────────────────────────────────
     const outBuf = await wbOut.xlsx.writeBuffer();
 
-    return new NextResponse(outBuf as Buffer, {
+    return new NextResponse(Buffer.from(outBuf), {
       status: 200,
       headers: {
         "Content-Type":        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
