@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import openai from "@/lib/openai";
+import { getOpenAI } from "@/lib/openai";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  const openai = getOpenAI();
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token || (token as any).role !== "ADMIN") {
     return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });

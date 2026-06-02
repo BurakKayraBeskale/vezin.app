@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import OpenAI from "openai";
+import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ Sadece JSON döndür, başka açıklama yazma.`;
 
 /** OpenAI çağrısı — JSON parse hatası olursa conversation retry ile düzeltir */
 async function callOpenAI(
-  openai: OpenAI,
+  openai: ReturnType<typeof getOpenAI>,
   messages: { role: "user" | "assistant"; content: string }[]
 ): Promise<any> {
   const response = await openai.chat.completions.create({
@@ -55,7 +55,7 @@ async function callOpenAI(
 }
 
 export async function POST(req: NextRequest) {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const openai = getOpenAI();
 
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) {

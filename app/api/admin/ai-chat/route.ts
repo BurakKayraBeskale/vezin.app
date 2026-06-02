@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
-import OpenAI from "openai";
+import { getOpenAI } from "@/lib/openai";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -49,7 +49,7 @@ async function extractFileContent(file: File): Promise<{ text: string; isImage: 
 }
 
 export async function POST(req: NextRequest) {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const openai = getOpenAI();
 
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token || (token as any).role !== "ADMIN") {
