@@ -1,91 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import openai from "@/lib/openai";
+import OpenAI from "openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
+
+export const dynamic = "force-dynamic";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
-// Varsayılan prompt (DB'de kayıt yoksa kullanılır)
-const PROMPT = `Sen bir Türk vergi ve muhasebe uzmanısın.
-Sana verilen belgeyi analiz et ve türünü tespit et.
-
-BELGE TÜRLERİ VE ÇIKARILACAK ALANLAR:
-
-1. KDV BEYANNAMESİ:
-- Mükellef adı/unvanı
-- Vergi kimlik numarası
-- Dönem (ay/yıl)
-- Teslim ve hizmetlerin karşılığını teşkil eden bedel
-- Hesaplanan KDV
-- İndirilecek KDV
-- Ödenmesi gereken KDV
-- İade edilecek KDV
-- Kısmi tevkifat bilgileri
-
-2. MUHTASAR BEYANNAMESİ:
-- Mükellef bilgileri
-- Dönem
-- Çalışan sayısı
-- Ücret ödemeleri ve stopaj
-- Serbest meslek stopajı
-- Kira stopajı
-- Diğer stopaj kalemleri
-- Ödenecek vergi tutarı
-
-3. GELİR VERGİSİ BEYANNAMESİ:
-- Mükellef bilgileri
-- Vergilendirme dönemi
-- Gelir unsurları (ticari, zirai, serbest meslek vb.)
-- Toplam gelir
-- İndirimler
-- Matrah
-- Hesaplanan vergi
-- Mahsup edilecek vergiler
-- Ödenecek/iade vergi
-
-4. KURUMLAR VERGİSİ BEYANNAMESİ:
-- Kurum bilgileri
-- Hesap dönemi
-- Ticari bilanço karı/zararı
-- KKEG (Kanunen Kabul Edilmeyen Giderler)
-- İstisnalar
-- Matrah
-- Hesaplanan vergi
-- Mahsup edilecek vergiler
-- Ödenecek vergi
-
-5. SGK BİLDİRGESİ:
-- İşyeri bilgileri
-- Dönem
-- Sigortalı sayısı
-- Prime esas kazanç
-- İşçi payı
-- İşveren payı
-- Toplam prim
-
-6. DAMGA VERGİSİ:
-- Mükellef bilgileri
-- Dönem
-- Belge türleri ve tutarları
-- Ödenecek damga vergisi
-
-Belge türünü otomatik tespit et.
-Tespit edemezsen "BELİRSİZ" yaz ve gördüğün tüm verileri çıkar.
-
-ÇIKTI FORMATI (sadece JSON döndür, başka hiçbir şey yazma):
-{
-  "belge_turu": "KDV BEYANNAMESİ",
-  "mukellef": "...",
-  "vergi_no": "...",
-  "donem": "...",
-  "veriler": [
-    {"alan": "Hesaplanan KDV", "deger": "1000.00", "birim": "TRY"},
-    {"alan": "İndirilecek KDV", "deger": "500.00", "birim": "TRY"}
-  ],
-  "ozet": "Kısa açıklama"
-}`;
-
 export async function POST(req: NextRequest) {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) {
     return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
@@ -111,11 +35,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Dosya boyutu 10MB'ı geçemez" }, { status: 400 });
   }
 
-  const prompt = await getAiPrompt("BEYANNAME");
   const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
   if (!allowedTypes.includes(file.type)) {
     return NextResponse.json({ error: "Yalnızca PDF, JPG veya PNG dosyaları desteklenmektedir" }, { status: 400 });
   }
+
+  const prompt = await getAiPrompt("BEYANNAME");
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());

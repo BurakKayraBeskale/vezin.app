@@ -1,37 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import openai from "@/lib/openai";
+import OpenAI from "openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_ROWS = 150; // token limitini aşmamak için
-
-const PROMPT = `İki Excel dosyasını karşılaştır.
-Farklı olan hücreleri, eksik satırları, yeni eklenen satırları tespit et.
-Özet rapor ve detaylı fark listesi oluştur.
-JSON formatında döndür:
-{
-  "ozet": {
-    "dosya1_satir_sayisi": number,
-    "dosya2_satir_sayisi": number,
-    "degisen_satir": number,
-    "eklenen_satir": number,
-    "silinen_satir": number
-  },
-  "farklar": [
-    {
-      "satir": number,
-      "alan": "sütun adı",
-      "eski_deger": "değer",
-      "yeni_deger": "değer",
-      "tip": "degistirildi" | "eklendi" | "silindi"
-    }
-  ]
-}
-Sadece JSON objesi döndür.`;
+const MAX_ROWS = 150;
 
 async function excelToText(buffer: Buffer, label: string): Promise<{ text: string; rowCount: number }> {
   const XLSX = await import("xlsx");
@@ -46,6 +22,8 @@ async function excelToText(buffer: Buffer, label: string): Promise<{ text: strin
 }
 
 export async function POST(req: NextRequest) {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) {
     return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });

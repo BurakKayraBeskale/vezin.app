@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
-import openai from "@/lib/openai";
+import OpenAI from "openai";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -44,12 +44,13 @@ async function extractFileContent(file: File): Promise<{ text: string; isImage: 
     return { text: `[Excel: ${file.name}]\n${csv.slice(0, 6000)}`, isImage: false };
   }
 
-  // TXT, CSV, TSV vb.
   const text = await file.text();
   return { text: `[${file.name}]\n${text.slice(0, 6000)}`, isImage: false };
 }
 
 export async function POST(req: NextRequest) {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token || (token as any).role !== "ADMIN") {
     return new Response(JSON.stringify({ error: "Yetkisiz erişim" }), { status: 401 });
@@ -76,7 +77,6 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: "Mesaj listesi boş" }), { status: 400 });
   }
 
-  // Dosya varsa son kullanıcı mesajına içerik ekle
   const messages = [...messagesRaw];
   if (file) {
     try {
@@ -84,7 +84,6 @@ export async function POST(req: NextRequest) {
       const lastMsg = messages[messages.length - 1];
 
       if (extracted.isImage && extracted.base64) {
-        // Görsel: vision message
         if (lastMsg?.role === "user") {
           const existingText = typeof lastMsg.content === "string" ? lastMsg.content : "";
           messages[messages.length - 1] = {
@@ -99,7 +98,6 @@ export async function POST(req: NextRequest) {
           };
         }
       } else if (extracted.text) {
-        // Metin tabanlı: son mesaja ekle
         if (lastMsg?.role === "user") {
           const existingText = typeof lastMsg.content === "string" ? lastMsg.content : "";
           messages[messages.length - 1] = {

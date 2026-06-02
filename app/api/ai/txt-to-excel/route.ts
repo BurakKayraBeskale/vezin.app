@@ -1,40 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import openai from "@/lib/openai";
+import OpenAI from "openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
 
-export const maxDuration = 120; // saniye — Vercel/Next.js timeout
+export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-
-const FIRST_CHUNK_PROMPT = `Sen bir Türk muhasebe uzmanısın.
-Sana verilen TXT dosyası bir mizan (trial balance) veya muhasebe raporu içeriyor.
-
-ÇIKTI KURALLARI:
-1. Sütun başlıklarını Türkçe yaz:
-   - Hesap kodu → "Hesap Kodu"
-   - Hesap adı/açıklaması → "Hesap Adı"
-   - Tip (BASLIK/HESAP/ARA TOPLAM) → "Tip"
-   - Seviye → "Seviye"
-   - Para birimi → "Para"
-   - Açılış bakiyesi → "Açılış Bakiyesi"
-   - Borç/Debit → "Borç (Debit) TRY"
-   - Alacak/Credit → "Alacak (Credit) TRY"
-   - Kapanış bakiyesi/Total → "Kapanış Bakiyesi"
-
-2. Türkçe karakterleri koru (ş,ğ,ü,ö,ç,ı)
-3. Sayısal değerleri tam olarak al, kısaltma
-4. BASLIK satırları: sadece Hesap Kodu ve Hesap Adı dolu
-5. ARA TOPLAM satırları: "TOTAL XXX" formatında
-6. Negatif değerleri eksi işaretiyle göster
-
-JSON formatında döndür:
-{
-  "headers": ["Hesap Kodu", "Hesap Adı", "Tip", "Seviye", "Para", "Açılış Bakiyesi", "Borç (Debit) TRY", "Alacak (Credit) TRY", "Kapanış Bakiyesi"],
-  "rows": [...]
-}
-
-Sadece JSON döndür, başka açıklama yazma.`;
 
 function buildContinuationPrompt(headers: string[]): string {
   return `Sen bir Türk muhasebe uzmanısın.
@@ -49,6 +21,7 @@ Sadece JSON döndür, başka açıklama yazma.`;
 
 /** OpenAI çağrısı — JSON parse hatası olursa conversation retry ile düzeltir */
 async function callOpenAI(
+  openai: OpenAI,
   messages: { role: "user" | "assistant"; content: string }[]
 ): Promise<any> {
   const response = await openai.chat.completions.create({
@@ -63,7 +36,6 @@ async function callOpenAI(
   try {
     return JSON.parse(raw);
   } catch {
-    // JSON geçersiz — conversation üzerinden düzeltme iste
     const retryResponse = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
       messages: [
@@ -83,6 +55,8 @@ async function callOpenAI(
 }
 
 export async function POST(req: NextRequest) {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) {
     return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
@@ -93,7 +67,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
   }
 
-  // FormData veya JSON kabul et
   let text = "";
   let knownHeaders: string[] | null = null;
 
@@ -143,32 +116,26 @@ export async function POST(req: NextRequest) {
     let result: any;
 
     if (knownHeaders) {
-      // Devam chunk'ı: sadece rows döndür
-      result = await callOpenAI([
+      result = await callOpenAI(openai, [
         {
           role: "user",
           content: `${buildContinuationPrompt(knownHeaders)}\n\nMetin devamı:\n${text}`,
         },
       ]);
 
-      // rows array'i garantile
       if (!Array.isArray(result.rows)) {
         return NextResponse.json({ rows: [] });
       }
       return NextResponse.json({ rows: result.rows });
     } else {
-      // İlk chunk: headers + rows
       const firstChunkPrompt = await getAiPrompt("TXT_EXCEL");
-      result = await callOpenAI([
+      result = await callOpenAI(openai, [
         { role: "user", content: `${firstChunkPrompt}\n\nMetin içeriği:\n${text}` },
       ]);
 
       if (!Array.isArray(result.headers) || !Array.isArray(result.rows)) {
         return NextResponse.json(
-          {
-            error:
-              "Metin tablo formatına dönüştürülemedi. Daha yapılandırılmış bir metin deneyin",
-          },
+          { error: "Metin tablo formatına dönüştürülemedi. Daha yapılandırılmış bir metin deneyin" },
           { status: 422 }
         );
       }

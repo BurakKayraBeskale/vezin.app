@@ -1,25 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import openai from "@/lib/openai";
+import OpenAI from "openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
+
+export const dynamic = "force-dynamic";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
-const PROMPT = `Bu görseldeki tüm verileri analiz et.
-e-Devlet çıktısı, vergi levhası, banka ekstresi, SGK bildirge veya başka bir resmi belge olabilir.
-Belge türünü tespit et.
-İçindeki TÜM verileri tabloya dönüştür.
-Başlıklar, tarihler, tutarlar, TC kimlik, vergi no gibi tüm alanları çıkar.
-JSON formatında döndür:
-{
-  "belge_turu": "string",
-  "headers": ["string"],
-  "rows": [["any"]],
-  "ozet": "string"
-}
-Türkçe karakterleri koru. Sadece JSON objesi döndür.`;
-
 export async function POST(req: NextRequest) {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) {
     return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
