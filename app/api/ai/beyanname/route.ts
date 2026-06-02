@@ -84,10 +84,22 @@ export async function POST(req: NextRequest) {
     const data = JSON.parse(raw);
     return NextResponse.json({ data });
   } catch (err: any) {
-    console.error("[beyanname]", err);
-    if (err?.code === "invalid_api_key") {
-      return NextResponse.json({ error: "OpenAI API anahtarı geçersiz" }, { status: 500 });
-    }
-    return NextResponse.json({ error: "Belge analiz edilirken bir hata oluştu. Lütfen tekrar deneyin" }, { status: 500 });
+    console.error(
+      "[beyanname] Hata:",
+      err?.status, err?.code, err?.message,
+      JSON.stringify(err?.error ?? err)
+    );
+    return NextResponse.json(
+      {
+        error: "Belge analiz edilirken bir hata oluştu.",
+        debug: {
+          status:  err?.status  ?? null,
+          code:    err?.code    ?? null,
+          message: err?.message ?? "Bilinmeyen hata",
+          detail:  err?.error   ?? null,
+        },
+      },
+      { status: err?.status ?? 500 }
+    );
   }
 }
