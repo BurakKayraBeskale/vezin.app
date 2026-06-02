@@ -154,6 +154,8 @@ async function processInChunks(
 }
 
 export async function POST(req: NextRequest) {
+  console.log("[txt-to-excel] İstek geldi, content-type:", req.headers.get("content-type"));
+
   let openai: ReturnType<typeof getOpenAI>;
   try {
     openai = getOpenAI();
@@ -213,6 +215,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "İstek okunamadı: " + err.message }, { status: 400 });
   }
 
+  console.log("[txt-to-excel] text uzunluğu:", text.length, "| knownHeaders:", JSON.stringify(knownHeaders)?.slice(0, 100));
+
   if (!text.trim()) {
     return NextResponse.json({ error: "Metin içeriği boş" }, { status: 400 });
   }
@@ -228,7 +232,10 @@ export async function POST(req: NextRequest) {
       const result = await processInChunks(openai, text, firstChunkPrompt);
 
       if (!result.headers?.length) {
-        console.error("[txt-to-excel] headers boş — firstRaw:", result.firstRaw);
+        console.log("[txt-to-excel] RETURN NOKTASI 1 — headers boş, 422 dönülüyor");
+        console.log("[txt-to-excel] result.headers:", result.headers);
+        console.log("[txt-to-excel] result.rows uzunluğu:", result.rows?.length);
+        console.log("[txt-to-excel] firstRaw:", result.firstRaw);
         return NextResponse.json(
           {
             error: "Metin tablo formatına dönüştürülemedi. Daha yapılandırılmış bir metin deneyin.",
@@ -247,6 +254,7 @@ export async function POST(req: NextRequest) {
       JSON.stringify(err?.error ?? err)
     );
 
+    console.log("[txt-to-excel] RETURN NOKTASI 2 — catch bloğu, hata fırlatıldı");
     return NextResponse.json(
       {
         error: "Metin tablo formatına dönüştürülemedi.",
