@@ -8,7 +8,11 @@ export default async function KarsilastirmaPage() {
   if (!session) redirect("/login");
 
   const { role, department } = session.user as any;
-  const canView = role === "ADMIN" || department === "MUHASEBE";
+  const canView =
+    role === "ADMIN" ||
+    department === "MUHASEBE" ||
+    department === "BAGIMSIZ_DENETIM" ||
+    department === "YEMINLI_MALI_MUSAVIR";
   if (!canView) redirect("/");
 
   return (

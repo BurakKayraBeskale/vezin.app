@@ -283,7 +283,7 @@ export default function Sidebar({
           />
         )}
 
-        {(userRole === "ADMIN" || userDepartment === "MUHASEBE") && (
+        {(userRole === "ADMIN" || userDepartment === "MUHASEBE" || userDepartment === "BAGIMSIZ_DENETIM" || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
           <NavLink
             href="/karsilastirma"
             label="Karşılaştırma"
