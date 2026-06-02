@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
-import pdfParse from "pdf-parse";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +47,7 @@ export async function POST(req: NextRequest) {
     let messageContent: any[];
 
     if (file.type === "application/pdf") {
+      const pdfParse = require("pdf-parse");
       const pdfData = await pdfParse(buffer);
       if (!pdfData.text?.trim()) {
         return NextResponse.json({ error: "PDF'den metin çıkarılamadı. Lütfen görsel olarak yükleyin" }, { status: 400 });
