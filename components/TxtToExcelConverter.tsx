@@ -64,6 +64,9 @@ async function sendChunk(
     if (json.raw) {
       console.log("[txt-to-excel] OpenAI ham yanıtı (model çıktısı):", json.raw);
     }
+    if (json.debug) {
+      console.error("[txt-to-excel] Hata debug:", json.debug);
+    }
   } catch {
     throw new Error(
       `Sunucu geçersiz JSON döndürdü (HTTP ${res.status}). ` +
@@ -73,9 +76,11 @@ async function sendChunk(
 
   if (!res.ok) {
     const msg = json.error ?? `Sunucu hatası (HTTP ${res.status})`;
-    // Model ham çıktısı varsa hata mesajına ekle — ekranda görünsün
-    const detail = json.raw ? `\n\nModel ham çıktısı:\n${json.raw}` : "";
-    throw new Error(msg + detail);
+    const rawDetail = json.raw ? `\n\nModel ham çıktısı:\n${json.raw}` : "";
+    const debugDetail = json.debug
+      ? `\n\nHata detayı: status=${json.debug.status} code=${json.debug.code}\n${json.debug.message}`
+      : "";
+    throw new Error(msg + rawDetail + debugDetail);
   }
 
   return json;

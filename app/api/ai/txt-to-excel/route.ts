@@ -36,7 +36,11 @@ async function callOpenAI(
     console.log("[txt-to-excel] Tam yanıt:", JSON.stringify(response));
     console.log("[txt-to-excel] Content:", response.choices?.[0]?.message?.content);
   } catch (err: any) {
-    console.error("[txt-to-excel] OpenAI hata:", err.status, err.message, err.code);
+    console.error(
+      "[txt-to-excel] OpenAI hata detayı:",
+      err?.status, err?.code, err?.message,
+      JSON.stringify(err?.error ?? err)
+    );
     throw err;
   }
 
@@ -237,21 +241,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ headers: result.headers, rows: result.rows });
     }
   } catch (err: any) {
-    console.error("[txt-to-excel] İşlem hatası:", err);
-
-    if (err?.code === "invalid_api_key") {
-      return NextResponse.json({ error: "OpenAI API anahtarı geçersiz." }, { status: 500 });
-    }
-    if (err?.status === 429) {
-      return NextResponse.json({ error: "OpenAI rate limit aşıldı. Lütfen bekleyin." }, { status: 429 });
-    }
-    if (err?.status === 413 || err?.code === "context_length_exceeded") {
-      return NextResponse.json({ error: "Metin çok uzun. Daha küçük bir dosya deneyin." }, { status: 413 });
-    }
+    console.error(
+      "[txt-to-excel] İşlem hatası:",
+      err?.status, err?.code, err?.message,
+      JSON.stringify(err?.error ?? err)
+    );
 
     return NextResponse.json(
-      { error: "Dönüştürme hatası: " + (err?.message ?? "Bilinmeyen hata") },
-      { status: 500 }
+      {
+        error: "Metin tablo formatına dönüştürülemedi.",
+        raw: "",
+        debug: {
+          status: err?.status ?? null,
+          code: err?.code ?? null,
+          message: err?.message ?? "Bilinmeyen hata",
+          detail: err?.error ?? null,
+        },
+      },
+      { status: err?.status ?? 500 }
     );
   }
 }
