@@ -33,7 +33,12 @@ async function callOpenAI(
   });
 
   const raw = response.choices[0]?.message?.content ?? "";
-  console.log("[txt-to-excel] OpenAI raw response (first 300 chars):", raw.slice(0, 300));
+  const finishReason = response.choices[0]?.finish_reason;
+  console.log("[txt-to-excel] --- OpenAI RAW RESPONSE ---");
+  console.log("[txt-to-excel] finish_reason:", finishReason);
+  console.log("[txt-to-excel] raw length:", raw.length);
+  console.log("[txt-to-excel] raw:", raw);
+  console.log("[txt-to-excel] --- END RAW RESPONSE ---");
 
   if (!raw.trim()) {
     throw new Error("OpenAI boş yanıt döndürdü. Model token limitini aşmış olabilir.");
