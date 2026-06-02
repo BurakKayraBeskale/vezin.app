@@ -64,8 +64,26 @@ export async function POST(req: NextRequest) {
     });
 
     const raw = response.choices[0].message.content ?? "{}";
-    const data = JSON.parse(raw);
-    return NextResponse.json({ data });
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const cleaned = raw
+        .replace(/[\x00-\x1F\x7F]/g, " ")
+        .replace(/\n/g, "\\n")
+        .replace(/\r/g, "\\r")
+        .replace(/\t/g, "\\t");
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        const match = raw.match(/\{[\s\S]*\}/);
+        if (match) parsed = JSON.parse(match[0]);
+        else throw new Error("JSON parse edilemedi");
+      }
+    }
+
+    return NextResponse.json({ data: parsed });
   } catch (err: any) {
     console.error(
       "[beyanname] Hata:",
