@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
+import { extractText } from "unpdf";
 
 export const dynamic = "force-dynamic";
 
@@ -43,18 +44,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    const buffer = new Uint8Array(bytes);
+    const { text } = await extractText(buffer, { mergePages: true });
 
-    let text = "";
-    if (file.type === "application/pdf") {
-      const pdfParse = require("pdf-parse/lib/pdf-parse.js");
-      const pdfData = await pdfParse(buffer);
-      text = pdfData.text ?? "";
-      if (!text.trim()) {
-        return NextResponse.json({ error: "PDF'den metin çıkarılamadı." }, { status: 400 });
-      }
-    } else {
-      return NextResponse.json({ error: "Bu endpoint yalnızca PDF dosyalarını desteklemektedir." }, { status: 400 });
+    if (!text?.trim()) {
+      return NextResponse.json({ error: "PDF'den metin çıkarılamadı." }, { status: 400 });
     }
 
     const response = await openai.chat.completions.create({
