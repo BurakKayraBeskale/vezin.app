@@ -9,13 +9,31 @@ interface VeriSatiri {
   birim?: string;
 }
 
+interface Mukellef {
+  unvan?: string;
+  vergi_kimlik_no?: string;
+  vergi_dairesi?: string;
+  [key: string]: any;
+}
+
 interface BeyannameResult {
   belge_turu: string;
-  mukellef?: string;
+  mukellef?: Mukellef | string;
   vergi_no?: string;
   donem?: string;
   veriler: VeriSatiri[];
   ozet?: string;
+}
+
+/** mukellef alanı string veya obje olabilir, güvenli erişim */
+function getMukellefStr(m: Mukellef | string | undefined): { unvan: string; vergiNo: string; vergiDairesi: string } {
+  if (!m) return { unvan: "", vergiNo: "", vergiDairesi: "" };
+  if (typeof m === "string") return { unvan: m, vergiNo: "", vergiDairesi: "" };
+  return {
+    unvan:        m.unvan              ?? "",
+    vergiNo:      m.vergi_kimlik_no    ?? "",
+    vergiDairesi: m.vergi_dairesi      ?? "",
+  };
 }
 
 async function downloadExcel(result: BeyannameResult) {
@@ -23,12 +41,14 @@ async function downloadExcel(result: BeyannameResult) {
   const wb = XLSX.utils.book_new();
 
   // --- Sheet 1: Özet ---
+  const mk = getMukellefStr(result.mukellef);
   const ozetRows = [
-    { Alan: "Belge Türü", Değer: result.belge_turu },
-    { Alan: "Mükellef", Değer: result.mukellef ?? "" },
-    { Alan: "Vergi No", Değer: result.vergi_no ?? "" },
-    { Alan: "Dönem", Değer: result.donem ?? "" },
-    { Alan: "Özet", Değer: result.ozet ?? "" },
+    { Alan: "Belge Türü",    Değer: result.belge_turu },
+    { Alan: "Mükellef",      Değer: mk.unvan },
+    { Alan: "Vergi No",      Değer: mk.vergiNo || result.vergi_no || "" },
+    { Alan: "Vergi Dairesi", Değer: mk.vergiDairesi },
+    { Alan: "Dönem",         Değer: result.donem ?? "" },
+    { Alan: "Özet",          Değer: result.ozet ?? "" },
   ];
   const wsOzet = XLSX.utils.json_to_sheet(ozetRows);
   wsOzet["!cols"] = [{ wch: 20 }, { wch: 55 }];
@@ -185,26 +205,38 @@ export default function BeyannameUploader() {
                 <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-[#F57C28]/10 text-[#F57C28] uppercase tracking-wide">
                   {result.belge_turu}
                 </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-1 mt-2">
-                  {result.mukellef && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Mükellef</p>
-                      <p className="text-sm font-semibold text-gray-800 dark:text-white">{result.mukellef}</p>
+                {(() => {
+                  const mk = getMukellefStr(result.mukellef);
+                  const vergiNo = mk.vergiNo || result.vergi_no || "";
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-1 mt-2">
+                      {mk.unvan && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Ünvan</p>
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{mk.unvan}</p>
+                        </div>
+                      )}
+                      {vergiNo && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Vergi No</p>
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white font-mono">{vergiNo}</p>
+                        </div>
+                      )}
+                      {mk.vergiDairesi && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Vergi Dairesi</p>
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{mk.vergiDairesi}</p>
+                        </div>
+                      )}
+                      {result.donem && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Dönem</p>
+                          <p className="text-sm font-semibold text-gray-800 dark:text-white">{result.donem}</p>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {result.vergi_no && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Vergi No</p>
-                      <p className="text-sm font-semibold text-gray-800 dark:text-white font-mono">{result.vergi_no}</p>
-                    </div>
-                  )}
-                  {result.donem && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Dönem</p>
-                      <p className="text-sm font-semibold text-gray-800 dark:text-white">{result.donem}</p>
-                    </div>
-                  )}
-                </div>
+                  );
+                })()}
               </div>
               <button
                 onClick={() => downloadExcel(result)}
