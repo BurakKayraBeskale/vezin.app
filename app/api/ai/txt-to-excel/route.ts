@@ -20,11 +20,11 @@ JSON formatında döndür: {"rows": [...]}
 Sadece JSON döndür, başka açıklama yazma.`;
 }
 
-/** Tek bir OpenAI çağrısı — JSON parse hatası olursa bir kez retry yapar */
+/** Tek bir OpenAI çağrısı — ham yanıtı ve parse edilmiş sonucu birlikte döndürür */
 async function callOpenAI(
   openai: ReturnType<typeof getOpenAI>,
   messages: { role: "user" | "assistant"; content: string }[]
-): Promise<any> {
+): Promise<{ parsed: any; raw: string; finishReason: string }> {
   const response = await openai.chat.completions.create({
     model: "gpt-5.4-nano",
     messages,
@@ -33,7 +33,9 @@ async function callOpenAI(
   });
 
   const raw = response.choices[0]?.message?.content ?? "";
-  const finishReason = response.choices[0]?.finish_reason;
+  const finishReason = response.choices[0]?.finish_reason ?? "unknown";
+
+  // Ham yanıtı parse etmeden önce logla
   console.log("[txt-to-excel] --- OpenAI RAW RESPONSE ---");
   console.log("[txt-to-excel] finish_reason:", finishReason);
   console.log("[txt-to-excel] raw length:", raw.length);
@@ -45,9 +47,8 @@ async function callOpenAI(
   }
 
   try {
-    return JSON.parse(raw);
+    return { parsed: JSON.parse(raw), raw, finishReason };
   } catch {
-    // JSON geçersiz — bir kez daha dene
     console.warn("[txt-to-excel] JSON parse başarısız, retry yapılıyor...");
     const retryResponse = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
@@ -64,10 +65,11 @@ async function callOpenAI(
       max_completion_tokens: 8000,
     });
     const retryRaw = retryResponse.choices[0]?.message?.content ?? "{}";
+    console.log("[txt-to-excel] retry raw:", retryRaw);
     try {
-      return JSON.parse(retryRaw);
+      return { parsed: JSON.parse(retryRaw), raw: retryRaw, finishReason };
     } catch {
-      throw new Error(`JSON ayrıştırılamadı. Ham yanıt: ${retryRaw.slice(0, 200)}`);
+      throw new Error(`JSON ayrıştırılamadı. Ham yanıt: ${retryRaw.slice(0, 300)}`);
     }
   }
 }
@@ -82,11 +84,10 @@ async function processInChunks(
   text: string,
   firstChunkPrompt: string,
   knownHeaders?: string[]
-): Promise<{ headers?: string[]; rows: any[][] }> {
+): Promise<{ headers?: string[]; rows: any[][]; firstRaw?: string }> {
   const lines = text.split("\n");
   const nonEmptyLines = lines.filter((l) => l.trim().length > 0);
 
-  // 200 satırlık dilimler
   const chunks: string[] = [];
   for (let i = 0; i < nonEmptyLines.length; i += BACKEND_CHUNK_LINES) {
     const slice = nonEmptyLines.slice(i, i + BACKEND_CHUNK_LINES).join("\n");
@@ -101,6 +102,7 @@ async function processInChunks(
 
   let headers: string[] = knownHeaders ?? [];
   let allRows: any[][] = [];
+  let firstRaw: string | undefined;
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -109,35 +111,35 @@ async function processInChunks(
     try {
       if (i === 0 && !knownHeaders) {
         // İlk parça: headers + rows
-        const result = await callOpenAI(openai, [
+        const { parsed, raw } = await callOpenAI(openai, [
           { role: "user", content: `${firstChunkPrompt}\n\nMetin içeriği:\n${chunk}` },
         ]);
-        if (!Array.isArray(result.headers) || !Array.isArray(result.rows)) {
+        firstRaw = raw; // ilk ham yanıtı sakla
+        if (!Array.isArray(parsed.headers) || !Array.isArray(parsed.rows)) {
           throw new Error("İlk parçadan sütun başlıkları çıkarılamadı.");
         }
-        headers = result.headers;
-        allRows = [...allRows, ...result.rows];
+        headers = parsed.headers;
+        allRows = [...allRows, ...parsed.rows];
       } else {
         // Devam parçaları: sadece rows
-        const result = await callOpenAI(openai, [
+        const { parsed } = await callOpenAI(openai, [
           {
             role: "user",
             content: `${buildContinuationPrompt(headers)}\n\nMetin devamı:\n${chunk}`,
           },
         ]);
-        if (Array.isArray(result.rows)) {
-          allRows = [...allRows, ...result.rows];
+        if (Array.isArray(parsed.rows)) {
+          allRows = [...allRows, ...parsed.rows];
         } else {
           console.warn(`[txt-to-excel] Parça ${i + 1} rows döndürmedi, atlandı.`);
         }
       }
     } catch (err: any) {
       console.error(`[txt-to-excel] Parça ${i + 1} hatası:`, err.message);
-      // Hata durumunda bu parçayı atla, devam et
     }
   }
 
-  return knownHeaders ? { rows: allRows } : { headers, rows: allRows };
+  return knownHeaders ? { rows: allRows } : { headers, rows: allRows, firstRaw };
 }
 
 export async function POST(req: NextRequest) {
@@ -215,8 +217,12 @@ export async function POST(req: NextRequest) {
       const result = await processInChunks(openai, text, firstChunkPrompt);
 
       if (!result.headers?.length) {
+        console.error("[txt-to-excel] headers boş — firstRaw:", result.firstRaw);
         return NextResponse.json(
-          { error: "Metin tablo formatına dönüştürülemedi. Daha yapılandırılmış bir metin deneyin." },
+          {
+            error: "Metin tablo formatına dönüştürülemedi. Daha yapılandırılmış bir metin deneyin.",
+            raw: result.firstRaw ?? "(boş)",
+          },
           { status: 422 }
         );
       }

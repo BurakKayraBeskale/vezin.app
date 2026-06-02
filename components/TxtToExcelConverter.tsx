@@ -45,9 +45,10 @@ async function sendChunk(
 
   const res = await fetch("/api/ai/txt-to-excel", { method: "POST", body: fd });
 
-  // Önce ham gövdeyi oku — boş yanıt veya HTML hata sayfası olabilir
+  // Önce ham HTTP gövdesini oku — parse etmeden önce logla
   const raw = await res.text();
-  console.log("[txt-to-excel] HTTP", res.status, "raw response:", raw);
+  console.log("[txt-to-excel] HTTP durum:", res.status);
+  console.log("[txt-to-excel] Ham HTTP yanıtı (parse öncesi):", raw);
 
   if (!raw.trim()) {
     throw new Error(
@@ -59,6 +60,10 @@ async function sendChunk(
   let json: any;
   try {
     json = JSON.parse(raw);
+    // OpenAI'den gelen ham içerik varsa onu da logla
+    if (json.raw) {
+      console.log("[txt-to-excel] OpenAI ham yanıtı (model çıktısı):", json.raw);
+    }
   } catch {
     throw new Error(
       `Sunucu geçersiz JSON döndürdü (HTTP ${res.status}). ` +
@@ -67,7 +72,10 @@ async function sendChunk(
   }
 
   if (!res.ok) {
-    throw new Error(json.error ?? `Sunucu hatası (HTTP ${res.status})`);
+    const msg = json.error ?? `Sunucu hatası (HTTP ${res.status})`;
+    // Model ham çıktısı varsa hata mesajına ekle — ekranda görünsün
+    const detail = json.raw ? `\n\nModel ham çıktısı:\n${json.raw}` : "";
+    throw new Error(msg + detail);
   }
 
   return json;
@@ -272,7 +280,7 @@ export default function TxtToExcelConverter() {
           <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
           </svg>
-          <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+          <pre className="text-sm text-red-700 dark:text-red-400 whitespace-pre-wrap break-all">{error}</pre>
         </div>
       )}
 
