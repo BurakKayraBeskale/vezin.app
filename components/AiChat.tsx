@@ -168,7 +168,8 @@ export default function AiChat() {
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            className="bg-white/8 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/80 focus:outline-none focus:border-[#F57C28]/50"
+            className="border border-white/10 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-[#F57C28]/50"
+            style={{ background: "#1e1e2e", color: "#e2e2e2" }}
           >
             {MODELS.map((m) => (
               <option key={m.id} value={m.id} className="bg-[#1a1a2e]">

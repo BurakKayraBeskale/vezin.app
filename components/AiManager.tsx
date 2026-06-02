@@ -200,7 +200,8 @@ export default function AiManager() {
         <textarea
           value={editValue}
           onChange={(e) => setEditValue(e.target.value)}
-          className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4 text-white/90 text-sm font-mono resize-none focus:outline-none focus:border-[#F57C28]/50 placeholder:text-white/20 min-h-0"
+          className="flex-1 border border-white/10 rounded-xl p-4 text-sm font-mono resize-none focus:outline-none focus:border-[#F57C28]/80 min-h-0"
+          style={{ background: "#fff", color: "#111" }}
           placeholder="Prompt içeriği..."
           spellCheck={false}
         />
@@ -213,7 +214,8 @@ export default function AiManager() {
               value={testInput}
               onChange={(e) => setTestInput(e.target.value)}
               rows={4}
-              className="bg-white/5 border border-white/10 rounded-lg p-3 text-white/80 text-xs font-mono resize-none focus:outline-none focus:border-[#F57C28]/50"
+              className="border border-white/10 rounded-lg p-3 text-xs font-mono resize-none focus:outline-none focus:border-[#F57C28]/80"
+              style={{ background: "#fff", color: "#111" }}
               placeholder="Buraya test metni girin..."
             />
             <button
