@@ -43,35 +43,15 @@ export async function POST(req: NextRequest) {
   const prompt = await getAiPrompt("BEYANNAME") + "\n\nYanıtını JSON formatında ver.";
 
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    let messageContent: any[];
-
-    if (file.type === "application/pdf") {
-      const pdfParse = require("pdf-parse");
-      const pdfData = await pdfParse(buffer);
-      if (!pdfData.text?.trim()) {
-        return NextResponse.json({ error: "PDF'den metin çıkarılamadı. Lütfen görsel olarak yükleyin" }, { status: 400 });
-      }
-      messageContent = [
-        {
-          type: "text",
-          text: `${prompt}\n\nBelge içeriği:\n${pdfData.text.slice(0, 8000)}`,
-        },
-      ];
-    } else {
-      const base64 = buffer.toString("base64");
-      const mimeType = file.type as "image/jpeg" | "image/png" | "image/webp";
-      messageContent = [
-        { type: "text", text: prompt },
-        {
-          type: "image_url",
-          image_url: {
-            url: `data:${mimeType};base64,${base64}`,
-            detail: "high",
-          },
-        },
-      ];
-    }
+    const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+    const mimeType = file.type as "application/pdf" | "image/jpeg" | "image/png" | "image/webp";
+    const messageContent: any[] = [
+      {
+        type: "image_url",
+        image_url: { url: `data:${mimeType};base64,${base64}` },
+      },
+      { type: "text", text: prompt },
+    ];
 
     const response = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
