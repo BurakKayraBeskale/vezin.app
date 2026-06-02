@@ -128,10 +128,17 @@ async function processInChunks(
         ]);
         firstRaw = raw; // ilk ham yanıtı sakla
         if (!Array.isArray(parsed.headers) || !Array.isArray(parsed.rows)) {
-          throw new Error("İlk parçadan sütun başlıkları çıkarılamadı.");
+          console.error("[txt-to-excel] Beklenmedik format:", JSON.stringify(parsed).slice(0, 300));
+          throw new Error("Model beklenen formatta yanıt döndürmedi.");
         }
         headers = parsed.headers;
-        allRows = [...allRows, ...parsed.rows];
+        // Satırları normalize et: model obje döndürdüyse headers sırasına göre diziye çevir
+        const normalizeRow = (row: any): any[] => {
+          if (Array.isArray(row)) return row;
+          if (row && typeof row === "object") return headers.map((h) => row[h] ?? "");
+          return [];
+        };
+        allRows = [...allRows, ...parsed.rows.map(normalizeRow)];
       } else {
         // Devam parçaları: sadece rows
         const { parsed } = await callOpenAI(openai, [
@@ -141,7 +148,12 @@ async function processInChunks(
           },
         ]);
         if (Array.isArray(parsed.rows)) {
-          allRows = [...allRows, ...parsed.rows];
+          const normalizeRow = (row: any): any[] => {
+            if (Array.isArray(row)) return row;
+            if (row && typeof row === "object") return headers.map((h) => row[h] ?? "");
+            return [];
+          };
+          allRows = [...allRows, ...parsed.rows.map(normalizeRow)];
         } else {
           console.warn(`[txt-to-excel] Parça ${i + 1} rows döndürmedi, atlandı.`);
         }

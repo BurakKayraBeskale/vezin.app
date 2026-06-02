@@ -23,7 +23,9 @@ async function downloadExcel(result: TableResult, filename = "veri.xlsx") {
   ws["!cols"] = result.headers.map((h, colIdx) => {
     const maxLen = Math.max(
       h.length,
-      ...result.rows.map((row) => String(row[colIdx] ?? "").length)
+      ...result.rows.map((row) =>
+        Array.isArray(row) ? String(row[colIdx] ?? "").length : 0
+      )
     );
     return { wch: Math.min(50, Math.max(12, maxLen)) };
   });
@@ -41,6 +43,7 @@ async function downloadExcel(result: TableResult, filename = "veri.xlsx") {
 
   // ── Veri hücreleri: sayısal → sağa, diğer → ortaya ───────────────────────
   result.rows.forEach((row, rowIdx) => {
+    if (!Array.isArray(row)) return;
     row.forEach((cell, colIdx) => {
       const ref = XLSX.utils.encode_cell({ r: rowIdx + 1, c: colIdx });
       if (ws[ref]) {
@@ -87,7 +90,7 @@ function fixTipSeviye(headers: string[], rows: any[][]): any[][] {
   if (kodIdx === -1 || (tipIdx === -1 && sevIdx === -1)) return rows;
 
   return rows.map((row) => {
-    const r = [...row];
+    const r = Array.isArray(row) ? [...row] : [];
     const kod = String(r[kodIdx] ?? "").trim();
     if (!kod) return r;
     const len = kod.length;
