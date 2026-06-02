@@ -35,27 +35,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Dosya boyutu 10MB'ı geçemez" }, { status: 400 });
   }
 
-  const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
-  if (!allowedTypes.includes(file.type)) {
-    return NextResponse.json({ error: "Yalnızca PDF, JPG veya PNG dosyaları desteklenmektedir" }, { status: 400 });
+  if (file.type !== "application/pdf") {
+    return NextResponse.json({ error: "Yalnızca PDF dosyaları desteklenmektedir" }, { status: 400 });
   }
 
   const prompt = await getAiPrompt("BEYANNAME") + "\n\nYanıtını JSON formatında ver.";
 
   try {
-    const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    const mimeType = file.type as "application/pdf" | "image/jpeg" | "image/png" | "image/webp";
-    const messageContent: any[] = [
-      {
-        type: "image_url",
-        image_url: { url: `data:${mimeType};base64,${base64}` },
-      },
-      { type: "text", text: prompt },
-    ];
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    let text = "";
+    if (file.type === "application/pdf") {
+      const pdfParse = require("pdf-parse/lib/pdf-parse.js");
+      const pdfData = await pdfParse(buffer);
+      text = pdfData.text ?? "";
+      if (!text.trim()) {
+        return NextResponse.json({ error: "PDF'den metin çıkarılamadı." }, { status: 400 });
+      }
+    } else {
+      return NextResponse.json({ error: "Bu endpoint yalnızca PDF dosyalarını desteklemektedir." }, { status: 400 });
+    }
 
     const response = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
-      messages: [{ role: "user", content: messageContent }],
+      messages: [
+        {
+          role: "user",
+          content: `${prompt}\n\nBelge içeriği:\n${text.slice(0, 8000)}`,
+        },
+      ],
       response_format: { type: "json_object" },
       max_completion_tokens: 3000,
     });
