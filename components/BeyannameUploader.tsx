@@ -52,49 +52,22 @@ function getMukellefStr(m: Mukellef | string | undefined): { unvan: string; verg
 }
 
 async function downloadExcel(result: BeyannameResult) {
-  const XLSX = await import("xlsx");
-  const wb = XLSX.utils.book_new();
-
-  // --- Sheet 1: Özet ---
-  const mk = getMukellefStr(result.mukellef);
-  const ozetRows = [
-    { Alan: "Belge Türü",    Değer: result.belge_turu },
-    { Alan: "Mükellef",      Değer: mk.unvan },
-    { Alan: "Vergi No",      Değer: mk.vergiNo || result.vergi_no || "" },
-    { Alan: "Vergi Dairesi", Değer: mk.vergiDairesi },
-    { Alan: "Dönem",         Değer: result.donem ?? "" },
-    { Alan: "Özet",          Değer: result.ozet ?? "" },
-  ];
-  const wsOzet = XLSX.utils.json_to_sheet(ozetRows);
-  wsOzet["!cols"] = [{ wch: 20 }, { wch: 55 }];
-  XLSX.utils.book_append_sheet(wb, wsOzet, "Özet");
-
-  // --- Sheet 2: Veriler ---
-  const veriRows = result.veriler.map((v) => {
-    const numericVal = parseFloat(String(v.deger).replace(/[^0-9.,\-]/g, "").replace(",", "."));
-    const deger = !isNaN(numericVal) ? numericVal : v.deger;
-    return { Alan: v.alan, Değer: deger, Birim: v.birim ?? "" };
-  });
-  const wsVeriler = XLSX.utils.json_to_sheet(veriRows);
-  wsVeriler["!cols"] = [{ wch: 40 }, { wch: 20 }, { wch: 10 }];
-
-  // TRY para formatı uygula sayısal hücrelere
-  const TRY_FORMAT = '#,##0.00 [$₺-tr-TR]';
-  veriRows.forEach((row, i) => {
-    if (typeof row["Değer"] === "number") {
-      const cellAddr = XLSX.utils.encode_cell({ r: i + 1, c: 1 }); // +1 header satırı
-      if (wsVeriler[cellAddr]) wsVeriler[cellAddr].z = TRY_FORMAT;
-    }
+  const res = await fetch("/api/ai/beyanname/excel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ result }),
   });
 
-  XLSX.utils.book_append_sheet(wb, wsVeriler, "Veriler");
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json.error ?? "Excel oluşturulamadı");
+  }
 
-  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${result.belge_turu || "beyanname"}.xlsx`;
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = `${safeStr(result.belge_turu) || "beyanname"}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }
