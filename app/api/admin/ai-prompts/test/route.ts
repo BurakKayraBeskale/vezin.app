@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     const response = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
       messages: [
-        { role: "user", content: `${prompt}\n\nTest içeriği:\n${text.slice(0, 4000)}` },
+        { role: "user", content: `${prompt}\n\nYanıtını JSON formatında ver.\n\nTest içeriği:\n${text.slice(0, 4000)}` },
       ],
       response_format: { type: "json_object" },
       max_completion_tokens: 2000,

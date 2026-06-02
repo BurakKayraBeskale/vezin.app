@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Yalnızca PDF, JPG veya PNG dosyaları desteklenmektedir" }, { status: 400 });
   }
 
-  const prompt = await getAiPrompt("BEYANNAME");
+  const prompt = await getAiPrompt("BEYANNAME") + "\n\nYanıtını JSON formatında ver.";
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());

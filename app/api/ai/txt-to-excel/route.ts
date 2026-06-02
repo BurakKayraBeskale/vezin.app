@@ -17,7 +17,8 @@ Sütun başlıkları zaten belirlendi: ${JSON.stringify(headers)}
 Bu metin parçasındaki satırları aynı sütun sırasına göre dönüştür.
 Türkçe karakterleri koru. Sayısal değerleri tam al.
 JSON formatında döndür: {"rows": [...]}
-Sadece JSON döndür, başka açıklama yazma.`;
+Sadece JSON döndür, başka açıklama yazma.
+Yanıtını JSON formatında ver.`;
 }
 
 /** Tek bir OpenAI çağrısı — ham yanıtı ve parse edilmiş sonucu birlikte döndürür */
@@ -228,7 +229,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ rows: result.rows });
     } else {
       // İlk istek — headers çıkar + rows
-      const firstChunkPrompt = await getAiPrompt("TXT_EXCEL");
+      const firstChunkPrompt = await getAiPrompt("TXT_EXCEL") + "\n\nYanıtını JSON formatında ver.";
       const result = await processInChunks(openai, text, firstChunkPrompt);
 
       if (!result.headers?.length) {

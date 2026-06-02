@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const prompt = await getAiPrompt("TARAYICI");
+    const prompt = await getAiPrompt("TARAYICI") + "\n\nYanıtını JSON formatında ver.";
     const buffer = Buffer.from(await file.arrayBuffer());
     let messageContent: any[];
 

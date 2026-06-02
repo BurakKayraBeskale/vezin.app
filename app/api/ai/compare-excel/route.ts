@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const prompt = await getAiPrompt("KARSILASTIRMA");
+    const prompt = await getAiPrompt("KARSILASTIRMA") + "\n\nYanıtını JSON formatında ver.";
     const [buf1, buf2] = await Promise.all([
       file1.arrayBuffer().then(Buffer.from),
       file2.arrayBuffer().then(Buffer.from),
