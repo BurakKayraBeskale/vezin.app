@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
       if (key) f2Map.set(key, row);
     }
 
-    const allKeys = new Set([...f1Map.keys(), ...f2Map.keys()]);
+    const allKeys = new Set([...Array.from(f1Map.keys()), ...Array.from(f2Map.keys())]);
 
     // Karşılaştırma satırları
     const compRows: Array<{
