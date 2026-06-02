@@ -23,6 +23,7 @@
     "@types/pdf-parse": "^1.1.5",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "next": "14.2.3",

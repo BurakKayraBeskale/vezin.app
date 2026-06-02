@@ -6,7 +6,7 @@ export const maxDuration = 60;
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
-// ── Yardımcı fonksiyonlar ────────────────────────────────────────────────────
+// ── Yardımcı fonksiyonlar ─────────────────────────────────────────────────────
 
 function norm(s: string): string {
   return String(s ?? "")
@@ -18,12 +18,10 @@ function norm(s: string): string {
 
 function findCol(headers: string[], keywords: string[]): number {
   const normed = headers.map(norm);
-  // Önce tam eşleşme
   for (const kw of keywords) {
     const idx = normed.indexOf(norm(kw));
     if (idx !== -1) return idx;
   }
-  // Sonra içerme
   for (const kw of keywords) {
     const idx = normed.findIndex((h) => h.includes(norm(kw)));
     if (idx !== -1) return idx;
@@ -39,7 +37,6 @@ function toNum(val: any): number {
   if (val == null || val === "") return 0;
   if (typeof val === "number") return val;
   let s = String(val).trim().replace(/[₺$€£\s]/g, "");
-  // Türkçe format: 1.234,56
   if (/\d+\.\d{3}[,]\d/.test(s) || /^\d+[,]\d{1,2}$/.test(s)) {
     s = s.replace(/\./g, "").replace(",", ".");
   } else {
@@ -48,32 +45,26 @@ function toNum(val: any): number {
   return parseFloat(s) || 0;
 }
 
-function parseSheet(data: any[][]): { headers: string[]; rows: any[][] } {
-  if (data.length === 0) return { headers: [], rows: [] };
-  const headers = data[0].map((c) => String(c ?? "").trim());
-  const rows = data.slice(1).filter((r) => r.some((c) => String(c ?? "").trim() !== ""));
-  return { headers, rows };
-}
-
 type RowStatus = "eslesiyor" | "kdv_farki" | "sadece_firma1" | "sadece_firma2";
 
 const STATUS_LABELS: Record<RowStatus, string> = {
-  eslesiyor:    "Eşleşiyor",
-  kdv_farki:   "KDV Farkı Var",
+  eslesiyor:     "Eşleşiyor",
+  kdv_farki:    "KDV Farkı Var",
   sadece_firma1: "Sadece Firma 1",
   sadece_firma2: "Sadece Firma 2",
 };
 
-const COLORS: Record<string, string> = {
-  eslesiyor:    "C6EFCE", // yeşil
-  kdv_farki:   "FFEB9C", // sarı
-  sadece_firma1: "FFB6C1", // pembe
-  sadece_firma2: "D9F0D3", // açık yeşil
-  header:       "D9E1F2", // başlık satırı
-  title_bg:     "1F3864", // koyu lacivert başlık arka plan
+// ARGB renk kodları (ExcelJS formatı)
+const FILL: Record<string, string> = {
+  eslesiyor:     "FF90EE90", // yeşil
+  kdv_farki:    "FFFFFF00", // sarı
+  sadece_firma1: "FFFFB3B3", // pembe
+  sadece_firma2: "FFB3FFB3", // açık yeşil
+  header:        "FF003366", // koyu mavi
+  summary_bg:    "FFD9E1F2", // açık mavi-gri
 };
 
-// ── POST handler ─────────────────────────────────────────────────────────────
+// ── POST handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -93,59 +84,60 @@ export async function POST(req: NextRequest) {
   }
 
   const file = formData.get("file") as File | null;
-  if (!file) {
-    return NextResponse.json({ error: "Dosya bulunamadı" }, { status: 400 });
-  }
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: "Dosya boyutu 10MB'ı geçemez" }, { status: 400 });
-  }
-  const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls") ||
+  if (!file) return NextResponse.json({ error: "Dosya bulunamadı" }, { status: 400 });
+  if (file.size > MAX_SIZE) return NextResponse.json({ error: "Dosya boyutu 10MB'ı geçemez" }, { status: 400 });
+
+  const isExcel =
+    file.name.endsWith(".xlsx") || file.name.endsWith(".xls") ||
     file.type.includes("spreadsheet") || file.type.includes("ms-excel");
   if (!isExcel) {
     return NextResponse.json({ error: "Yalnızca Excel (.xlsx / .xls) dosyaları desteklenmektedir" }, { status: 400 });
   }
 
   try {
-    const XLSX = await import("xlsx");
+    const ExcelJS = require("exceljs");
     const buffer = Buffer.from(await file.arrayBuffer());
-    const wb = XLSX.read(buffer, { type: "buffer", cellStyles: true });
 
-    if (wb.SheetNames.length < 2) {
+    const wbIn = new ExcelJS.Workbook();
+    await wbIn.xlsx.load(buffer);
+
+    if (wbIn.worksheets.length < 2) {
       return NextResponse.json(
         { error: "Excel dosyası en az 2 sayfa içermelidir (1. sayfa: Firma 1, 2. sayfa: Firma 2)" },
         { status: 400 }
       );
     }
 
-    const raw1 = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" }) as any[][];
-    const raw2 = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[1]], { header: 1, defval: "" }) as any[][];
+    // ── Sheet okuma yardımcısı ─────────────────────────────────────────────────
+    function readSheet(ws: any): { headers: string[]; rows: any[][] } {
+      const allRows: any[][] = [];
+      ws.eachRow((row: any) => {
+        allRows.push(row.values.slice(1)); // index 0 boş, 1'den başla
+      });
+      if (allRows.length === 0) return { headers: [], rows: [] };
+      const headers = allRows[0].map((c: any) => String(c ?? "").trim());
+      const rows = allRows.slice(1).filter((r) => r.some((c: any) => String(c ?? "").trim() !== ""));
+      return { headers, rows };
+    }
 
-    const f1 = parseSheet(raw1);
-    const f2 = parseSheet(raw2);
+    const f1 = readSheet(wbIn.worksheets[0]);
+    const f2 = readSheet(wbIn.worksheets[1]);
 
-    // Sütun tespiti
-    const keyKeywords    = ["FATURA NO", "BELGE NO", "ETTN", "FATURA", "BELGE", "NO"];
-    const kdvKeywords    = ["KDV TUTARI", "VERGI TUTARI", "KDV", "VERGI"];
-    const aciklamaKw     = ["ACIKLAMA", "UNVAN", "AD SOYAD", "AD", "ÜNVAN"];
-    const aliciKw        = ["ALICI UNVANI", "ALICI", "UNVAN", "AD"];
-    const turKw          = ["FATURA TURU", "TUR", "BELGE TURU"];
-    const malKw          = ["MAL HIZMET TUTARI", "MAL/HIZMET", "MATRAH", "MAL HIZMET", "MAL"];
-    const toplamKw       = ["GENEL TOPLAM", "FATURA TOPLAMI", "TOPLAM TUTAR", "TOPLAM", "TUTAR"];
+    // ── Sütun tespiti ─────────────────────────────────────────────────────────
+    const f1KeyIdx  = findCol(f1.headers, ["FATURA NO", "BELGE NO", "ETTN", "FATURA", "BELGE", "NO"]);
+    const f2KeyIdx  = findCol(f2.headers, ["FATURA NO", "BELGE NO", "ETTN", "FATURA", "BELGE", "NO"]);
+    const f1KdvIdx  = findCol(f1.headers, ["KDV TUTARI", "VERGI TUTARI", "KDV", "VERGI"]);
+    const f2KdvIdx  = findCol(f2.headers, ["KDV TUTARI", "VERGI TUTARI", "KDV", "VERGI"]);
+    const f1AcIdx   = findCol(f1.headers, ["ACIKLAMA", "UNVAN", "AD SOYAD", "AD"]);
+    const f2AlicIdx = findCol(f2.headers, ["ALICI UNVANI", "ALICI", "UNVAN", "AD"]);
+    const f1TurIdx  = findCol(f1.headers, ["FATURA TURU", "TUR", "BELGE TURU"]);
+    const f2TurIdx  = findCol(f2.headers, ["FATURA TURU", "TUR", "BELGE TURU"]);
+    const f1MalIdx  = findCol(f1.headers, ["MAL HIZMET TUTARI", "MAL/HIZMET", "MATRAH", "MAL HIZMET", "MAL"]);
+    const f2MalIdx  = findCol(f2.headers, ["MAL HIZMET TUTARI", "MAL/HIZMET", "MATRAH", "MAL HIZMET", "MAL"]);
+    const f1TopIdx  = findCol(f1.headers, ["GENEL TOPLAM", "FATURA TOPLAMI", "TOPLAM TUTAR", "TOPLAM", "TUTAR"]);
+    const f2TopIdx  = findCol(f2.headers, ["GENEL TOPLAM", "FATURA TOPLAMI", "TOPLAM TUTAR", "TOPLAM", "TUTAR"]);
 
-    const f1KeyIdx   = findCol(f1.headers, keyKeywords);
-    const f2KeyIdx   = findCol(f2.headers, keyKeywords);
-    const f1KdvIdx   = findCol(f1.headers, kdvKeywords);
-    const f2KdvIdx   = findCol(f2.headers, kdvKeywords);
-    const f1AcIdx    = findCol(f1.headers, aciklamaKw);
-    const f2AlicIdx  = findCol(f2.headers, aliciKw);
-    const f1TurIdx   = findCol(f1.headers, turKw);
-    const f2TurIdx   = findCol(f2.headers, turKw);
-    const f1MalIdx   = findCol(f1.headers, malKw);
-    const f2MalIdx   = findCol(f2.headers, malKw);
-    const f1TopIdx   = findCol(f1.headers, toplamKw);
-    const f2TopIdx   = findCol(f2.headers, toplamKw);
-
-    // Haritalar: key → row
+    // ── Karşılaştırma mantığı ─────────────────────────────────────────────────
     const f1Map = new Map<string, any[]>();
     for (const row of f1.rows) {
       const key = String(get(row, f1KeyIdx)).trim();
@@ -159,7 +151,6 @@ export async function POST(req: NextRequest) {
 
     const allKeys = new Set([...Array.from(f1Map.keys()), ...Array.from(f2Map.keys())]);
 
-    // Karşılaştırma satırları
     const compRows: Array<{
       key: string; f1Ac: string; f2Al: string; tur: string;
       f1Kdv: number; f2Kdv: number; mal: number; toplam: number;
@@ -169,21 +160,21 @@ export async function POST(req: NextRequest) {
     for (const key of allKeys) {
       const r1 = f1Map.get(key);
       const r2 = f2Map.get(key);
-      const f1Kdv = r1 ? toNum(get(r1, f1KdvIdx)) : 0;
-      const f2Kdv = r2 ? toNum(get(r2, f2KdvIdx)) : 0;
+      const f1Kdv    = r1 ? toNum(get(r1, f1KdvIdx)) : 0;
+      const f2Kdv    = r2 ? toNum(get(r2, f2KdvIdx)) : 0;
       const kdvFarki = Math.abs(f1Kdv - f2Kdv);
 
       let durum: RowStatus;
-      if (!r2)               durum = "sadece_firma1";
-      else if (!r1)          durum = "sadece_firma2";
+      if (!r2)                durum = "sadece_firma1";
+      else if (!r1)           durum = "sadece_firma2";
       else if (kdvFarki > 0.01) durum = "kdv_farki";
-      else                   durum = "eslesiyor";
+      else                    durum = "eslesiyor";
 
       compRows.push({
         key,
-        f1Ac:    r1 ? String(get(r1, f1AcIdx))   : "",
-        f2Al:    r2 ? String(get(r2, f2AlicIdx))  : "",
-        tur:     r1 ? String(get(r1, f1TurIdx))   : (r2 ? String(get(r2, f2TurIdx)) : ""),
+        f1Ac:   r1 ? String(get(r1, f1AcIdx))  : "",
+        f2Al:   r2 ? String(get(r2, f2AlicIdx)) : "",
+        tur:    r1 ? String(get(r1, f1TurIdx))  : (r2 ? String(get(r2, f2TurIdx)) : ""),
         f1Kdv, f2Kdv,
         mal:    r1 ? toNum(get(r1, f1MalIdx))  : (r2 ? toNum(get(r2, f2MalIdx))  : 0),
         toplam: r1 ? toNum(get(r1, f1TopIdx))  : (r2 ? toNum(get(r2, f2TopIdx))  : 0),
@@ -192,98 +183,124 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Sıralama: eşleşiyor → kdv farkı → sadece firma1 → sadece firma2
     const durumOrder: Record<RowStatus, number> = {
       eslesiyor: 0, kdv_farki: 1, sadece_firma1: 2, sadece_firma2: 3,
     };
     compRows.sort((a, b) => durumOrder[a.durum] - durumOrder[b.durum]);
 
-    // İstatistikler
-    const totalCount  = compRows.length;
+    const totalCount   = compRows.length;
     const eslesenCount = compRows.filter((r) => r.durum === "eslesiyor").length;
-    const kdvFCount   = compRows.filter((r) => r.durum === "kdv_farki").length;
+    const kdvFCount    = compRows.filter((r) => r.durum === "kdv_farki").length;
     const sadece1Count = compRows.filter((r) => r.durum === "sadece_firma1").length;
     const sadece2Count = compRows.filter((r) => r.durum === "sadece_firma2").length;
 
-    // ── Karşılaştırma sayfası oluştur ────────────────────────────────────────
-    const ws: any = {};
-    const merges: any[] = [];
-    let r = 0;
-    const COL_COUNT = 10;
+    // ── ExcelJS yardımcıları ──────────────────────────────────────────────────
+    function solidFill(argb: string) {
+      return { type: "pattern", pattern: "solid", fgColor: { argb } } as const;
+    }
 
-    const cell = (row: number, col: number, value: any, style: any) => {
-      const ref = XLSX.utils.encode_cell({ r: row, c: col });
-      ws[ref] = {
-        v: value,
-        t: typeof value === "number" ? "n" : "s",
-        s: style,
-      };
-    };
-
-    // Satır 0: Başlık
-    cell(r, 0, "FİRMA 1 - FİRMA 2 KARŞILAŞTIRMA RAPORU", {
-      font: { bold: true, sz: 14, color: { rgb: "FFFFFF" } },
-      fill: { patternType: "solid", fgColor: { rgb: COLORS.title_bg } },
-      alignment: { horizontal: "center", vertical: "center" },
-    });
-    merges.push({ s: { r, c: 0 }, e: { r, c: COL_COUNT - 1 } });
-    r++;
-
-    // Satır 1: boş
-    r++;
-
-    // Satır 2: Özet başlıkları
-    const summaryLabels = ["Toplam Kayıt", "Eşleşen", "KDV Farkı Var", "Sadece Firma 1", "Sadece Firma 2"];
-    const summaryValues = [totalCount, eslesenCount, kdvFCount, sadece1Count, sadece2Count];
-    summaryLabels.forEach((lbl, i) => {
-      cell(r, i, lbl, {
-        font: { bold: true, sz: 10 },
-        fill: { patternType: "solid", fgColor: { rgb: COLORS.header } },
-        alignment: { horizontal: "center" },
-        border: { bottom: { style: "thin", color: { rgb: "000000" } } },
+    function applyRowFill(row: any, argb: string) {
+      row.eachCell({ includeEmpty: true }, (cell: any) => {
+        cell.fill = solidFill(argb);
       });
-    });
-    r++;
+    }
 
-    // Satır 3: Özet değerler
-    summaryValues.forEach((v, i) => {
-      cell(r, i, v, {
-        font: { bold: true, sz: 13 },
-        alignment: { horizontal: "center" },
-      });
-    });
-    r++;
+    function setHeaderCell(cell: any, value: string) {
+      cell.value = value;
+      cell.fill = solidFill(FILL.header);
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    }
 
-    // Satır 4: boş
-    r++;
+    // ── Karşılaştırma sayfası ──────────────────────────────────────────────────
+    const wbOut = new ExcelJS.Workbook();
 
-    // Satır 5: Renk açıklaması
-    const legend = [
-      { label: "Yeşil = Eşleşiyor",          color: COLORS.eslesiyor },
-      { label: "Sarı = KDV Farkı Var",        color: COLORS.kdv_farki },
-      { label: "Pembe = Sadece Firma 1",       color: COLORS.sadece_firma1 },
-      { label: "Açık Yeşil = Sadece Firma 2",  color: COLORS.sadece_firma2 },
-    ];
-    legend.forEach((item, i) => {
-      cell(r, i * 2, item.label, {
-        fill: { patternType: "solid", fgColor: { rgb: item.color } },
-        font: { sz: 9, bold: true },
-        alignment: { horizontal: "center" },
-        border: { all: { style: "thin", color: { rgb: "CCCCCC" } } },
-      });
-      if (i * 2 + 1 < COL_COUNT) {
-        cell(r, i * 2 + 1, "", {
-          fill: { patternType: "solid", fgColor: { rgb: item.color } },
+    // Mevcut sayfaları kopyala
+    for (const wsIn of wbIn.worksheets) {
+      const wsOut = wbOut.addWorksheet(wsIn.name);
+      wsIn.eachRow((row: any, rowNum: number) => {
+        const newRow = wsOut.getRow(rowNum);
+        row.eachCell({ includeEmpty: true }, (cell: any, colNum: number) => {
+          newRow.getCell(colNum).value = cell.value;
         });
-        merges.push({ s: { r, c: i * 2 }, e: { r, c: i * 2 + 1 } });
-      }
+        newRow.commit();
+      });
+    }
+
+    // Karşılaştırma sayfası
+    const ws = wbOut.addWorksheet("KARŞILAŞTIRMA");
+
+    // Sütun genişlikleri
+    ws.columns = [
+      { width: 24 }, { width: 32 }, { width: 32 }, { width: 16 },
+      { width: 16 }, { width: 16 }, { width: 18 }, { width: 18 }, { width: 14 }, { width: 20 },
+    ];
+
+    const COL = 10;
+
+    // Satır 1: Büyük başlık
+    const titleRow = ws.getRow(1);
+    const titleCell = titleRow.getCell(1);
+    titleCell.value = "FİRMA 1 - FİRMA 2 KARŞILAŞTIRMA RAPORU";
+    titleCell.fill  = solidFill(FILL.header);
+    titleCell.font  = { bold: true, size: 14, color: { argb: "FFFFFFFF" } };
+    titleCell.alignment = { horizontal: "center", vertical: "middle" };
+    ws.mergeCells(1, 1, 1, COL);
+    titleRow.height = 28;
+    titleRow.commit();
+
+    // Satır 2: boş
+    ws.getRow(2).commit();
+
+    // Satır 3: Özet başlıkları
+    const sumLblRow = ws.getRow(3);
+    const summaryLabels = ["Toplam Kayıt", "Eşleşen", "KDV Farkı Var", "Sadece Firma 1", "Sadece Firma 2"];
+    summaryLabels.forEach((lbl, i) => {
+      const c = sumLblRow.getCell(i + 1);
+      c.value = lbl;
+      c.fill  = solidFill(FILL.summary_bg);
+      c.font  = { bold: true, size: 10 };
+      c.alignment = { horizontal: "center" };
     });
-    r++;
+    sumLblRow.commit();
 
-    // Satır 6: boş
-    r++;
+    // Satır 4: Özet değerler
+    const sumValRow = ws.getRow(4);
+    [totalCount, eslesenCount, kdvFCount, sadece1Count, sadece2Count].forEach((v, i) => {
+      const c = sumValRow.getCell(i + 1);
+      c.value = v;
+      c.font  = { bold: true, size: 12 };
+      c.alignment = { horizontal: "center" };
+    });
+    sumValRow.commit();
 
-    // Satır 7: Sütun başlıkları
+    // Satır 5: boş
+    ws.getRow(5).commit();
+
+    // Satır 6: Renk açıklaması
+    const legendRow = ws.getRow(6);
+    const legendItems: Array<{ label: string; argb: string }> = [
+      { label: "Yeşil = Eşleşiyor",          argb: FILL.eslesiyor },
+      { label: "Sarı = KDV Farkı Var",        argb: FILL.kdv_farki },
+      { label: "Pembe = Sadece Firma 1",       argb: FILL.sadece_firma1 },
+      { label: "Açık Yeşil = Sadece Firma 2",  argb: FILL.sadece_firma2 },
+    ];
+    legendItems.forEach((item, i) => {
+      const c = legendRow.getCell(i * 2 + 1);
+      c.value = item.label;
+      c.fill  = solidFill(item.argb);
+      c.font  = { bold: true, size: 9 };
+      c.alignment = { horizontal: "center" };
+      ws.mergeCells(6, i * 2 + 1, 6, i * 2 + 2);
+    });
+    legendRow.commit();
+
+    // Satır 7: boş
+    ws.getRow(7).commit();
+
+    // Satır 8: Sütun başlıkları
+    const headerRow = ws.getRow(8);
+    headerRow.height = 32;
     const colHeaders = [
       "Belge No / Fatura No",
       "Firma 1 Açıklama",
@@ -296,70 +313,57 @@ export async function POST(req: NextRequest) {
       "KDV Farkı",
       "Durum",
     ];
-    colHeaders.forEach((h, i) => {
-      cell(r, i, h, {
-        font: { bold: true, sz: 10 },
-        fill: { patternType: "solid", fgColor: { rgb: COLORS.header } },
-        alignment: { horizontal: "center", wrapText: true },
-        border: {
-          bottom: { style: "medium", color: { rgb: "000000" } },
-          top:    { style: "thin",   color: { rgb: "AAAAAA" } },
-        },
-      });
-    });
-    r++;
+    colHeaders.forEach((h, i) => setHeaderCell(headerRow.getCell(i + 1), h));
+    headerRow.commit();
 
     // Veri satırları
-    for (const cr of compRows) {
-      const bg = COLORS[cr.durum];
-      const base = (align = "left") => ({
-        fill: { patternType: "solid", fgColor: { rgb: bg } },
-        alignment: { horizontal: align },
-      });
-      const numFmt = (hasFark = false) => ({
-        fill: { patternType: "solid", fgColor: { rgb: bg } },
-        alignment: { horizontal: "right" },
-        numFmt: "#,##0.00",
-        font: hasFark && cr.kdvFarki > 0.01 ? { bold: true, color: { rgb: "CC0000" } } : undefined,
-      });
+    compRows.forEach((cr, idx) => {
+      const row = ws.getRow(9 + idx);
+      const argb = FILL[cr.durum];
+      const numFmt = "#,##0.00";
 
-      cell(r, 0, cr.key,   base());
-      cell(r, 1, cr.f1Ac,  base());
-      cell(r, 2, cr.f2Al,  base());
-      cell(r, 3, cr.tur,   base("center"));
-      cell(r, 4, cr.f1Kdv,  numFmt());
-      cell(r, 5, cr.f2Kdv,  numFmt());
-      cell(r, 6, cr.mal,    numFmt());
-      cell(r, 7, cr.toplam, numFmt());
-      cell(r, 8, cr.kdvFarki, numFmt(true));
-      cell(r, 9, STATUS_LABELS[cr.durum], {
-        fill: { patternType: "solid", fgColor: { rgb: bg } },
-        font: { bold: true },
-        alignment: { horizontal: "center" },
-      });
-      r++;
-    }
+      const setText = (colIdx: number, val: string, align = "left") => {
+        const c = row.getCell(colIdx);
+        c.value = val;
+        c.fill  = solidFill(argb);
+        c.alignment = { horizontal: align as any };
+      };
+      const setNum = (colIdx: number, val: number, isKdvFarki = false) => {
+        const c = row.getCell(colIdx);
+        c.value    = val;
+        c.numFmt   = numFmt;
+        c.fill     = solidFill(argb);
+        c.alignment = { horizontal: "right" };
+        if (isKdvFarki && val > 0.01) {
+          c.font = { bold: true, color: { argb: "FFCC0000" } };
+        }
+      };
 
-    // Sütun genişlikleri
-    ws["!cols"] = [
-      { wch: 22 }, { wch: 32 }, { wch: 32 }, { wch: 16 },
-      { wch: 15 }, { wch: 15 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 18 },
-    ];
-    ws["!ref"]    = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: r - 1, c: COL_COUNT - 1 } });
-    ws["!merges"] = merges;
+      setText(1,  cr.key);
+      setText(2,  cr.f1Ac);
+      setText(3,  cr.f2Al);
+      setText(4,  cr.tur, "center");
+      setNum(5,   cr.f1Kdv);
+      setNum(6,   cr.f2Kdv);
+      setNum(7,   cr.mal);
+      setNum(8,   cr.toplam);
+      setNum(9,   cr.kdvFarki, true);
+      const statusCell = row.getCell(10);
+      statusCell.value = STATUS_LABELS[cr.durum];
+      statusCell.fill  = solidFill(argb);
+      statusCell.font  = { bold: true };
+      statusCell.alignment = { horizontal: "center" };
 
-    // Satır yükseklikleri (başlık ve özet)
-    ws["!rows"] = [{ hpt: 28 }]; // başlık satırı yüksek
+      row.commit();
+    });
 
-    // Sayfayı workbook'a ekle
-    XLSX.utils.book_append_sheet(wb, ws, "KARŞILAŞTIRMA");
+    // ── Çıktıyı buffer'a yaz ──────────────────────────────────────────────────
+    const outBuf = await wbOut.xlsx.writeBuffer();
 
-    const outBuf = XLSX.write(wb, { bookType: "xlsx", type: "buffer", cellStyles: true });
-
-    return new NextResponse(outBuf, {
+    return new NextResponse(outBuf as Buffer, {
       status: 200,
       headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Type":        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="karsilastirma_raporu.xlsx"`,
       },
     });
