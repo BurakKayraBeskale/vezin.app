@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import clsx from "clsx";
 
 const PREVIEW_LINES = 100;  // önizleme için kaç satır gönderilir
-const CHUNK_LINES  = 3000;  // tam işlemde parça başına satır sayısı
+const CHUNK_LINES  = 1500;  // tam işlemde parça başına satır sayısı (timeout riskini azaltır)
 
 interface TableResult {
   headers: string[];
@@ -44,8 +44,32 @@ async function sendChunk(
   if (knownHeaders) fd.append("headers", JSON.stringify(knownHeaders));
 
   const res = await fetch("/api/ai/txt-to-excel", { method: "POST", body: fd });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error ?? "Bilinmeyen bir hata oluştu");
+
+  // Önce ham gövdeyi oku — boş yanıt veya HTML hata sayfası olabilir
+  const raw = await res.text();
+  console.log("[txt-to-excel] HTTP", res.status, "raw response:", raw);
+
+  if (!raw.trim()) {
+    throw new Error(
+      `Sunucu boş yanıt döndürdü (HTTP ${res.status}). ` +
+      "Dosya çok büyük olabilir veya sunucu zaman aşımına uğramış olabilir."
+    );
+  }
+
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      `Sunucu geçersiz JSON döndürdü (HTTP ${res.status}). ` +
+      `Ham yanıt: ${raw.slice(0, 200)}`
+    );
+  }
+
+  if (!res.ok) {
+    throw new Error(json.error ?? `Sunucu hatası (HTTP ${res.status})`);
+  }
+
   return json;
 }
 
