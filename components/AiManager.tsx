@@ -123,7 +123,7 @@ export default function AiManager() {
     <div className="flex gap-6 h-[calc(100vh-8rem)] min-h-0">
       {/* Sol panel — modül listesi */}
       <div className="w-56 flex-shrink-0 flex flex-col gap-1">
-        <p className="text-xs font-semibold text-white/40 uppercase tracking-widest mb-2 px-1">Modüller</p>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2 px-1">Modüller</p>
         {MODULES.map((mod) => {
           const p = prompts[mod];
           return (
@@ -133,12 +133,12 @@ export default function AiManager() {
               className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-left text-sm transition-colors ${
                 selected === mod
                   ? "bg-[#F57C28] text-white shadow-md shadow-[#F57C28]/20"
-                  : "text-white/60 hover:text-white hover:bg-white/6"
+                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
               }`}
             >
               <span className="flex-1 font-medium">{MODULE_LABELS[mod]}</span>
               {p?.isCustom && (
-                <span className="text-[10px] bg-white/20 rounded px-1.5 py-0.5 font-semibold">
+                <span className="text-[10px] bg-orange-100 text-orange-600 rounded px-1.5 py-0.5 font-semibold">
                   Özel
                 </span>
               )}
@@ -151,9 +151,9 @@ export default function AiManager() {
       <div className="flex-1 flex flex-col min-w-0 gap-4 overflow-hidden">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-white font-semibold text-base">{MODULE_LABELS[selected]}</h2>
+            <h2 className="text-gray-800 font-semibold text-base">{MODULE_LABELS[selected]}</h2>
             {current?.isCustom && current.updatedAt && (
-              <p className="text-xs text-white/40 mt-0.5">
+              <p className="text-xs text-gray-400 mt-0.5">
                 Son güncelleme: {new Date(current.updatedAt).toLocaleString("tr-TR")}
                 {current.updatedBy && ` · ${current.updatedBy}`}
               </p>
@@ -162,7 +162,7 @@ export default function AiManager() {
           <div className="flex gap-2">
             <button
               onClick={() => setShowTest((v) => !v)}
-              className="px-3 py-1.5 rounded-lg text-sm bg-white/8 hover:bg-white/12 text-white/70 hover:text-white transition-colors"
+              className="px-3 py-1.5 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-colors"
             >
               {showTest ? "Testi Gizle" : "Test Et"}
             </button>
@@ -170,7 +170,7 @@ export default function AiManager() {
               <button
                 onClick={handleReset}
                 disabled={resetting}
-                className="px-3 py-1.5 rounded-lg text-sm bg-white/8 hover:bg-white/12 text-white/70 hover:text-white transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
               >
                 {resetting ? "Sıfırlanıyor..." : "Varsayılana Sıfırla"}
               </button>
@@ -200,7 +200,7 @@ export default function AiManager() {
         <textarea
           value={editValue}
           onChange={(e) => setEditValue(e.target.value)}
-          className="flex-1 border border-white/10 rounded-xl p-4 text-sm font-mono resize-none focus:outline-none focus:border-[#F57C28]/80 min-h-0"
+          className="flex-1 border border-gray-200 rounded-xl p-4 text-sm font-mono resize-none focus:outline-none focus:border-[#F57C28] min-h-0"
           style={{ background: "#fff", color: "#111" }}
           placeholder="Prompt içeriği..."
           spellCheck={false}
@@ -208,13 +208,13 @@ export default function AiManager() {
 
         {/* Test paneli */}
         {showTest && (
-          <div className="border border-white/10 rounded-xl p-4 flex flex-col gap-3 bg-white/3 max-h-72 overflow-y-auto">
-            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest">Test Paneli</p>
+          <div className="border border-gray-200 rounded-xl p-4 flex flex-col gap-3 bg-gray-50 max-h-72 overflow-y-auto">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Test Paneli</p>
             <textarea
               value={testInput}
               onChange={(e) => setTestInput(e.target.value)}
               rows={4}
-              className="border border-white/10 rounded-lg p-3 text-xs font-mono resize-none focus:outline-none focus:border-[#F57C28]/80"
+              className="border border-gray-200 rounded-lg p-3 text-xs font-mono resize-none focus:outline-none focus:border-[#F57C28]"
               style={{ background: "#fff", color: "#111" }}
               placeholder="Buraya test metni girin..."
             />
@@ -229,7 +229,7 @@ export default function AiManager() {
               <p className="text-red-400 text-xs">{testError}</p>
             )}
             {testResult && (
-              <pre className="bg-black/30 rounded-lg p-3 text-xs text-white/70 overflow-auto whitespace-pre-wrap">
+              <pre className="bg-white border border-gray-200 rounded-lg p-3 text-xs text-gray-700 overflow-auto whitespace-pre-wrap">
                 {testResult}
               </pre>
             )}

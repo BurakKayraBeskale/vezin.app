@@ -12,8 +12,8 @@ export default async function AiChatPage() {
   return (
     <div className="p-6">
       <div className="mb-4">
-        <h1 className="text-xl font-bold text-white">AI Sohbet</h1>
-        <p className="text-sm text-white/45 mt-1">
+        <h1 className="text-xl font-bold text-gray-800">AI Sohbet</h1>
+        <p className="text-sm text-gray-400 mt-1">
           Muhasebe ve vergi konularında AI asistanıyla sohbet edin.
         </p>
       </div>
