@@ -24,13 +24,26 @@ Yanıtını JSON formatında ver.`;
 /** Tek bir OpenAI çağrısı — ham yanıtı ve parse edilmiş sonucu birlikte döndürür */
 async function callOpenAI(
   openai: ReturnType<typeof getOpenAI>,
+  systemPrompt: string,
   messages: { role: "user" | "assistant"; content: string }[]
 ): Promise<{ parsed: any; raw: string; finishReason: string }> {
   let response: any;
   try {
     response = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
-      messages,
+      messages: [
+        {
+          role: "system",
+          content: [
+            {
+              type: "text",
+              text: systemPrompt,
+              cache_control: { type: "ephemeral" },
+            },
+          ] as any,
+        },
+        ...messages,
+      ],
       response_format: { type: "json_object" },
       max_completion_tokens: 8000,
     });
@@ -65,6 +78,16 @@ async function callOpenAI(
     const retryResponse = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
       messages: [
+        {
+          role: "system",
+          content: [
+            {
+              type: "text",
+              text: systemPrompt,
+              cache_control: { type: "ephemeral" },
+            },
+          ] as any,
+        },
         ...messages,
         { role: "assistant", content: raw },
         {
@@ -94,7 +117,7 @@ async function callOpenAI(
 async function processInChunks(
   openai: ReturnType<typeof getOpenAI>,
   text: string,
-  firstChunkPrompt: string,
+  systemPrompt: string,
   knownHeaders?: string[]
 ): Promise<{ headers?: string[]; rows: any[][]; firstRaw?: string }> {
   const lines = text.split("\n");
@@ -123,8 +146,8 @@ async function processInChunks(
     try {
       if (i === 0 && !knownHeaders) {
         // İlk parça: headers + rows
-        const { parsed, raw } = await callOpenAI(openai, [
-          { role: "user", content: `${firstChunkPrompt}\n\nMetin içeriği:\n${chunk}` },
+        const { parsed, raw } = await callOpenAI(openai, systemPrompt, [
+          { role: "user", content: `Metin içeriği:\n${chunk}` },
         ]);
         firstRaw = raw; // ilk ham yanıtı sakla
         if (!Array.isArray(parsed.headers) || !Array.isArray(parsed.rows)) {
@@ -141,11 +164,8 @@ async function processInChunks(
         allRows = [...allRows, ...parsed.rows.map(normalizeRow)];
       } else {
         // Devam parçaları: sadece rows
-        const { parsed } = await callOpenAI(openai, [
-          {
-            role: "user",
-            content: `${buildContinuationPrompt(headers)}\n\nMetin devamı:\n${chunk}`,
-          },
+        const { parsed } = await callOpenAI(openai, buildContinuationPrompt(headers), [
+          { role: "user", content: `Metin devamı:\n${chunk}` },
         ]);
         if (Array.isArray(parsed.rows)) {
           const normalizeRow = (row: any): any[] => {
@@ -237,12 +257,13 @@ export async function POST(req: NextRequest) {
   try {
     if (knownHeaders) {
       // Devam isteği — continuation modunda chunk'la
-      const result = await processInChunks(openai, text, "", knownHeaders);
+      const contPrompt = buildContinuationPrompt(knownHeaders) + "\n\nYanıtını JSON formatında ver.";
+      const result = await processInChunks(openai, text, contPrompt, knownHeaders);
       return NextResponse.json({ rows: result.rows });
     } else {
       // İlk istek — headers çıkar + rows
-      const firstChunkPrompt = await getAiPrompt("TXT_EXCEL") + "\n\nYanıtını JSON formatında ver.";
-      const result = await processInChunks(openai, text, firstChunkPrompt);
+      const basePrompt = await getAiPrompt("TXT_EXCEL");
+      const result = await processInChunks(openai, text, basePrompt);
 
       if (!result.headers?.length) {
         console.log("[txt-to-excel] RETURN NOKTASI 1 — headers boş, 422 dönülüyor");

@@ -110,10 +110,10 @@ Sana verilen TXT dosyası bir mizan (trial balance) veya muhasebe raporu içeriy
 5. ARA TOPLAM satırları: "TOTAL XXX" formatında
 6. Negatif değerleri eksi işaretiyle göster
 
-JSON formatında döndür:
+FORMAT A — Yanıtını aşağıdaki JSON formatında ver:
 {
   "headers": ["Hesap Kodu", "Hesap Adı", "Tip", "Seviye", "Para", "Açılış Bakiyesi", "Borç (Debit) TRY", "Alacak (Credit) TRY", "Kapanış Bakiyesi"],
-  "rows": [...]
+  "rows": [["değer1", "değer2", ...], ...]
 }
 
 Sadece JSON döndür, başka açıklama yazma.`,
