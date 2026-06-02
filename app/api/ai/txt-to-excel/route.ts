@@ -25,17 +25,24 @@ async function callOpenAI(
   openai: ReturnType<typeof getOpenAI>,
   messages: { role: "user" | "assistant"; content: string }[]
 ): Promise<{ parsed: any; raw: string; finishReason: string }> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.4-nano",
-    messages,
-    response_format: { type: "json_object" },
-    max_completion_tokens: 8000,
-  });
+  let response: any;
+  try {
+    response = await openai.chat.completions.create({
+      model: "gpt-5.4-nano",
+      messages,
+      response_format: { type: "json_object" },
+      max_completion_tokens: 8000,
+    });
+    console.log("[txt-to-excel] Tam yanıt:", JSON.stringify(response));
+    console.log("[txt-to-excel] Content:", response.choices?.[0]?.message?.content);
+  } catch (err: any) {
+    console.error("[txt-to-excel] OpenAI hata:", err.status, err.message, err.code);
+    throw err;
+  }
 
   const raw = response.choices[0]?.message?.content ?? "";
   const finishReason = response.choices[0]?.finish_reason ?? "unknown";
 
-  // Ham yanıtı parse etmeden önce logla
   console.log("[txt-to-excel] --- OpenAI RAW RESPONSE ---");
   console.log("[txt-to-excel] finish_reason:", finishReason);
   console.log("[txt-to-excel] raw length:", raw.length);
