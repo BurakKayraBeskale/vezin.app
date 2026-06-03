@@ -7,6 +7,20 @@ import { extractText } from "unpdf";
 export const dynamic = "force-dynamic";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_VISION_PAGES = 6;
+
+async function pdfToBase64Images(arrayBuffer: ArrayBuffer): Promise<string[]> {
+  const { pdf } = await import("pdf-to-img");
+  const images: string[] = [];
+  const document = await pdf(Buffer.from(arrayBuffer), { scale: 2 });
+  let page = 0;
+  for await (const img of document) {
+    if (page >= MAX_VISION_PAGES) break;
+    images.push((img as Buffer).toString("base64"));
+    page++;
+  }
+  return images;
+}
 
 export async function POST(req: NextRequest) {
   const openai = getOpenAI();
@@ -43,23 +57,51 @@ export async function POST(req: NextRequest) {
 
   try {
     const prompt = await getAiPrompt("TARAYICI") + "\n\nYanıtını JSON formatında ver.";
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const arrayBuffer = await file.arrayBuffer();
     let messageContent: any[];
 
     if (file.type === "application/pdf") {
-      const pdfBuffer = new Uint8Array(await file.arrayBuffer());
+      // Try text extraction first
+      const pdfBuffer = new Uint8Array(arrayBuffer);
       const { text: pdfText } = await extractText(pdfBuffer, { mergePages: true });
-      if (!pdfText?.trim()) {
-        return NextResponse.json({ error: "PDF'den metin çıkarılamadı. Lütfen görsel olarak yükleyin" }, { status: 400 });
+
+      if (pdfText?.trim() && pdfText.trim().length >= 50) {
+        // Text-based path
+        messageContent = [
+          {
+            type: "text",
+            text: `${prompt}\n\nBelge içeriği:\n${pdfText.slice(0, 8000)}`,
+          },
+        ];
+      } else {
+        // Fallback: convert pages to PNG and send via vision
+        let pageImages: string[];
+        try {
+          pageImages = await pdfToBase64Images(arrayBuffer);
+        } catch (e: any) {
+          return NextResponse.json(
+            { error: "PDF sayfaları görüntüye dönüştürülemedi: " + (e?.message ?? "bilinmeyen hata") },
+            { status: 422 }
+          );
+        }
+
+        if (pageImages.length === 0) {
+          return NextResponse.json(
+            { error: "PDF'den sayfa okunamadı. Dosya bozuk olabilir." },
+            { status: 422 }
+          );
+        }
+
+        messageContent = [
+          { type: "text", text: prompt },
+          ...pageImages.map((b64) => ({
+            type: "image_url" as const,
+            image_url: { url: `data:image/png;base64,${b64}`, detail: "high" as const },
+          })),
+        ];
       }
-      messageContent = [
-        {
-          type: "text",
-          text: `${prompt}\n\nBelge içeriği:\n${pdfText.slice(0, 8000)}`,
-        },
-      ];
     } else {
-      const base64 = buffer.toString("base64");
+      const base64 = Buffer.from(arrayBuffer).toString("base64");
       const mimeType = file.type as "image/jpeg" | "image/png" | "image/webp";
       messageContent = [
         { type: "text", text: prompt },
