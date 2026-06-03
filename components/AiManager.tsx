@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from "react";
 
 const MODULE_LABELS: Record<string, string> = {
-  BEYANNAME: "Beyanname Analizi",
-  TXT_EXCEL: "TXT → Excel (Mizan)",
-  KARSILASTIRMA: "Excel Karşılaştırma",
-  TARAYICI: "Görsel → Excel",
+  BEYANNAME:       "Beyanname Analizi",
+  TXT_EXCEL:       "TXT → Excel (Mizan)",
+  KARSILASTIRMA:   "Excel Karşılaştırma",
+  TARAYICI:        "Görsel → Excel",
+  METIN_DUZENLEME: "Metin Düzenleme",
 };
 
 const MODULES = Object.keys(MODULE_LABELS);
@@ -87,9 +88,7 @@ export default function AiManager() {
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const [confirm, setConfirm]   = useState<ConfirmState>({ open: false, action: null });
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError]     = useState("");
+  const [confirm, setConfirm] = useState<ConfirmState>({ open: false, action: null });
 
   const fetchPrompts = useCallback(async () => {
     try {
@@ -144,29 +143,6 @@ export default function AiManager() {
       setSaveMsg({ type: "err", text: "Sıfırlama sırasında hata oluştu." });
     } finally {
       setResetting(false);
-    }
-  }
-
-  async function handleAiImprove() {
-    if (!editValue.trim()) return;
-    setAiLoading(true);
-    setAiError("");
-    try {
-      const res = await fetch("/api/ai/improve-text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: editValue }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "AI düzenlemesi başarısız");
-      }
-      const { result } = await res.json();
-      setEditValue(result);
-    } catch (e: any) {
-      setAiError(e.message || "Hata oluştu");
-    } finally {
-      setAiLoading(false);
     }
   }
 
@@ -260,40 +236,14 @@ export default function AiManager() {
             </div>
           )}
 
-          <div className="flex-1 flex flex-col min-h-0 gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-400">Prompt içeriği</span>
-              <button
-                type="button"
-                onClick={handleAiImprove}
-                disabled={aiLoading || !editValue.trim()}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-violet-200"
-              >
-                {aiLoading ? (
-                  <>
-                    <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4l-3 3-3-3h4z" />
-                    </svg>
-                    Düzenleniyor...
-                  </>
-                ) : (
-                  <>✨ AI ile Düzenle</>
-                )}
-              </button>
-            </div>
-            {aiError && (
-              <p className="text-xs text-red-500">{aiError}</p>
-            )}
-            <textarea
-              value={editValue}
-              onChange={(e) => { setEditValue(e.target.value); setAiError(""); }}
-              className="flex-1 border border-gray-200 rounded-xl p-4 text-sm font-mono resize-none focus:outline-none focus:border-[#F57C28] min-h-0"
-              style={{ background: "#fff", color: "#111" }}
-              placeholder="Prompt içeriği..."
-              spellCheck={false}
-            />
-          </div>
+          <textarea
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            className="flex-1 border border-gray-200 rounded-xl p-4 text-sm font-mono resize-none focus:outline-none focus:border-[#F57C28] min-h-0"
+            style={{ background: "#fff", color: "#111" }}
+            placeholder="Prompt içeriği..."
+            spellCheck={false}
+          />
         </div>
       </div>
     </>

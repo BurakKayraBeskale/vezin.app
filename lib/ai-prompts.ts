@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma";
 
-export type AiModule = "BEYANNAME" | "TXT_EXCEL" | "KARSILASTIRMA" | "TARAYICI";
+export type AiModule = "BEYANNAME" | "TXT_EXCEL" | "KARSILASTIRMA" | "TARAYICI" | "METIN_DUZENLEME";
 
 export const MODULE_LABELS: Record<AiModule, string> = {
-  BEYANNAME: "Beyanname Oluştur",
-  TXT_EXCEL: "TXT → Excel",
-  KARSILASTIRMA: "Karşılaştırma",
-  TARAYICI: "Tarayıcı",
+  BEYANNAME:       "Beyanname Oluştur",
+  TXT_EXCEL:       "TXT → Excel",
+  KARSILASTIRMA:   "Karşılaştırma",
+  TARAYICI:        "Tarayıcı",
+  METIN_DUZENLEME: "Metin Düzenleme",
 };
 
 export const DEFAULT_PROMPTS: Record<AiModule, string> = {
@@ -155,6 +156,13 @@ JSON formatında döndür:
   "ozet": "string"
 }
 Türkçe karakterleri koru. Sadece JSON objesi döndür.`,
+
+  METIN_DUZENLEME: `Sen bir profesyonel metin editörüsün. Sana verilen görev açıklamasını:
+- Türkçe noktalama ve yazım kurallarına uygun hale getir
+- Daha profesyonel ve net bir dil kullan
+- Anlam ve içeriği değiştirme, sadece ifadeyi düzelt
+- Madde madde yazılmışsa madde yapısını koru
+- Sadece düzenlenmiş metni döndür, açıklama veya yorum ekleme`,
 };
 
 /** DB'den prompt oku, yoksa varsayılanı döndür */
