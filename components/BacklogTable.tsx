@@ -170,6 +170,7 @@ export default function BacklogTable({ initialTasks, users, isAdmin, templates }
   function handleUpdate(updated: TaskFull) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     if (viewTask?.id === updated.id) setViewTask(updated);
+    router.refresh();
   }
 
   function handleCreate(created: TaskFull) {

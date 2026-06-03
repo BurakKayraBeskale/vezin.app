@@ -259,7 +259,11 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, templates }:
   const visibleTasks = search.trim()
     ? tasks.filter((t) => {
         const q = search.toLowerCase();
-        return t.title.toLowerCase().includes(q) || (t.assignedTo?.name ?? "").toLowerCase().includes(q);
+        if (t.title.toLowerCase().includes(q)) return true;
+        const people = t.assignees?.length
+          ? t.assignees.map((a) => a.user)
+          : t.assignedTo ? [t.assignedTo] : [];
+        return people.some((p) => p.name.toLowerCase().includes(q));
       })
     : tasks;
 
