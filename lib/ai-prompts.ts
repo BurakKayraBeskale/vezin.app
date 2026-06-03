@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-export type AiModule = "BEYANNAME" | "TXT_EXCEL" | "KARSILASTIRMA" | "TARAYICI" | "METIN_DUZENLEME" | "MAIL_TASLAGI";
+export type AiModule = "BEYANNAME" | "TXT_EXCEL" | "KARSILASTIRMA" | "TARAYICI" | "METIN_DUZENLEME" | "MAIL_TASLAGI" | "BELGE_OZETI";
 
 export const MODULE_LABELS: Record<AiModule, string> = {
   BEYANNAME:       "Beyanname Oluştur",
@@ -9,6 +9,7 @@ export const MODULE_LABELS: Record<AiModule, string> = {
   TARAYICI:        "Tarayıcı",
   METIN_DUZENLEME: "Metin Düzenleme",
   MAIL_TASLAGI:    "Mail Taslağı",
+  BELGE_OZETI:     "Belge Özeti",
 };
 
 export const DEFAULT_PROMPTS: Record<AiModule, string> = {
@@ -166,6 +167,15 @@ Kurallar:
 - Uygun selamlama ve kapanış ekle
 - Net, anlaşılır ve profesyonel ol
 - Sadece mail metnini döndür`,
+
+  BELGE_OZETI: `Sen bir vergi ve denetim firmasında belge analiz asistanısın. Kullanıcının yüklediği belgeyi okuyup kısa, net ve anlaşılır bir özet çıkar.
+
+Kurallar:
+- Belgenin türünü, amacını ve ana içeriğini açıkla
+- Önemli rakam, tarih, taraf adları ve kararları vurgula
+- Türkçe yaz, profesyonel bir dil kullan
+- Gereksiz tekrar yapma, özlü tut
+- Sadece özet metnini döndür, ek yorum veya açıklama ekleme`,
 
   METIN_DUZENLEME: `Sen bir vergi ve denetim firmasında metin editörüsün. Sana verilen metni:
 - Türkçe noktalama ve yazım kurallarına uygun hale getir
