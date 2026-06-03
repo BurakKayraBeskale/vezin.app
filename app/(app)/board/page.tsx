@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import KanbanBoard from "@/components/KanbanBoard";
+import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,7 @@ export default async function BoardPage() {
       orderBy: { createdAt: "desc" },
     }),
     prisma.user.findMany({
+      where: { email: { notIn: HIDDEN_ACCOUNT_EMAILS } },
       select: { id: true, name: true, email: true },
       orderBy: { name: "asc" },
     }),

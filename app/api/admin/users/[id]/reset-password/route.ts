@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -13,6 +14,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { password } = body;
   if (!password || password.length < 6) {
     return NextResponse.json({ error: "Şifre en az 6 karakter olmalı" }, { status: 400 });
+  }
+
+  const resetTarget = await prisma.user.findUnique({ where: { id: params.id }, select: { email: true } });
+  if (resetTarget && HIDDEN_ACCOUNT_EMAILS.includes(resetTarget.email)) {
+    return NextResponse.json({ error: "Bu kullanıcının şifresi değiştirilemez" }, { status: 403 });
   }
 
   const hashed = await bcrypt.hash(password, 10);

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface SummaryData {
   totalTasks:     number;
@@ -53,10 +55,11 @@ export default function BackupPanel() {
   const [startDate, setStartDate]   = useState("");
   const [endDate, setEndDate]       = useState(today());
   const [activeQuick, setActiveQuick] = useState<number | "all" | null>(null);
-  const [loading, setLoading]       = useState(false);
+  const [loading, setLoading]         = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [summary, setSummary]       = useState<SummaryData | null>(null);
-  const [error, setError]           = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading]   = useState(false);
+  const [summary, setSummary]         = useState<SummaryData | null>(null);
+  const [error, setError]             = useState<string | null>(null);
 
   function applyQuick(days: number) {
     setStartDate(daysAgo(days));
@@ -98,6 +101,217 @@ export default function BackupPanel() {
       setError(e.message || "Hata oluştu");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handlePdfDownload() {
+    setPdfLoading(true);
+    setError(null);
+    try {
+      const qs  = buildQS({ format: "pdf-data" });
+      const res = await fetch(`/api/admin/backup${qs ? `?${qs}` : "?format=pdf-data"}`);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "PDF verisi alınamadı");
+      }
+      const data = await res.json();
+
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+
+      // ── Renk sabitleri ──────────────────────────────────
+      const NAVY   = [0,   51,  102] as [number, number, number];
+      const WHITE  = [255, 255, 255] as [number, number, number];
+      const LGRAY  = [247, 247, 247] as [number, number, number];
+      const ORANGE = [245, 124,  40] as [number, number, number];
+
+      function addSection(title: string) {
+        if (doc.getCurrentPageInfo().pageNumber > 1 || (doc as any).lastAutoTable?.finalY > 40) {
+          // şekli kontrol et
+        }
+        doc.setFillColor(...NAVY);
+        doc.rect(10, (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 8 : 28, pageW - 20, 7, "F");
+        doc.setTextColor(...WHITE);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text(title, 13, ((doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 8 : 28) + 5);
+        doc.setTextColor(0, 0, 0);
+      }
+
+      // ── KAPAK ──────────────────────────────────────────
+      doc.setFillColor(...NAVY);
+      doc.rect(0, 0, pageW, 22, "F");
+      doc.setTextColor(...WHITE);
+      doc.setFontSize(16);
+      doc.setFont("helvetica", "bold");
+      doc.text("VEZIN - YONETiM RAPORU", pageW / 2, 13, { align: "center" });
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Donem: ${data.period}`, pageW / 2, 19, { align: "center" });
+      doc.setTextColor(0, 0, 0);
+
+      // ── ÖZET KARTLAR ─────────────────────────────────
+      const s = data.summary;
+      const cards = [
+        ["Toplam Gorev",      s.totalTasks],
+        ["Tamamlanan",        s.completedTasks],
+        ["Tamamlama Orani",   `%${s.completionRate}`],
+        ["Devam Eden",        s.inProgress],
+        ["incelemede",        s.review],
+        ["Geciken",           s.overdue],
+        ["izin Gunu",         s.leaveDays],
+        ["Toplanti",          s.totalMeetings],
+      ];
+      const cardW = (pageW - 20) / cards.length;
+      let cx = 10;
+      const cardY = 25;
+      doc.setFontSize(8);
+      for (const [lbl, val] of cards) {
+        doc.setFillColor(...LGRAY);
+        doc.roundedRect(cx, cardY, cardW - 2, 14, 1, 1, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(...NAVY);
+        doc.text(String(val), cx + (cardW - 2) / 2, cardY + 8, { align: "center" });
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 100, 100);
+        doc.text(String(lbl), cx + (cardW - 2) / 2, cardY + 12, { align: "center" });
+        cx += cardW;
+      }
+      doc.setTextColor(0, 0, 0);
+
+      // helper for next section Y
+      function nextY() {
+        return (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 10 : 42;
+      }
+
+      // ── GÖREV ÖZETİ ──────────────────────────────────
+      const tasksY = 42;
+      doc.setFillColor(...NAVY);
+      doc.rect(10, tasksY, pageW - 20, 7, "F");
+      doc.setTextColor(...WHITE);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text("GOREV OZETi", 13, tasksY + 5);
+      doc.setTextColor(0, 0, 0);
+
+      autoTable(doc, {
+        startY: tasksY + 8,
+        margin: { left: 10, right: 10 },
+        head: [["Gorev Adi", "Dept.", "Atanan", "Oncelik", "Durum", "Olusturuldu", "Tamamlandi"]],
+        body: data.tasks.map((t: any) => [t.title, t.dept, t.assignees, t.priority, t.status, t.createdAt, t.completedAt]),
+        headStyles:    { fillColor: NAVY, textColor: WHITE, fontStyle: "bold", fontSize: 7.5 },
+        bodyStyles:    { fontSize: 7 },
+        alternateRowStyles: { fillColor: LGRAY },
+        columnStyles:  { 0: { cellWidth: 70 }, 1: { cellWidth: 28 }, 2: { cellWidth: 40 } },
+        tableWidth:    "wrap",
+      });
+
+      // ── ÇALIŞAN PERFORMANSI ───────────────────────────
+      doc.addPage();
+      const empY = 10;
+      doc.setFillColor(...NAVY);
+      doc.rect(10, empY, pageW - 20, 7, "F");
+      doc.setTextColor(...WHITE);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text("CALiSAN PERFORMANSI", 13, empY + 5);
+      doc.setTextColor(0, 0, 0);
+
+      autoTable(doc, {
+        startY: empY + 8,
+        margin: { left: 10, right: 10 },
+        head: [["Calisan", "Dept.", "Toplam Gorev", "Tamamlanan", "Tamamlama %", "Ort. Sure (gun)", "Geciken"]],
+        body: data.employees.map((e: any) => [
+          e.name, e.dept, e.total, e.completed, `%${e.rate}`,
+          e.avgDays != null ? e.avgDays : "—", e.overdue,
+        ]),
+        headStyles:         { fillColor: NAVY, textColor: WHITE, fontStyle: "bold", fontSize: 7.5 },
+        bodyStyles:         { fontSize: 7 },
+        alternateRowStyles: { fillColor: LGRAY },
+        tableWidth:         "wrap",
+      });
+
+      // ── İZİN KAYITLARI ───────────────────────────────
+      const leaveY = nextY();
+      doc.setFillColor(...NAVY);
+      doc.rect(10, leaveY, pageW - 20, 7, "F");
+      doc.setTextColor(...WHITE);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text("iZiN KAYITLARI", 13, leaveY + 5);
+      doc.setTextColor(0, 0, 0);
+
+      autoTable(doc, {
+        startY: leaveY + 8,
+        margin: { left: 10, right: 10 },
+        head: [["Calisan", "Dept.", "Tur", "Baslangic", "Bitis", "Gun", "Durum"]],
+        body: data.leaves.map((l: any) => [l.name, l.dept, l.type, l.start, l.end, l.days, l.status]),
+        headStyles:         { fillColor: NAVY, textColor: WHITE, fontStyle: "bold", fontSize: 7.5 },
+        bodyStyles:         { fontSize: 7 },
+        alternateRowStyles: { fillColor: LGRAY },
+        tableWidth:         "wrap",
+      });
+
+      // ── DEPARTMAN ÖZETİ ───────────────────────────────
+      doc.addPage();
+      const deptY = 10;
+      doc.setFillColor(...NAVY);
+      doc.rect(10, deptY, pageW - 20, 7, "F");
+      doc.setTextColor(...WHITE);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text("DEPARTMAN OZETi", 13, deptY + 5);
+      doc.setTextColor(0, 0, 0);
+
+      autoTable(doc, {
+        startY: deptY + 8,
+        margin: { left: 10, right: 10 },
+        head: [["Departman", "Toplam", "Tamamlanan", "Devam Eden", "Geciken", "Tamamlama %"]],
+        body: data.deptStats.map((d: any) => [d.dept, d.total, d.done, d.active, d.overdue, `%${d.rate}`]),
+        headStyles:         { fillColor: NAVY, textColor: WHITE, fontStyle: "bold", fontSize: 7.5 },
+        bodyStyles:         { fontSize: 7 },
+        alternateRowStyles: { fillColor: LGRAY },
+        tableWidth:         "wrap",
+      });
+
+      // ── TOPLANTI KAYITLARI ────────────────────────────
+      const meetY = nextY();
+      doc.setFillColor(...NAVY);
+      doc.rect(10, meetY, pageW - 20, 7, "F");
+      doc.setTextColor(...WHITE);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text("TOPLANTI KAYITLARI", 13, meetY + 5);
+      doc.setTextColor(0, 0, 0);
+
+      autoTable(doc, {
+        startY: meetY + 8,
+        margin: { left: 10, right: 10 },
+        head: [["Baslik", "Dept.", "Tarih", "Sure (dk)", "Olusturan"]],
+        body: data.meetings.map((m: any) => [m.title, m.dept, m.date, m.duration, m.createdBy]),
+        headStyles:         { fillColor: NAVY, textColor: WHITE, fontStyle: "bold", fontSize: 7.5 },
+        bodyStyles:         { fontSize: 7 },
+        alternateRowStyles: { fillColor: LGRAY },
+        tableWidth:         "wrap",
+      });
+
+      // ── Sayfa numaraları ──────────────────────────────
+      const totalPages = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(150, 150, 150);
+        doc.text(`Sayfa ${i} / ${totalPages}`, pageW - 15, doc.internal.pageSize.getHeight() - 5, { align: "right" });
+        doc.text(`Vezin Yönetim - ${new Date().toLocaleDateString("tr-TR")}`, 12, doc.internal.pageSize.getHeight() - 5);
+      }
+
+      doc.save(`vezin-rapor-${today()}.pdf`);
+    } catch (e: any) {
+      setError(e.message || "PDF oluşturulamadı");
+    } finally {
+      setPdfLoading(false);
     }
   }
 
@@ -276,37 +490,64 @@ export default function BackupPanel() {
             </div>
           </div>
 
-          {/* Excel indirme */}
+          {/* İndirme */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
-                <h3 className="text-sm font-semibold text-gray-800">Excel Raporu</h3>
+                <h3 className="text-sm font-semibold text-gray-800">Raporu İndir</h3>
                 <p className="text-xs text-gray-400 mt-1">
-                  6 sayfa: Özet · Görev Özeti · Çalışan Performansı · İzin Kayıtları · Departman Özeti · Toplantı Kayıtları
+                  6 bölüm: Özet · Görev Özeti · Çalışan Performansı · İzin Kayıtları · Departman Özeti · Toplantı Kayıtları
                 </p>
               </div>
-              <button
-                onClick={handleDownload}
-                disabled={downloading}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold transition-colors shadow-md shadow-emerald-500/25 flex-shrink-0"
-              >
-                {downloading ? (
-                  <>
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4l-3 3-3-3h4z" />
-                    </svg>
-                    İndiriliyor...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                    </svg>
-                    Excel İndir
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Excel */}
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading || pdfLoading}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold transition-colors shadow-md shadow-emerald-500/25"
+                >
+                  {downloading ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4l-3 3-3-3h4z" />
+                      </svg>
+                      İndiriliyor...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      Excel İndir
+                    </>
+                  )}
+                </button>
+
+                {/* PDF */}
+                <button
+                  onClick={handlePdfDownload}
+                  disabled={downloading || pdfLoading}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-60 text-white text-sm font-semibold transition-colors shadow-md shadow-red-500/25"
+                >
+                  {pdfLoading ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4l-3 3-3-3h4z" />
+                      </svg>
+                      Oluşturuluyor...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                      </svg>
+                      PDF İndir
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </>

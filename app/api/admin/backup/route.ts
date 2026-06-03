@@ -155,6 +155,11 @@ export async function GET(req: NextRequest) {
   }
   const topPerformer = Object.values(perfMap).sort((a, b) => b.count - a.count)[0];
 
+  // ── Period label ───────────────────────────────────────────────────────────
+  const periodLabel = startDateStr && endDateStr
+    ? `${startDateStr} — ${endDateStr}`
+    : startDateStr ? `${startDateStr} — Bugün` : "Tüm Dönem";
+
   // ── JSON summary (format=summary) ──────────────────────────────────────────
   if (format === "summary") {
     return NextResponse.json({
@@ -169,15 +174,111 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // ── JSON pdf-data (format=pdf-data) ────────────────────────────────────────
+  if (format === "pdf-data") {
+    // User stats
+    const userStats: Record<string, {
+      name: string; dept: string;
+      total: number; completed: number; overdue: number; daysSum: number; daysCount: number;
+    }> = {};
+    for (const task of tasks) {
+      const people: any[] = task.assignees.length
+        ? task.assignees.map((a) => a.user)
+        : task.assignedTo ? [task.assignedTo] : [];
+      for (const p of people) {
+        if (!userStats[p.id]) {
+          userStats[p.id] = { name: p.name, dept: p.department, total: 0, completed: 0, overdue: 0, daysSum: 0, daysCount: 0 };
+        }
+        const s = userStats[p.id];
+        s.total++;
+        if (task.status === "DONE") {
+          s.completed++;
+          const cd = completionDate(task);
+          if (cd) { s.daysSum += daysBetween(new Date(task.createdAt), cd); s.daysCount++; }
+        }
+        if (task.dueDate && new Date(task.dueDate) < new Date() && task.status !== "DONE") s.overdue++;
+      }
+    }
+
+    // Dept stats
+    const deptStats = DEPARTMENTS
+      .map((dept) => {
+        const dTasks = tasks.filter((t) => deptOf(t) === dept);
+        if (dTasks.length === 0) return null;
+        const done    = dTasks.filter((t) => t.status === "DONE").length;
+        const active  = dTasks.filter((t) => t.status === "IN_PROGRESS" || t.status === "REVIEW").length;
+        const overdue = dTasks.filter((t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "DONE").length;
+        return {
+          dept: DEPT_LABELS[dept] || dept,
+          total: dTasks.length, done, active, overdue,
+          rate: Math.round((done / dTasks.length) * 100),
+        };
+      })
+      .filter(Boolean);
+
+    return NextResponse.json({
+      period: periodLabel,
+      summary: {
+        totalTasks:     tasks.length,
+        completedTasks: completedTasks.length,
+        completionRate: tasks.length > 0 ? Math.round((completedTasks.length / tasks.length) * 100) : 0,
+        inProgress:     tasks.filter((t) => t.status === "IN_PROGRESS").length,
+        review:         tasks.filter((t) => t.status === "REVIEW").length,
+        overdue:        tasks.filter((t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "DONE").length,
+        leaveDays,
+        totalLeave:     leaveRequests.length,
+        pendingLeave:   leaveRequests.filter((l) => l.status === "PENDING").length,
+        totalMeetings:  meetings.length,
+        activeUsers:    activeUserIds.size,
+        totalUsers:     users.length,
+        topDept:        topDeptEntry ? (DEPT_LABELS[topDeptEntry[0]] || topDeptEntry[0]) + ` (${topDeptEntry[1]} görev)` : "—",
+        topPerformer:   topPerformer ? `${topPerformer.name} (${topPerformer.count} görev)` : "—",
+      },
+      tasks: tasks.map((t) => ({
+        title:       t.title,
+        dept:        DEPT_LABELS[deptOf(t)] || deptOf(t),
+        assignees:   assigneeNames(t),
+        priority:    PRIORITY_LABELS[t.priority] || t.priority,
+        status:      STATUS_LABELS[t.status] || t.status,
+        createdAt:   fmtDate(t.createdAt),
+        completedAt: completionDate(t) ? fmtDate(completionDate(t)) : "—",
+      })),
+      employees: Object.values(userStats)
+        .sort((a, b) => b.completed - a.completed)
+        .map((s) => ({
+          name:      s.name,
+          dept:      DEPT_LABELS[s.dept] || s.dept,
+          total:     s.total,
+          completed: s.completed,
+          rate:      s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0,
+          avgDays:   s.daysCount > 0 ? Math.round(s.daysSum / s.daysCount) : null,
+          overdue:   s.overdue,
+        })),
+      leaves: leaveRequests.map((l) => ({
+        name:    l.user.name,
+        dept:    DEPT_LABELS[l.user.department] || l.user.department,
+        type:    LEAVE_TYPE_LABELS[l.type] || l.type,
+        start:   fmtDate(l.startDate),
+        end:     fmtDate(l.endDate),
+        days:    l.days,
+        status:  LEAVE_STATUS_LABELS[l.status] || l.status,
+      })),
+      deptStats,
+      meetings: meetings.map((m: any) => ({
+        title:     m.title,
+        dept:      DEPT_LABELS[m.department] || m.department,
+        date:      m.date,
+        duration:  m.duration,
+        createdBy: m.createdBy.name,
+      })),
+    });
+  }
+
   // ── Build Excel ─────────────────────────────────────────────────────────────
   const ExcelJS = require("exceljs");
   const wb = new ExcelJS.Workbook();
   wb.creator  = "Vezin Yönetim";
   wb.created  = new Date();
-
-  const periodLabel = startDateStr && endDateStr
-    ? `${startDateStr} — ${endDateStr}`
-    : startDateStr ? `${startDateStr} — Bugün` : "Tüm Dönem";
 
   // ── SHEET 1: ÖZET ──────────────────────────────────────────────────────────
   const wsOzet = wb.addWorksheet("Özet");

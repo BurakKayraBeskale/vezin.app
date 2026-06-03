@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
 
 const VALID_DEPARTMENTS = ["OUTSOURCE", "BAGIMSIZ_DENETIM", "MUHASEBE", "YEMINLI_MALI_MUSAVIR", "ADMIN"];
 
@@ -14,6 +15,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json();
   const { name, email, password, role } = body;
   const data: Record<string, unknown> = {};
+
+  const target = await prisma.user.findUnique({ where: { id: params.id }, select: { email: true } });
+  if (target && HIDDEN_ACCOUNT_EMAILS.includes(target.email)) {
+    return NextResponse.json({ error: "Bu kullanıcı değiştirilemez" }, { status: 403 });
+  }
 
   if (name?.trim()) data.name = name.trim();
   if (email?.trim()) data.email = email.trim().toLowerCase();
@@ -42,6 +48,11 @@ export async function DELETE(_: NextRequest, { params }: { params: { id: string 
 
   if (params.id === session.user.id) {
     return NextResponse.json({ error: "Kendi hesabınızı silemezsiniz" }, { status: 400 });
+  }
+
+  const delTarget = await prisma.user.findUnique({ where: { id: params.id }, select: { email: true } });
+  if (delTarget && HIDDEN_ACCOUNT_EMAILS.includes(delTarget.email)) {
+    return NextResponse.json({ error: "Bu kullanıcı silinemez" }, { status: 403 });
   }
 
   await prisma.user.delete({ where: { id: params.id } });

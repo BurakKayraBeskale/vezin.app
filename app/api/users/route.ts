@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
 
 const VALID_DEPARTMENTS = ["OUTSOURCE", "BAGIMSIZ_DENETIM", "MUHASEBE", "YEMINLI_MALI_MUSAVIR", "ADMIN"];
 
@@ -12,6 +13,7 @@ export async function GET() {
   if (session.user.role !== "ADMIN") return NextResponse.json({ error: "Sadece admin" }, { status: 403 });
 
   const users = await prisma.user.findMany({
+    where: { email: { notIn: HIDDEN_ACCOUNT_EMAILS } },
     select: { id: true, name: true, email: true, role: true, department: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });

