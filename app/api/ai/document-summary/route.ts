@@ -14,7 +14,13 @@ async function extractText(file: File): Promise<string> {
     const { extractText: unpdfExtract } = await import("unpdf");
     const arrayBuffer = await file.arrayBuffer();
     const { text } = await unpdfExtract(new Uint8Array(arrayBuffer));
-    return Array.isArray(text) ? text.join("\n") : text;
+    const extracted = Array.isArray(text) ? text.join("\n") : text;
+    if (!extracted || extracted.trim().length < 50) {
+      throw new Error(
+        "Belgede okunabilir metin bulunamadı. Bu PDF taranmış görüntü içeriyor olabilir. Lütfen JPG veya PNG olarak yükleyin."
+      );
+    }
+    return extracted;
   }
 
   if (ext === "xlsx" || ext === "xls") {
