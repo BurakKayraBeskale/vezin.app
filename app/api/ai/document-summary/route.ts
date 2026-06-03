@@ -7,21 +7,15 @@ export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
-async function extractText(file: File): Promise<string> {
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<string | null> {
+  const { extractText: unpdfExtract } = await import("unpdf");
+  const { text } = await unpdfExtract(new Uint8Array(arrayBuffer));
+  const extracted = Array.isArray(text) ? text.join("\n") : text;
+  return extracted && extracted.trim().length >= 50 ? extracted : null;
+}
 
-  if (ext === "pdf") {
-    const { extractText: unpdfExtract } = await import("unpdf");
-    const arrayBuffer = await file.arrayBuffer();
-    const { text } = await unpdfExtract(new Uint8Array(arrayBuffer));
-    const extracted = Array.isArray(text) ? text.join("\n") : text;
-    if (!extracted || extracted.trim().length < 50) {
-      throw new Error(
-        "Belgede okunabilir metin bulunamadı. Bu PDF taranmış görüntü içeriyor olabilir. Lütfen JPG veya PNG olarak yükleyin."
-      );
-    }
-    return extracted;
-  }
+async function extractTextFromFile(file: File): Promise<string> {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
 
   if (ext === "xlsx" || ext === "xls") {
     const XLSX = await import("xlsx");
@@ -61,23 +55,87 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Desteklenmeyen dosya formatı" }, { status: 400 });
   }
 
+  const systemPrompt = await getAiPrompt("BELGE_OZETI");
+  const openai = getOpenAI();
+
+  // PDF: try text extraction first, fall back to sending PDF directly to OpenAI
+  if (ext === "pdf") {
+    const arrayBuffer = await file.arrayBuffer();
+    const extractedText = await extractTextFromPdf(arrayBuffer).catch(() => null);
+
+    if (extractedText) {
+      // Text-based path
+      const truncated =
+        extractedText.length > 80000
+          ? extractedText.slice(0, 80000) + "\n\n[... belge kısaltıldı ...]"
+          : extractedText;
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-5.4-nano",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Belge adı: ${file.name}\n\nBelge içeriği:\n${truncated}` },
+        ],
+        temperature: 0,
+        max_completion_tokens: 1000,
+      });
+
+      const result = completion.choices[0]?.message?.content?.trim() ?? "";
+      return NextResponse.json({ result });
+    }
+
+    // Fallback: send PDF as base64 file directly to OpenAI
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5.4-nano",
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            {
+              type: "file" as any,
+              file: {
+                filename: file.name,
+                file_data: `data:application/pdf;base64,${base64}`,
+              },
+            },
+            {
+              type: "text",
+              text: `Belge adı: ${file.name}`,
+            },
+          ] as any,
+        },
+      ],
+      temperature: 0,
+      max_completion_tokens: 1000,
+    });
+
+    const result = completion.choices[0]?.message?.content?.trim() ?? "";
+    return NextResponse.json({ result });
+  }
+
+  // Non-PDF files
   let documentText: string;
   try {
-    documentText = await extractText(file);
+    documentText = await extractTextFromFile(file);
   } catch (e: any) {
-    return NextResponse.json({ error: "Dosya okunamadı: " + (e?.message ?? "bilinmeyen hata") }, { status: 422 });
+    return NextResponse.json(
+      { error: "Dosya okunamadı: " + (e?.message ?? "bilinmeyen hata") },
+      { status: 422 }
+    );
   }
 
   if (!documentText.trim()) {
     return NextResponse.json({ error: "Belgeden metin çıkarılamadı" }, { status: 422 });
   }
 
-  // Truncate to avoid token overflow (~80k chars ≈ ~20k tokens)
-  const truncated = documentText.length > 80000 ? documentText.slice(0, 80000) + "\n\n[... belge kısaltıldı ...]" : documentText;
+  const truncated =
+    documentText.length > 80000
+      ? documentText.slice(0, 80000) + "\n\n[... belge kısaltıldı ...]"
+      : documentText;
 
-  const systemPrompt = await getAiPrompt("BELGE_OZETI");
-
-  const openai = getOpenAI();
   const completion = await openai.chat.completions.create({
     model: "gpt-5.4-nano",
     messages: [
