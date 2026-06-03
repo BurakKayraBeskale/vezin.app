@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
 import {
   DndContext,
@@ -234,9 +235,11 @@ interface Props {
 }
 
 export default function KanbanBoard({ initialTasks, users, isAdmin, templates }: Props) {
+  const router = useRouter();
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const [tasks, setTasks] = useState<TaskFull[]>(initialTasks);
+  const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedTask, setSelectedTask] = useState<TaskFull | null>(null);
   const [activeTask, setActiveTask] = useState<TaskFull | null>(null);
@@ -346,10 +349,22 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, templates }:
 
   function handleCreate(created: TaskFull) {
     setTasks((prev) => [created, ...prev]);
+    router.refresh();
+    setToast("Görev oluşturuldu");
+    setTimeout(() => setToast(null), 2500);
   }
 
   return (
     <>
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-xl">
+          <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          {toast}
+        </div>
+      )}
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
         <div className="mb-4 bg-[#F57C28]/10 border border-[#F57C28]/30 rounded-2xl p-3 flex items-center gap-3 flex-wrap">

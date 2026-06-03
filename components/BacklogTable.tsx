@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import PriorityBadge from "./PriorityBadge";
 import StatusBadge from "./StatusBadge";
@@ -58,7 +59,9 @@ function SortIcon({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol; s
 }
 
 export default function BacklogTable({ initialTasks, users, isAdmin, templates }: Props) {
+  const router = useRouter();
   const [tasks, setTasks] = useState<TaskFull[]>(initialTasks);
+  const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -171,6 +174,9 @@ export default function BacklogTable({ initialTasks, users, isAdmin, templates }
 
   function handleCreate(created: TaskFull) {
     setTasks((prev) => [created, ...prev]);
+    router.refresh();
+    setToast("Görev oluşturuldu");
+    setTimeout(() => setToast(null), 2500);
   }
 
   async function handleDelete(id: string) {
@@ -189,6 +195,15 @@ export default function BacklogTable({ initialTasks, users, isAdmin, templates }
 
   return (
     <div className="space-y-4">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-xl animate-in fade-in slide-in-from-bottom-2">
+          <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          {toast}
+        </div>
+      )}
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
         <div className="bg-[#F57C28]/10 border border-[#F57C28]/30 rounded-2xl p-3 flex items-center gap-3 flex-wrap">

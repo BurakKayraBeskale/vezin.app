@@ -29,3 +29,24 @@ export async function GET(
 
   return NextResponse.json(meeting);
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+
+  const role = (session.user as any).role as string;
+  if (role !== "ADMIN" && role !== "MANAGER") {
+    return NextResponse.json({ error: "Sadece yönetici veya admin silebilir" }, { status: 403 });
+  }
+
+  try {
+    await (prisma as any).meeting.delete({ where: { id: params.id } });
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    console.error("[meetings DELETE]", err);
+    return NextResponse.json({ error: "Toplantı silinemedi" }, { status: 500 });
+  }
+}

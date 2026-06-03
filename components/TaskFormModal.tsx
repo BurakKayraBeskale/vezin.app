@@ -65,6 +65,7 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [assigneeSearch, setAssigneeSearch] = useState("");
 
   function toggleAssignee(id: string) {
     setAssigneeIds((prev) =>
@@ -260,14 +261,17 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
               )}
             </label>
 
-            {/* Selected chips */}
+            {/* Selected chips — avatar + isim */}
             {assigneeIds.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {assigneeIds.map((uid) => {
                   const u = users.find((x) => x.id === uid);
                   if (!u) return null;
                   return (
-                    <span key={uid} className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 text-xs rounded-full px-2 py-0.5 font-medium">
+                    <span key={uid} className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 text-xs rounded-full pl-1 pr-2 py-0.5 font-medium">
+                      <div className="w-4 h-4 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[8px] font-bold flex-shrink-0">
+                        {initials(u.name)}
+                      </div>
                       {u.name}
                       <button type="button" onClick={() => toggleAssignee(uid)} className="hover:text-red-500 ml-0.5 leading-none">×</button>
                     </span>
@@ -276,31 +280,57 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
               </div>
             )}
 
+            {/* Arama */}
+            <div className="relative mb-1">
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={assigneeSearch}
+                onChange={(e) => setAssigneeSearch(e.target.value)}
+                placeholder="Kişi ara..."
+                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#F57C28]/40 focus:border-[#F57C28]"
+              />
+            </div>
+
             {/* Scrollable checkbox list */}
             <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
-              <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={assigneeIds.length === 0}
-                  onChange={() => setAssigneeIds([])}
-                  className="w-3.5 h-3.5 rounded accent-[#F57C28] flex-shrink-0"
-                />
-                <span className="text-sm text-gray-400 italic">— Atanmamış —</span>
-              </label>
-              {users.map((u) => (
-                <label key={u.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+              {!assigneeSearch && (
+                <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={assigneeIds.includes(u.id)}
-                    onChange={() => toggleAssignee(u.id)}
+                    checked={assigneeIds.length === 0}
+                    onChange={() => setAssigneeIds([])}
                     className="w-3.5 h-3.5 rounded accent-[#F57C28] flex-shrink-0"
                   />
-                  <div className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
-                    {initials(u.name)}
-                  </div>
-                  <span className="text-sm text-gray-700">{u.name}</span>
+                  <span className="text-sm text-gray-400 italic">— Atanmamış —</span>
                 </label>
-              ))}
+              )}
+              {users
+                .filter((u) =>
+                  !assigneeSearch ||
+                  u.name.toLowerCase().includes(assigneeSearch.toLowerCase())
+                )
+                .map((u) => (
+                  <label key={u.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={assigneeIds.includes(u.id)}
+                      onChange={() => toggleAssignee(u.id)}
+                      className="w-3.5 h-3.5 rounded accent-[#F57C28] flex-shrink-0"
+                    />
+                    <div className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                      {initials(u.name)}
+                    </div>
+                    <span className="text-sm text-gray-700">{u.name}</span>
+                  </label>
+                ))}
+              {users.filter((u) =>
+                !assigneeSearch || u.name.toLowerCase().includes(assigneeSearch.toLowerCase())
+              ).length === 0 && (
+                <div className="px-3 py-3 text-sm text-gray-400 text-center">Kişi bulunamadı</div>
+              )}
             </div>
           </div>
 

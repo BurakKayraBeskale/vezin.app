@@ -70,52 +70,69 @@ function formatDateTR(dateStr: string) {
 function MeetingCard({
   meeting,
   onClick,
+  onDelete,
+  canDelete,
 }: {
   meeting: Meeting;
   onClick: () => void;
+  onDelete?: () => void;
+  canDelete?: boolean;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className="w-full text-left p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/40 transition-all group"
-    >
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-200 transition-colors">
+    <div className="flex items-center gap-1 w-full">
+      <button
+        onClick={onClick}
+        className="flex-1 text-left p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/40 transition-all group"
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-200 transition-colors">
+            <svg
+              className="w-5 h-5 text-indigo-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+              />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-800 truncate">{meeting.title}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {meeting.time} · {DURATION_LABELS[meeting.duration] ?? `${meeting.duration} dk`} ·{" "}
+              {DEPT_LABELS[meeting.department] ?? meeting.department}
+            </p>
+            {meeting.description && (
+              <p className="text-xs text-gray-400 mt-1 line-clamp-1">{meeting.description}</p>
+            )}
+          </div>
           <svg
-            className="w-5 h-5 text-indigo-600"
+            className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 flex-shrink-0 mt-0.5 transition-colors"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
             strokeWidth={2}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-            />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-800 truncate">{meeting.title}</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {meeting.time} · {DURATION_LABELS[meeting.duration] ?? `${meeting.duration} dk`} ·{" "}
-            {DEPT_LABELS[meeting.department] ?? meeting.department}
-          </p>
-          {meeting.description && (
-            <p className="text-xs text-gray-400 mt-1 line-clamp-1">{meeting.description}</p>
-          )}
-        </div>
-        <svg
-          className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 flex-shrink-0 mt-0.5 transition-colors"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          strokeWidth={2}
+      </button>
+      {canDelete && onDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+          title="Toplantıyı sil"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-      </div>
-    </button>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -438,6 +455,7 @@ export default function MeetingsPage() {
   const userRole = (session?.user as any)?.role as string | undefined;
   const userDepartment = (session?.user as any)?.department as string | undefined;
   const canCreate = userRole === "ADMIN" || userRole === "MANAGER";
+  const canDelete = userRole === "ADMIN" || userRole === "MANAGER";
 
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -459,6 +477,7 @@ export default function MeetingsPage() {
   });
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchMeetings = useCallback(async () => {
     setLoading(true);
@@ -516,6 +535,37 @@ export default function MeetingsPage() {
       return da < db ? -1 : da > db ? 1 : 0;
     })
     .slice(0, 8);
+
+  async function handleDeleteMeeting(meetingId: string) {
+    if (!confirm("Bu toplantıyı silmek istediğinizden emin misiniz?")) return;
+    setDeletingId(meetingId);
+    try {
+      const res = await fetch(`/api/meetings/${meetingId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Silinemedi");
+        return;
+      }
+      setMeetingsByDay((prev) => {
+        const next = { ...prev };
+        for (const date in next) {
+          next[date] = next[date].filter((m) => m.id !== meetingId);
+          if (next[date].length === 0) delete next[date];
+        }
+        return next;
+      });
+      setSelectedDay((prev) => {
+        if (!prev) return prev;
+        const remaining = (meetingsByDay[prev] ?? []).filter((m) => m.id !== meetingId);
+        return remaining.length > 0 ? prev : null;
+      });
+      if (detailId === meetingId) setDetailId(null);
+    } catch {
+      alert("Bir hata oluştu");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -706,7 +756,13 @@ export default function MeetingsPage() {
           </div>
           <div className="space-y-2">
             {selectedDayMeetings.map((m) => (
-              <MeetingCard key={m.id} meeting={m} onClick={() => setDetailId(m.id)} />
+              <MeetingCard
+                key={m.id}
+                meeting={m}
+                onClick={() => setDetailId(m.id)}
+                canDelete={canDelete}
+                onDelete={() => handleDeleteMeeting(m.id)}
+              />
             ))}
           </div>
         </div>
@@ -752,7 +808,12 @@ export default function MeetingsPage() {
           <ul className="divide-y divide-gray-50">
             {upcomingMeetings.map((m) => (
               <li key={m.id} className="px-4 sm:px-6 py-1">
-                <MeetingCard meeting={m} onClick={() => setDetailId(m.id)} />
+                <MeetingCard
+                  meeting={m}
+                  onClick={() => setDetailId(m.id)}
+                  canDelete={canDelete}
+                  onDelete={() => handleDeleteMeeting(m.id)}
+                />
               </li>
             ))}
           </ul>
