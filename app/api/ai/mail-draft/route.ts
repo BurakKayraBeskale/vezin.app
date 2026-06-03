@@ -9,13 +9,12 @@ export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
-  const { konu, not: kisaNot, ton } = await req.json();
+  const { konu, not: kisaNot } = await req.json();
   if (!konu?.trim()) return NextResponse.json({ error: "Konu zorunlu" }, { status: 400 });
 
   const systemPrompt = await getAiPrompt("MAIL_TASLAGI");
 
   const userMessage = [
-    `Ton: ${ton || "Resmi"}`,
     `Konu: ${konu.trim()}`,
     kisaNot?.trim() ? `Kısa Not: ${kisaNot.trim()}` : null,
   ]

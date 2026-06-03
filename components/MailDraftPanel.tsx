@@ -2,17 +2,10 @@
 
 import { useState } from "react";
 
-const TONE_OPTIONS = [
-  { value: "Resmi",       label: "Resmi",       desc: "Resmi kurumsal dil" },
-  { value: "Yarı Resmi",  label: "Yarı Resmi",  desc: "Sıcak ama profesyonel" },
-  { value: "Dostane",     label: "Dostane",     desc: "Samimi ve yakın" },
-];
-
 export default function MailDraftPanel() {
   const [kime, setKime]       = useState("");
   const [konu, setKonu]       = useState("");
   const [kisaNot, setKisaNot] = useState("");
-  const [ton, setTon]         = useState("Resmi");
   const [loading, setLoading] = useState(false);
   const [result, setResult]   = useState("");
   const [error, setError]     = useState("");
@@ -28,7 +21,7 @@ export default function MailDraftPanel() {
       const res = await fetch("/api/ai/mail-draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ konu, not: kisaNot, ton }),
+        body: JSON.stringify({ konu, not: kisaNot }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -96,30 +89,6 @@ export default function MailDraftPanel() {
             placeholder="Ne söylemek istediğini birkaç cümleyle yaz..."
             className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] resize-none"
           />
-        </div>
-
-        {/* Ton */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-2">Ton</label>
-          <div className="grid grid-cols-3 gap-2">
-            {TONE_OPTIONS.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => setTon(t.value)}
-                className={`flex flex-col items-center gap-0.5 px-3 py-2.5 rounded-xl border text-sm font-semibold transition-colors ${
-                  ton === t.value
-                    ? "bg-[#F57C28] border-[#F57C28] text-white shadow-sm shadow-[#F57C28]/30"
-                    : "bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300"
-                }`}
-              >
-                {t.label}
-                <span className={`text-[10px] font-normal ${ton === t.value ? "text-white/70" : "text-gray-400"}`}>
-                  {t.desc}
-                </span>
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Hata */}
