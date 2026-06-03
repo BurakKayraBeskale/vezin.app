@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_VISION_PAGES = 6;
 
-async function pdfToBase64Images(arrayBuffer: ArrayBuffer): Promise<string[]> {
+async function pdfToBase64Images(buffer: Buffer): Promise<string[]> {
   const { pdf } = await import("pdf-to-img");
   const images: string[] = [];
-  const document = await pdf(Buffer.from(arrayBuffer), { scale: 2 });
+  const document = await pdf(buffer, { scale: 2 });
   let page = 0;
   for await (const img of document) {
     if (page >= MAX_VISION_PAGES) break;
@@ -57,13 +57,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const prompt = await getAiPrompt("TARAYICI") + "\n\nYanıtını JSON formatında ver.";
-    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(await file.arrayBuffer());
     let messageContent: any[];
 
     if (file.type === "application/pdf") {
       // Try text extraction first
-      const pdfBuffer = new Uint8Array(arrayBuffer);
-      const { text: pdfText } = await extractText(pdfBuffer, { mergePages: true });
+      const { text: pdfText } = await extractText(new Uint8Array(buffer), { mergePages: true });
 
       if (pdfText?.trim() && pdfText.trim().length >= 50) {
         // Text-based path
@@ -77,7 +76,7 @@ export async function POST(req: NextRequest) {
         // Fallback: convert pages to PNG and send via vision
         let pageImages: string[];
         try {
-          pageImages = await pdfToBase64Images(arrayBuffer);
+          pageImages = await pdfToBase64Images(buffer);
         } catch (e: any) {
           return NextResponse.json(
             { error: "PDF sayfaları görüntüye dönüştürülemedi: " + (e?.message ?? "bilinmeyen hata") },
@@ -101,7 +100,7 @@ export async function POST(req: NextRequest) {
         ];
       }
     } else {
-      const base64 = Buffer.from(arrayBuffer).toString("base64");
+      const base64 = buffer.toString("base64");
       const mimeType = file.type as "image/jpeg" | "image/png" | "image/webp";
       messageContent = [
         { type: "text", text: prompt },
