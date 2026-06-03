@@ -3,7 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_PROMPTS, AiModule } from "@/lib/ai-prompts";
 
-const VALID_MODULES: AiModule[] = ["BEYANNAME", "TXT_EXCEL", "KARSILASTIRMA", "TARAYICI"];
+const VALID_MODULES: AiModule[] = ["BEYANNAME", "TXT_EXCEL", "KARSILASTIRMA", "TARAYICI", "METIN_DUZENLEME"];
 
 export async function PATCH(
   req: NextRequest,

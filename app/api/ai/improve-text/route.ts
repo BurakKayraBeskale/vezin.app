@@ -25,6 +25,13 @@ export async function POST(req: NextRequest) {
     max_completion_tokens: 1024,
   });
 
-  const result = completion.choices[0]?.message?.content?.trim() ?? text;
-  return NextResponse.json({ result });
+  const raw = completion.choices[0]?.message?.content?.trim() ?? "";
+
+  // Prompt JSON döndürüyor — parse et; başarısız olursa ham metni döndür
+  try {
+    const parsed = JSON.parse(raw);
+    return NextResponse.json({ baslik: parsed.baslik ?? null, aciklama: parsed.aciklama ?? null, result: raw });
+  } catch {
+    return NextResponse.json({ result: raw });
+  }
 }
