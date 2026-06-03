@@ -82,49 +82,56 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Geçersiz departman" }, { status: 400 });
   }
 
-  // Create meeting
-  const meeting = await (prisma as any).meeting.create({
-    data: {
-      title: title.trim(),
-      description: description?.trim() || null,
-      date,
-      time,
-      duration: dur,
-      department,
-      createdById,
-    },
-    include: { createdBy: { select: { id: true, name: true } } },
-  });
+  let meeting: any;
+  try {
+    meeting = await (prisma as any).meeting.create({
+      data: {
+        title: title.trim(),
+        description: description?.trim() || null,
+        date,
+        time,
+        duration: dur,
+        department,
+        createdById,
+      },
+      include: { createdBy: { select: { id: true, name: true } } },
+    });
+  } catch (err: any) {
+    console.error("[meetings POST] create error:", err);
+    return NextResponse.json({ error: "Toplantı oluşturulamadı" }, { status: 500 });
+  }
 
-  // Find all users in the department to notify
-  const deptUsers = await prisma.user.findMany({
-    where: { department },
-    select: { id: true },
-  });
+  // Bildirim ve katılımcı oluşturma — başarısız olsa bile toplantı oluştu sayılır
+  try {
+    const deptUsers = await prisma.user.findMany({
+      where: { department },
+      select: { id: true },
+    });
 
-  const notifMessage = `YENİ TOPLANTI: ${meeting.title} - ${date} ${time}`;
+    const notifMessage = `YENİ TOPLANTI: ${meeting.title} - ${date} ${time}`;
 
-  // Create attendees + notifications in parallel
-  await Promise.all([
-    // Bulk create attendees
-    (prisma as any).meetingAttendee.createMany({
-      data: deptUsers.map((u: { id: string }) => ({
-        meetingId: meeting.id,
-        userId: u.id,
-        status: "PENDING",
-      })),
-      skipDuplicates: true,
-    }),
-    // Bulk create notifications
-    prisma.notification.createMany({
-      data: deptUsers.map((u: { id: string }) => ({
-        userId: u.id,
-        type: "MEETING_CREATED",
-        message: notifMessage,
-        relatedId: meeting.id,
-      })),
-    }),
-  ]);
+    await Promise.all([
+      (prisma as any).meetingAttendee.createMany({
+        data: deptUsers.map((u: { id: string }) => ({
+          meetingId: meeting.id,
+          userId: u.id,
+          status: "PENDING",
+        })),
+        skipDuplicates: true,
+      }),
+      prisma.notification.createMany({
+        data: deptUsers.map((u: { id: string }) => ({
+          userId: u.id,
+          type: "MEETING_CREATED",
+          message: notifMessage,
+          relatedId: meeting.id,
+        })),
+      }),
+    ]);
+  } catch (err: any) {
+    console.error("[meetings POST] attendees/notifications error:", err);
+    // Toplantı oluştu, sadece bildirimler gönderilemedi — yine de 201 dön
+  }
 
   return NextResponse.json(meeting, { status: 201 });
 }
