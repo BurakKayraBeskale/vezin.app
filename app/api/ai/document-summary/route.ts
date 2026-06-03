@@ -14,7 +14,7 @@ async function extractText(file: File): Promise<string> {
     const { extractText: unpdfExtract } = await import("unpdf");
     const arrayBuffer = await file.arrayBuffer();
     const { text } = await unpdfExtract(new Uint8Array(arrayBuffer));
-    return text;
+    return Array.isArray(text) ? text.join("\n") : text;
   }
 
   if (ext === "xlsx" || ext === "xls") {
