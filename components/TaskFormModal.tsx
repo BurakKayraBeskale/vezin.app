@@ -83,10 +83,8 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || "AI düzenlemesi başarısız");
       }
-      const data = await res.json();
-      if (data.baslik) setTitle(data.baslik);
-      if (data.aciklama) setDescription(data.aciklama);
-      else if (data.result) setDescription(data.result);
+      const { result } = await res.json();
+      setDescription(result);
     } catch (e: any) {
       setAiError(e.message || "Hata oluştu");
     } finally {
