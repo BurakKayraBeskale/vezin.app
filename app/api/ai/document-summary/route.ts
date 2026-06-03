@@ -6,12 +6,27 @@ import { getAiPrompt } from "@/lib/ai-prompts";
 export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_VISION_PAGES = 6; // limit pages sent to vision to control cost/tokens
 
 async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<string | null> {
   const { extractText: unpdfExtract } = await import("unpdf");
   const { text } = await unpdfExtract(new Uint8Array(arrayBuffer));
   const extracted = Array.isArray(text) ? text.join("\n") : text;
   return extracted && extracted.trim().length >= 50 ? extracted : null;
+}
+
+async function pdfToBase64Images(arrayBuffer: ArrayBuffer): Promise<string[]> {
+  const { pdf } = await import("pdf-to-img");
+  const images: string[] = [];
+  const document = await pdf(Buffer.from(arrayBuffer), { scale: 2 });
+  let page = 0;
+  for await (const img of document) {
+    if (page >= MAX_VISION_PAGES) break;
+    // img is a Buffer containing PNG bytes
+    images.push((img as Buffer).toString("base64"));
+    page++;
+  }
+  return images;
 }
 
 async function extractTextFromFile(file: File): Promise<string> {
@@ -58,7 +73,7 @@ export async function POST(req: NextRequest) {
   const systemPrompt = await getAiPrompt("BELGE_OZETI");
   const openai = getOpenAI();
 
-  // PDF: try text extraction first, fall back to sending PDF directly to OpenAI
+  // PDF: try text extraction first, fall back to vision
   if (ext === "pdf") {
     const arrayBuffer = await file.arrayBuffer();
     const extractedText = await extractTextFromPdf(arrayBuffer).catch(() => null);
@@ -80,12 +95,33 @@ export async function POST(req: NextRequest) {
         max_completion_tokens: 1000,
       });
 
-      const result = completion.choices[0]?.message?.content?.trim() ?? "";
-      return NextResponse.json({ result });
+      return NextResponse.json({
+        result: completion.choices[0]?.message?.content?.trim() ?? "",
+      });
     }
 
-    // Fallback: send PDF as base64 file directly to OpenAI
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
+    // Fallback: convert pages to PNG and send via vision
+    let pageImages: string[];
+    try {
+      pageImages = await pdfToBase64Images(arrayBuffer);
+    } catch (e: any) {
+      return NextResponse.json(
+        { error: "PDF sayfaları görüntüye dönüştürülemedi: " + (e?.message ?? "bilinmeyen hata") },
+        { status: 422 }
+      );
+    }
+
+    if (pageImages.length === 0) {
+      return NextResponse.json(
+        { error: "PDF'den sayfa okunamadı. Dosya bozuk olabilir." },
+        { status: 422 }
+      );
+    }
+
+    const imageContent = pageImages.map((b64) => ({
+      type: "image_url" as const,
+      image_url: { url: `data:image/png;base64,${b64}`, detail: "high" as const },
+    }));
 
     const completion = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
@@ -94,26 +130,21 @@ export async function POST(req: NextRequest) {
         {
           role: "user",
           content: [
+            ...imageContent,
             {
-              type: "file" as any,
-              file: {
-                filename: file.name,
-                file_data: `data:application/pdf;base64,${base64}`,
-              },
+              type: "text" as const,
+              text: `Belge adı: ${file.name}${pageImages.length === MAX_VISION_PAGES ? ` (ilk ${MAX_VISION_PAGES} sayfa gösterildi)` : ""}`,
             },
-            {
-              type: "text",
-              text: `Belge adı: ${file.name}`,
-            },
-          ] as any,
+          ],
         },
       ],
       temperature: 0,
       max_completion_tokens: 1000,
     });
 
-    const result = completion.choices[0]?.message?.content?.trim() ?? "";
-    return NextResponse.json({ result });
+    return NextResponse.json({
+      result: completion.choices[0]?.message?.content?.trim() ?? "",
+    });
   }
 
   // Non-PDF files
@@ -146,6 +177,7 @@ export async function POST(req: NextRequest) {
     max_completion_tokens: 1000,
   });
 
-  const result = completion.choices[0]?.message?.content?.trim() ?? "";
-  return NextResponse.json({ result });
+  return NextResponse.json({
+    result: completion.choices[0]?.message?.content?.trim() ?? "",
+  });
 }
