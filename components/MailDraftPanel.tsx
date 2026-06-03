@@ -1,20 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
-
 const TONE_OPTIONS = [
   { value: "Resmi",      label: "Resmi" },
   { value: "Yarı Resmi", label: "Yarı Resmi" },
   { value: "Dostane",    label: "Dostane" },
 ];
 
-const SIGNATURE = "Vezin Vergi · Denetim · Danışmanlık";
-
 export default function MailDraftPanel() {
-  const { data: session } = useSession();
-  const userName = (session?.user as any)?.name ?? "";
-
   const [kime, setKime]       = useState("");
   const [konu, setKonu]       = useState("");
   const [kisaNot, setKisaNot] = useState("");
@@ -23,10 +16,6 @@ export default function MailDraftPanel() {
   const [result, setResult]   = useState("");
   const [error, setError]     = useState("");
   const [copied, setCopied]   = useState(false);
-
-  const fullText = result
-    ? `${result}\n\nSaygılarımla,\n${userName}\n${SIGNATURE}`
-    : "";
 
   async function handleGenerate() {
     if (!konu.trim()) return;
@@ -55,7 +44,7 @@ export default function MailDraftPanel() {
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(fullText);
+      await navigator.clipboard.writeText(result);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -200,12 +189,6 @@ export default function MailDraftPanel() {
             </p>
           )}
           <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans leading-relaxed">{result}</pre>
-          {/* İmza */}
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-sm text-gray-600">Saygılarımla,</p>
-            <p className="text-sm font-semibold text-gray-800 mt-0.5">{userName}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{SIGNATURE}</p>
-          </div>
         </div>
       )}
     </div>

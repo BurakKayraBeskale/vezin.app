@@ -12,7 +12,9 @@ export async function POST(req: NextRequest) {
   const { konu, not: kisaNot, ton } = await req.json();
   if (!konu?.trim()) return NextResponse.json({ error: "Konu zorunlu" }, { status: 400 });
 
-  const systemPrompt = await getAiPrompt("MAIL_TASLAGI");
+  const userName = (token as any).name ?? "";
+  const basePrompt = await getAiPrompt("MAIL_TASLAGI");
+  const systemPrompt = `${basePrompt}\n\nMailin sonuna şu imzayı ekle, başka hiçbir placeholder kullanma:\n\nSaygılarımla,\n${userName}\nVezin Vergi · Denetim · Danışmanlık`;
 
   const userMessage = [
     `Ton: ${ton || "Resmi"}`,
