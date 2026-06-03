@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-export type AiModule = "BEYANNAME" | "TXT_EXCEL" | "KARSILASTIRMA" | "TARAYICI" | "METIN_DUZENLEME";
+export type AiModule = "BEYANNAME" | "TXT_EXCEL" | "KARSILASTIRMA" | "TARAYICI" | "METIN_DUZENLEME" | "MAIL_TASLAGI";
 
 export const MODULE_LABELS: Record<AiModule, string> = {
   BEYANNAME:       "Beyanname Oluştur",
@@ -8,6 +8,7 @@ export const MODULE_LABELS: Record<AiModule, string> = {
   KARSILASTIRMA:   "Karşılaştırma",
   TARAYICI:        "Tarayıcı",
   METIN_DUZENLEME: "Metin Düzenleme",
+  MAIL_TASLAGI:    "Mail Taslağı",
 };
 
 export const DEFAULT_PROMPTS: Record<AiModule, string> = {
@@ -156,6 +157,15 @@ JSON formatında döndür:
   "ozet": "string"
 }
 Türkçe karakterleri koru. Sadece JSON objesi döndür.`,
+
+  MAIL_TASLAGI: `Sen bir vergi ve denetim firmasında profesyonel mail yazma asistanısın. Kullanıcının verdiği konu ve kısa notu alıp eksiksiz bir iş maili yaz.
+
+Kurallar:
+- Seçilen tona uygun yaz (Resmi / Yarı Resmi / Dostane)
+- Türkçe dilbilgisi ve noktalama kurallarına uy
+- Uygun selamlama ve kapanış ekle
+- Net, anlaşılır ve profesyonel ol
+- Sadece mail metnini döndür`,
 
   METIN_DUZENLEME: `Sen bir vergi ve denetim firmasında metin editörüsün. Sana verilen metni:
 - Türkçe noktalama ve yazım kurallarına uygun hale getir

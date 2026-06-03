@@ -8,6 +8,7 @@ const MODULE_LABELS: Record<string, string> = {
   KARSILASTIRMA:   "Excel Karşılaştırma",
   TARAYICI:        "Görsel → Excel",
   METIN_DUZENLEME: "Metin Düzenleme",
+  MAIL_TASLAGI:    "Mail Taslağı",
 };
 
 const MODULES = Object.keys(MODULE_LABELS);
