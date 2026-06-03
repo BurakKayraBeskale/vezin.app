@@ -1,15 +1,32 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
+
+const TONE_OPTIONS = [
+  { value: "Resmi",      label: "Resmi" },
+  { value: "Yarı Resmi", label: "Yarı Resmi" },
+  { value: "Dostane",    label: "Dostane" },
+];
+
+const SIGNATURE = "Vezin Vergi · Denetim · Danışmanlık";
 
 export default function MailDraftPanel() {
+  const { data: session } = useSession();
+  const userName = (session?.user as any)?.name ?? "";
+
   const [kime, setKime]       = useState("");
   const [konu, setKonu]       = useState("");
   const [kisaNot, setKisaNot] = useState("");
+  const [ton, setTon]         = useState("Resmi");
   const [loading, setLoading] = useState(false);
   const [result, setResult]   = useState("");
   const [error, setError]     = useState("");
   const [copied, setCopied]   = useState(false);
+
+  const fullText = result
+    ? `${result}\n\nSaygılarımla,\n${userName}\n${SIGNATURE}`
+    : "";
 
   async function handleGenerate() {
     if (!konu.trim()) return;
@@ -21,7 +38,7 @@ export default function MailDraftPanel() {
       const res = await fetch("/api/ai/mail-draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ konu, not: kisaNot }),
+        body: JSON.stringify({ konu, not: kisaNot, ton }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -38,7 +55,7 @@ export default function MailDraftPanel() {
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(result);
+      await navigator.clipboard.writeText(fullText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -89,6 +106,27 @@ export default function MailDraftPanel() {
             placeholder="Ne söylemek istediğini birkaç cümleyle yaz..."
             className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] resize-none"
           />
+        </div>
+
+        {/* Ton — küçük pill butonlar */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-500 flex-shrink-0">Ton:</span>
+          <div className="flex gap-1.5">
+            {TONE_OPTIONS.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => setTon(t.value)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  ton === t.value
+                    ? "bg-[#F57C28] text-white"
+                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Hata */}
@@ -162,6 +200,12 @@ export default function MailDraftPanel() {
             </p>
           )}
           <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans leading-relaxed">{result}</pre>
+          {/* İmza */}
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <p className="text-sm text-gray-600">Saygılarımla,</p>
+            <p className="text-sm font-semibold text-gray-800 mt-0.5">{userName}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{SIGNATURE}</p>
+          </div>
         </div>
       )}
     </div>
