@@ -253,18 +253,6 @@ export default function Sidebar({
           }
           active={pathname === "/meetings"}
         />
-        {/* Mail Taslağı — her rol */}
-        <NavLink
-          href="/mail-taslagi"
-          label="Mail Taslağı"
-          icon={
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
-            </svg>
-          }
-          active={pathname === "/mail-taslagi"}
-        />
-
         {(userRole === "ADMIN" || userDepartment === "BAGIMSIZ_DENETIM") && (
           <NavLink
             href="/companies"
@@ -277,6 +265,46 @@ export default function Sidebar({
             active={pathname.startsWith("/companies")}
           />
         )}
+
+        {(userRole === "EMPLOYEE" || userRole === "MANAGER") && employeeExtraNavItems.map((item) => (
+          <NavLink
+            key={item.href}
+            href={item.href}
+            label={item.label}
+            icon={item.icon}
+            active={pathname === item.href}
+          />
+        ))}
+
+        <NavLink
+          href="/templates"
+          label="Şablonlar"
+          icon={
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+            </svg>
+          }
+          active={pathname === "/templates" || pathname.startsWith("/admin/templates")}
+        />
+
+        {/* YAPAY ZEKA bölümü */}
+        <div className="pt-3 pb-1">
+          <p className="px-3 text-[9px] font-semibold text-white/25 uppercase tracking-widest">
+            Yapay Zeka
+          </p>
+        </div>
+
+        {/* Mail Taslağı — her rol */}
+        <NavLink
+          href="/mail-taslagi"
+          label="Mail Taslağı"
+          icon={
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+            </svg>
+          }
+          active={pathname === "/mail-taslagi"}
+        />
 
         {(userRole === "ADMIN" || userDepartment === "BAGIMSIZ_DENETIM") && (
           <NavLink
@@ -316,27 +344,6 @@ export default function Sidebar({
             active={pathname === "/karsilastirma"}
           />
         )}
-
-        {(userRole === "EMPLOYEE" || userRole === "MANAGER") && employeeExtraNavItems.map((item) => (
-          <NavLink
-            key={item.href}
-            href={item.href}
-            label={item.label}
-            icon={item.icon}
-            active={pathname === item.href}
-          />
-        ))}
-
-        <NavLink
-          href="/templates"
-          label="Şablonlar"
-          icon={
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-            </svg>
-          }
-          active={pathname === "/templates" || pathname.startsWith("/admin/templates")}
-        />
 
         {userRole === "ADMIN" && (
           <>
