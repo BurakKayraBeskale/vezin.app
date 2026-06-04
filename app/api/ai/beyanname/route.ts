@@ -2,11 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
-import { extractText } from "unpdf";
 
 export const dynamic = "force-dynamic";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_VISION_PAGES = 6;
+
+async function pdfToBase64Images(buffer: Buffer): Promise<string[]> {
+  const { pdf } = await import("pdf-to-img");
+  const images: string[] = [];
+  const document = await pdf(buffer, { scale: 2 });
+  let page = 0;
+  for await (const img of document) {
+    if (page >= MAX_VISION_PAGES) break;
+    images.push((img as Buffer).toString("base64"));
+    page++;
+  }
+  return images;
+}
 
 export async function POST(req: NextRequest) {
   const openai = getOpenAI();
@@ -43,45 +56,53 @@ export async function POST(req: NextRequest) {
   const prompt = await getAiPrompt("BEYANNAME") + "\n\nYanıtını JSON formatında ver.";
 
   try {
-    const bytes = await file.arrayBuffer();
-    const buffer = new Uint8Array(bytes);
-    const { text } = await extractText(buffer, { mergePages: true });
+    const buffer = Buffer.from(await file.arrayBuffer());
 
-    if (!text?.trim()) {
-      return NextResponse.json({ error: "PDF'den metin çıkarılamadı." }, { status: 400 });
+    let pageImages: string[];
+    try {
+      pageImages = await pdfToBase64Images(buffer);
+    } catch (e: any) {
+      return NextResponse.json(
+        { error: "PDF sayfaları görüntüye dönüştürülemedi: " + (e?.message ?? "bilinmeyen hata") },
+        { status: 422 }
+      );
     }
+
+    if (pageImages.length === 0) {
+      return NextResponse.json(
+        { error: "PDF'den sayfa okunamadı. Dosya bozuk olabilir." },
+        { status: 422 }
+      );
+    }
+
+    const messageContent: any[] = [
+      { type: "text", text: prompt },
+      ...pageImages.map((b64) => ({
+        type: "image_url" as const,
+        image_url: { url: `data:image/png;base64,${b64}`, detail: "high" as const },
+      })),
+    ];
 
     const response = await openai.chat.completions.create({
       model: "gpt-5.4-mini",
-      messages: [
-        {
-          role: "user",
-          content: `${prompt}\n\nBelge içeriği:\n${text.slice(0, 8000)}`,
-        },
-      ],
+      messages: [{ role: "user", content: messageContent }],
       response_format: { type: "json_object" },
       temperature: 0,
       max_completion_tokens: 16000,
     });
 
-    const raw = response.choices[0].message.content ?? "{}";
-    console.log("[beyanname] Ham içerik:", raw?.slice(0, 500));
+    const content = response.choices[0].message.content ?? "{}";
 
     let parsed: any;
     try {
-      parsed = JSON.parse(raw);
+      parsed = JSON.parse(content);
     } catch {
-      const cleaned = raw
-        .replace(/[\x00-\x1F\x7F]/g, " ")
-        .replace(/\n/g, "\\n")
-        .replace(/\r/g, "\\r")
-        .replace(/\t/g, "\\t");
-      try {
-        parsed = JSON.parse(cleaned);
-      } catch {
-        const match = raw.match(/\{[\s\S]*\}/);
-        if (match) parsed = JSON.parse(match[0]);
-        else throw new Error("JSON parse edilemedi");
+      const match = content.match(/\{[\s\S]*\}/);
+      if (match) {
+        try { parsed = JSON.parse(match[0]); }
+        catch { throw new Error("Model yanıtı eksik geldi, dosyayı daha küçük parçalara bölün."); }
+      } else {
+        throw new Error("Geçersiz yanıt formatı.");
       }
     }
 
