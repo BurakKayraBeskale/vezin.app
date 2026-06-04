@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import archiver from "archiver";
+import JSZip from "jszip";
 import path from "path";
 import fs from "fs";
-import { PassThrough } from "stream";
 
 export const dynamic = "force-dynamic";
 
-/** Replace filesystem-unsafe characters */
 function sanitize(name: string): string {
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim() || "Bilinmeyen";
 }
@@ -51,43 +49,27 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const uploadsDir  = path.join(process.cwd(), "uploads");
-  const dateLabel   = new Date().toISOString().split("T")[0];
-  const rootFolder  = `Vezin_Dosya_Yedegi_${dateLabel}`;
+  const uploadsDir = path.join(process.cwd(), "uploads");
+  const dateLabel  = new Date().toISOString().split("T")[0];
+  const rootFolder = `Vezin_Dosya_Yedegi_${dateLabel}`;
 
-  // Build archive in memory via PassThrough → Web ReadableStream
-  const passThrough = new PassThrough();
-  const archive     = archiver("zip", { zlib: { level: 6 } });
-
-  archive.on("error", (err) => passThrough.destroy(err));
-  archive.pipe(passThrough);
+  const zip = new JSZip();
 
   for (const file of files) {
     const diskPath = path.join(uploadsDir, file.path);
     if (!fs.existsSync(diskPath)) continue;
 
-    const dept     = sanitize(file.task.createdBy.department || "Genel");
-    const taskName = sanitize(file.task.title);
-    // Prefix with file id slice to avoid name collisions within same task folder
+    const dept      = sanitize(file.task.createdBy.department || "Genel");
+    const taskName  = sanitize(file.task.title);
     const entryName = `${rootFolder}/${dept}/${taskName}/${file.filename}`;
 
-    archive.file(diskPath, { name: entryName });
+    const fileBuffer = fs.readFileSync(diskPath);
+    zip.file(entryName, fileBuffer);
   }
 
-  await archive.finalize();
+  const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
 
-  const webStream = new ReadableStream({
-    start(controller) {
-      passThrough.on("data",  (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-      passThrough.on("end",   ()              => controller.close());
-      passThrough.on("error", (err)           => controller.error(err));
-    },
-    cancel() {
-      archive.abort();
-    },
-  });
-
-  return new Response(webStream, {
+  return new NextResponse(zipBuffer, {
     headers: {
       "Content-Type":        "application/zip",
       "Content-Disposition": `attachment; filename="${rootFolder}.zip"`,
