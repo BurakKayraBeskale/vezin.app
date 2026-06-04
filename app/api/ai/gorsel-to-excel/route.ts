@@ -115,11 +115,22 @@ export async function POST(req: NextRequest) {
       model: "gpt-5.4-nano",
       messages: [{ role: "user", content: messageContent }],
       response_format: { type: "json_object" },
-      max_completion_tokens: 4000,
+      max_completion_tokens: 16000,
     });
 
-    const raw = response.choices[0].message.content ?? "{}";
-    const result = JSON.parse(raw);
+    const content = response.choices[0].message.content ?? "{}";
+    let result: any;
+    try {
+      result = JSON.parse(content);
+    } catch {
+      const match = content.match(/\{[\s\S]*\}/);
+      if (match) {
+        try { result = JSON.parse(match[0]); }
+        catch { throw new Error("Model yanıtı eksik geldi, dosyayı daha küçük parçalara bölün."); }
+      } else {
+        throw new Error("Geçersiz yanıt formatı.");
+      }
+    }
 
     if (!Array.isArray(result.headers) || !Array.isArray(result.rows)) {
       return NextResponse.json(
