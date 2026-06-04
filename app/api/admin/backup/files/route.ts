@@ -77,3 +77,56 @@ export async function GET(req: NextRequest) {
     },
   });
 }
+
+export async function DELETE(req: NextRequest) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token || (token as any).role !== "ADMIN") {
+    return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const before = searchParams.get("before");
+  if (!before) {
+    return NextResponse.json({ error: "'before' parametresi zorunlu" }, { status: 400 });
+  }
+
+  const beforeDate = new Date(before);
+  beforeDate.setHours(23, 59, 59, 999);
+  if (isNaN(beforeDate.getTime())) {
+    return NextResponse.json({ error: "Geçersiz tarih formatı" }, { status: 400 });
+  }
+
+  const files = await prisma.file.findMany({
+    where: { createdAt: { lte: beforeDate } },
+    select: { id: true, path: true },
+  });
+
+  if (files.length === 0) {
+    return NextResponse.json({ deleted: 0, message: "Silinecek dosya bulunamadı" });
+  }
+
+  const uploadsDir = path.join(process.cwd(), "uploads");
+  let diskDeleted = 0;
+
+  for (const file of files) {
+    const diskPath = path.join(uploadsDir, file.path);
+    try {
+      if (fs.existsSync(diskPath)) {
+        fs.unlinkSync(diskPath);
+        diskDeleted++;
+      }
+    } catch {
+      // ignore individual file errors, continue deleting others
+    }
+  }
+
+  await prisma.file.deleteMany({
+    where: { createdAt: { lte: beforeDate } },
+  });
+
+  return NextResponse.json({
+    deleted: files.length,
+    diskDeleted,
+    message: `${files.length} dosya kaydı ve ${diskDeleted} disk dosyası silindi.`,
+  });
+}

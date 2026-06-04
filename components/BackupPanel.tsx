@@ -59,6 +59,10 @@ export default function BackupPanel() {
   const [downloading, setDownloading] = useState(false);
   const [pdfLoading, setPdfLoading]   = useState(false);
   const [zipLoading, setZipLoading]   = useState(false);
+  const [deleteDate, setDeleteDate]   = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteResult, setDeleteResult]   = useState<string | null>(null);
   const [summary, setSummary]         = useState<SummaryData | null>(null);
   const [error, setError]             = useState<string | null>(null);
 
@@ -313,6 +317,23 @@ export default function BackupPanel() {
       setError(e.message || "PDF oluşturulamadı");
     } finally {
       setPdfLoading(false);
+    }
+  }
+
+  async function handleDeleteOldFiles() {
+    if (!deleteDate) return;
+    setDeleteLoading(true);
+    setDeleteResult(null);
+    setDeleteConfirm(false);
+    try {
+      const res = await fetch(`/api/admin/backup/files?before=${deleteDate}`, { method: "DELETE" });
+      const d   = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "Silme işlemi başarısız");
+      setDeleteResult(d.message || "Dosyalar silindi.");
+    } catch (e: any) {
+      setDeleteResult("Hata: " + (e.message || "Bilinmeyen hata"));
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -602,6 +623,73 @@ export default function BackupPanel() {
           </div>
         </>
       )}
+
+      {/* ── Eski Dosyaları Sil ──────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-6 space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">Eski Dosyaları Temizle</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Seçilen tarihten önce yüklenen dosyaları diskten ve veritabanından kalıcı olarak siler. Bu işlem geri alınamaz.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[180px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">Bu tarihten önceki dosyaları sil</label>
+            <input
+              type="date"
+              value={deleteDate}
+              max={today()}
+              onChange={(e) => { setDeleteDate(e.target.value); setDeleteResult(null); setDeleteConfirm(false); }}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-400"
+            />
+          </div>
+
+          {!deleteConfirm ? (
+            <button
+              onClick={() => setDeleteConfirm(true)}
+              disabled={!deleteDate || deleteLoading}
+              className="px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+            >
+              Sil
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-red-600 font-medium">Emin misiniz?</span>
+              <button
+                onClick={handleDeleteOldFiles}
+                disabled={deleteLoading}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+              >
+                {deleteLoading ? "Siliniyor..." : "Evet, sil"}
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(false)}
+                className="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-semibold transition-colors"
+              >
+                İptal
+              </button>
+            </div>
+          )}
+        </div>
+
+        {deleteResult && (
+          <div className={`text-xs px-3 py-2 rounded-lg ${
+            deleteResult.startsWith("Hata")
+              ? "bg-red-50 text-red-600 border border-red-200"
+              : "bg-green-50 text-green-700 border border-green-200"
+          }`}>
+            {deleteResult}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
