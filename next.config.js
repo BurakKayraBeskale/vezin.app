@@ -2,7 +2,7 @@
 const nextConfig = {
   images: { unoptimized: true },
   experimental: {
-    serverComponentsExternalPackages: ["unpdf"],
+    serverComponentsExternalPackages: ["unpdf", "pdf-to-img", "pdfjs-dist"],
   },
   async headers() {
     return [
