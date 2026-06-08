@@ -70,7 +70,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               data: {
                 userId: mentioned.id,
                 type: "MENTIONED",
-                message: `"${task.title}" görevinde bahsedildiniz.`,
+                message: `${comment.user.name} sizi "${task.title}" görevindeki bir yorumda etiketledi.`,
                 relatedId: params.id,
               },
             });

@@ -5,7 +5,7 @@ import PriorityBadge from "./PriorityBadge";
 
 type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
 type Priority = "LOW" | "MEDIUM" | "HIGH";
-type Tab = "detay" | "dosyalar" | "yorumlar" | "aktivite" | "zaman";
+type Tab = "detay" | "dosyalar" | "aktivite" | "zaman";
 
 interface User { id: string; name: string; email?: string; }
 interface FileRecord { id: string; filename: string; comment?: string | null; uploadedBy: { id: string; name: string }; uploadedById: string; createdAt: string; }
@@ -133,9 +133,9 @@ export default function TaskModal({ task, users, isAdmin, currentUserId, canDele
     setTimeout(() => setToast(""), 2500);
   }
 
-  // Load comments when tab is first opened
+  // Load comments when dosyalar tab is first opened
   useEffect(() => {
-    if (activeTab === "yorumlar" && !commentsLoaded) {
+    if (activeTab === "dosyalar" && !commentsLoaded) {
       fetch(`/api/tasks/${task.id}/comments`)
         .then((r) => r.json())
         .then((d) => { setComments(Array.isArray(d) ? d : []); setCommentsLoaded(true); });
@@ -324,8 +324,7 @@ export default function TaskModal({ task, users, isAdmin, currentUserId, canDele
 
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: "detay", label: "Detay" },
-    { key: "dosyalar", label: "Dosyalar", count: files.length },
-    { key: "yorumlar", label: "Yorumlar", count: commentsLoaded ? comments.length : undefined },
+    { key: "dosyalar", label: "Dosyalar & Yorumlar", count: files.length + (commentsLoaded ? comments.length : 0) },
     { key: "aktivite", label: "Aktivite", count: logs.length },
     { key: "zaman", label: "Zaman Takibi", count: timeLogsLoaded ? timeLogs.length : undefined },
   ];
@@ -556,119 +555,117 @@ export default function TaskModal({ task, users, isAdmin, currentUserId, canDele
                   ))}
                 </div>
               )}
-            </div>
-          )}
 
-          {/* ── YORUMLAR ── */}
-          {activeTab === "yorumlar" && (
-            <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Yorumlar {commentsLoaded && `(${comments.length})`}
-              </h3>
+              {/* ── YORUMLAR (Dosyalar sekmesinin altında) ── */}
+              <div className="mt-5 pt-4 border-t border-gray-100">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                  Yorumlar {commentsLoaded && `(${comments.length})`}
+                </h3>
 
-              {!commentsLoaded && (
-                <div className="py-8 text-center text-xs text-gray-400">Yükleniyor...</div>
-              )}
+                {!commentsLoaded && (
+                  <div className="py-6 text-center text-xs text-gray-400">Yükleniyor...</div>
+                )}
 
-              {commentsLoaded && comments.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-8 border border-dashed border-gray-200 rounded-xl mb-4">Henüz yorum yok</p>
-              )}
+                {commentsLoaded && comments.length === 0 && (
+                  <p className="text-xs text-gray-400 text-center py-6 border border-dashed border-gray-200 rounded-xl mb-4">Henüz yorum yok</p>
+                )}
 
-              {commentsLoaded && comments.length > 0 && (
-                <div className="space-y-2.5 mb-4">
-                  {comments.map((c) => {
-                    const isAdmin = c.user.role === "ADMIN";
-                    const isManager = c.user.role === "MANAGER";
-                    const colorCls = isAdmin
-                      ? "bg-[#FFF3E9] border-[#F57C28]/20"
-                      : isManager
-                      ? "bg-purple-50 border-purple-100"
-                      : "bg-indigo-50 border-indigo-100";
-                    const nameCls = isAdmin ? "text-[#F57C28]" : isManager ? "text-purple-600" : "text-indigo-600";
-                    const badgeCls = isAdmin
-                      ? "bg-[#F57C28]/15 text-[#F57C28]"
-                      : isManager
-                      ? "bg-purple-100 text-purple-500"
-                      : "bg-indigo-100 text-indigo-500";
-                    const rolLabel = isAdmin ? "Admin" : isManager ? "Yönetici" : "Çalışan";
-                    const textCls = isAdmin ? "text-orange-900" : isManager ? "text-purple-900" : "text-indigo-800";
-                    const timeCls = isAdmin ? "text-[#F57C28]/50" : isManager ? "text-purple-400" : "text-indigo-400";
+                {commentsLoaded && comments.length > 0 && (
+                  <div className="space-y-2.5 mb-4">
+                    {comments.map((c) => {
+                      const cIsAdmin = c.user.role === "ADMIN";
+                      const cIsManager = c.user.role === "MANAGER";
+                      const colorCls = cIsAdmin
+                        ? "bg-[#FFF3E9] border-[#F57C28]/20"
+                        : cIsManager
+                        ? "bg-purple-50 border-purple-100"
+                        : "bg-indigo-50 border-indigo-100";
+                      const nameCls = cIsAdmin ? "text-[#F57C28]" : cIsManager ? "text-purple-600" : "text-indigo-600";
+                      const badgeCls = cIsAdmin
+                        ? "bg-[#F57C28]/15 text-[#F57C28]"
+                        : cIsManager
+                        ? "bg-purple-100 text-purple-500"
+                        : "bg-indigo-100 text-indigo-500";
+                      const rolLabel = cIsAdmin ? "Admin" : cIsManager ? "Yönetici" : "Çalışan";
+                      const textCls = cIsAdmin ? "text-orange-900" : cIsManager ? "text-purple-900" : "text-indigo-800";
+                      const timeCls = cIsAdmin ? "text-[#F57C28]/50" : cIsManager ? "text-purple-400" : "text-indigo-400";
+                      const parts = c.content.split(/(@\S+)/g);
 
-                    // Render @mentions as highlighted
-                    const parts = c.content.split(/(@\S+)/g);
-
-                    return (
-                      <div key={c.id} className={`rounded-xl p-3 border ${colorCls}`}>
-                        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                          <div className="w-5 h-5 rounded-full bg-gray-300 flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
-                            {c.user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+                      return (
+                        <div key={c.id} className={`rounded-xl p-3 border ${colorCls}`}>
+                          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                            <div className="w-5 h-5 rounded-full bg-gray-300 flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                              {c.user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+                            </div>
+                            <span className={`text-[10px] font-bold ${nameCls}`}>{c.user.name}</span>
+                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${badgeCls}`}>{rolLabel}</span>
+                            <span className={`text-[10px] ml-auto ${timeCls}`}>{fmtDateTime(c.createdAt)}</span>
                           </div>
-                          <span className={`text-[10px] font-bold ${nameCls}`}>{c.user.name}</span>
-                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${badgeCls}`}>{rolLabel}</span>
-                          <span className={`text-[10px] ml-auto ${timeCls}`}>{fmtDateTime(c.createdAt)}</span>
+                          <p className={`text-sm ${textCls}`}>
+                            {parts.map((part, i) =>
+                              part.startsWith("@") ? (
+                                <span key={i} className="font-semibold text-[#F57C28]">{part}</span>
+                              ) : (
+                                <span key={i}>{part}</span>
+                              )
+                            )}
+                          </p>
                         </div>
-                        <p className={`text-sm ${textCls}`}>
-                          {parts.map((part, i) =>
-                            part.startsWith("@") ? (
-                              <span key={i} className="font-semibold text-[#F57C28]">{part}</span>
-                            ) : (
-                              <span key={i}>{part}</span>
-                            )
-                          )}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Comment input */}
-              <div className="relative">
-                <textarea
-                  ref={commentRef}
-                  value={commentText}
-                  onChange={handleCommentChange}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setMentionQuery(null);
-                    if (e.key === "Enter" && !e.shiftKey && mentionQuery === null) {
-                      e.preventDefault();
-                      handleSendComment();
-                    }
-                  }}
-                  placeholder="Yorum yaz... (@isim ile bahsedin)"
-                  rows={2}
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] resize-none"
-                />
-
-                {/* Mention dropdown */}
-                {mentionQuery !== null && filteredMentionUsers.length > 0 && (
-                  <div className="absolute bottom-full mb-1 left-0 w-full bg-white border border-gray-200 rounded-xl shadow-lg z-10 overflow-hidden">
-                    {filteredMentionUsers.map((u) => (
-                      <button
-                        key={u.id}
-                        type="button"
-                        onMouseDown={(e) => { e.preventDefault(); insertMention(u); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left transition-colors"
-                      >
-                        <div className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
-                          {u.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
-                        </div>
-                        <span className="text-sm text-gray-700">{u.name}</span>
-                      </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
-                <div className="flex justify-between items-center mt-2">
-                  <p className="text-[10px] text-gray-400">Enter gönder · Shift+Enter yeni satır · @ mention</p>
-                  <button
-                    onClick={handleSendComment}
-                    disabled={sendingComment || !commentText.trim()}
-                    className="px-4 py-2 bg-[#F57C28] hover:bg-[#D96A1A] disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0"
-                  >
-                    {sendingComment ? "..." : "Gönder"}
-                  </button>
-                </div>
+                {/* Comment input */}
+                {commentsLoaded && (
+                  <div className="relative">
+                    <textarea
+                      ref={commentRef}
+                      value={commentText}
+                      onChange={handleCommentChange}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setMentionQuery(null);
+                        if (e.key === "Enter" && !e.shiftKey && mentionQuery === null) {
+                          e.preventDefault();
+                          handleSendComment();
+                        }
+                      }}
+                      placeholder="Yorum yaz... (@isim ile bahsedin)"
+                      rows={2}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28] resize-none"
+                    />
+
+                    {/* Mention dropdown */}
+                    {mentionQuery !== null && filteredMentionUsers.length > 0 && (
+                      <div className="absolute bottom-full mb-1 left-0 w-full bg-white border border-gray-200 rounded-xl shadow-lg z-10 overflow-hidden">
+                        {filteredMentionUsers.map((u) => (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); insertMention(u); }}
+                            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-left transition-colors"
+                          >
+                            <div className="w-6 h-6 rounded-full bg-[#F57C28] flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0">
+                              {u.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+                            </div>
+                            <span className="text-sm text-gray-700">{u.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex justify-between items-center mt-2">
+                      <p className="text-[10px] text-gray-400">Enter gönder · Shift+Enter yeni satır · @ mention</p>
+                      <button
+                        onClick={handleSendComment}
+                        disabled={sendingComment || !commentText.trim()}
+                        className="px-4 py-2 bg-[#F57C28] hover:bg-[#D96A1A] disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0"
+                      >
+                        {sendingComment ? "..." : "Gönder"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
