@@ -21,6 +21,19 @@ async function pdfToBase64Images(buffer: Buffer): Promise<string[]> {
   return images;
 }
 
+function parseJsonContent(content: string): any {
+  try {
+    return JSON.parse(content);
+  } catch {
+    const match = content.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); }
+      catch { throw new Error("Model yanıtı eksik geldi, dosyayı daha küçük parçalara bölün."); }
+    }
+    throw new Error("Geçersiz yanıt formatı.");
+  }
+}
+
 export async function POST(req: NextRequest) {
   const openai = getOpenAI();
 
@@ -75,38 +88,84 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const messageContent: any[] = [
-      { type: "text", text: prompt },
-      ...pageImages.map((b64) => ({
-        type: "image_url" as const,
-        image_url: { url: `data:image/png;base64,${b64}`, detail: "high" as const },
-      })),
-    ];
-
-    const response = await openai.chat.completions.create({
+    // ── Sayfa 1: tam yapı (mukellef, donem, bolumler, ozet) ──────────────────
+    const firstResponse = await openai.chat.completions.create({
       model: "gpt-5.4-mini",
-      messages: [{ role: "user", content: messageContent }],
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: `data:image/png;base64,${pageImages[0]}`, detail: "high" } },
+        ],
+      }],
       response_format: { type: "json_object" },
       temperature: 0,
-      max_completion_tokens: 16000,
+      max_completion_tokens: 32000,
     });
 
-    const content = response.choices[0].message.content ?? "{}";
+    const firstResult = parseJsonContent(firstResponse.choices[0].message.content ?? "{}");
 
-    let parsed: any;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      const match = content.match(/\{[\s\S]*\}/);
-      if (match) {
-        try { parsed = JSON.parse(match[0]); }
-        catch { throw new Error("Model yanıtı eksik geldi, dosyayı daha küçük parçalara bölün."); }
-      } else {
-        throw new Error("Geçersiz yanıt formatı.");
+    // bolumler: array of sections, each section may have satirlar
+    const allBolumler: any[] = Array.isArray(firstResult.bolumler) ? [...firstResult.bolumler] : [];
+
+    // ── Sayfa 2-N: sadece bölümler/satırlar ──────────────────────────────────
+    for (let i = 1; i < pageImages.length; i++) {
+      const pagePrompt =
+        `Bu beyanname belgesinin ${i + 1}. sayfasıdır. ` +
+        `Mükellef ve dönem bilgisi ekleme; yalnızca bu sayfadaki bölümleri ve satırlarını çıkar. ` +
+        `Şu JSON formatında döndür: {"bolumler": [{...}, ...]}`;
+
+      const pageResponse = await openai.chat.completions.create({
+        model: "gpt-5.4-mini",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: pagePrompt },
+            { type: "image_url", image_url: { url: `data:image/png;base64,${pageImages[i]}`, detail: "high" } },
+          ],
+        }],
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_completion_tokens: 32000,
+      });
+
+      const pageResult = parseJsonContent(pageResponse.choices[0].message.content ?? "{}");
+      if (Array.isArray(pageResult.bolumler) && pageResult.bolumler.length > 0) {
+        allBolumler.push(...pageResult.bolumler);
       }
     }
 
-    return NextResponse.json({ data: parsed });
+    // ── Özet: tüm birleşik bölümlerden oluştur ───────────────────────────────
+    let ozet = firstResult.ozet ?? null;
+
+    if (pageImages.length > 1 && allBolumler.length > 0) {
+      const ozetPrompt =
+        `Aşağıdaki beyanname bölümleri tüm sayfalardan birleştirilerek elde edilmiştir. ` +
+        `Bu verilere dayanarak belgenin özetini oluştur. ` +
+        `Sadece {"ozet": {...}} formatında döndür:\n\n` +
+        JSON.stringify({ bolumler: allBolumler }).slice(0, 6000);
+
+      const ozetResponse = await openai.chat.completions.create({
+        model: "gpt-5.4-mini",
+        messages: [{ role: "user", content: ozetPrompt }],
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_completion_tokens: 4000,
+      });
+
+      const ozetResult = parseJsonContent(ozetResponse.choices[0].message.content ?? "{}");
+      if (ozetResult.ozet) {
+        ozet = ozetResult.ozet;
+      }
+    }
+
+    const merged = {
+      ...firstResult,
+      bolumler: allBolumler,
+      ...(ozet !== null ? { ozet } : {}),
+    };
+
+    return NextResponse.json({ data: merged });
   } catch (err: any) {
     console.error(
       "[beyanname] Hata:",
