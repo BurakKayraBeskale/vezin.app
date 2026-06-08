@@ -231,10 +231,12 @@ interface Props {
   initialTasks: TaskFull[];
   users: User[];
   isAdmin: boolean;
+  currentUserId: string;
+  canDeleteFiles: boolean;
   templates?: Template[];
 }
 
-export default function KanbanBoard({ initialTasks, users, isAdmin, templates }: Props) {
+export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserId, canDeleteFiles, templates }: Props) {
   const router = useRouter();
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -490,6 +492,8 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, templates }:
           task={selectedTask}
           users={users}
           isAdmin={isAdmin}
+          currentUserId={currentUserId}
+          canDeleteFiles={canDeleteFiles}
           onClose={() => setSelectedTask(null)}
           onUpdate={handleModalUpdate}
         />

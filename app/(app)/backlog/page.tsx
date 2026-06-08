@@ -94,6 +94,8 @@ export default async function BacklogPage() {
         initialTasks={JSON.parse(JSON.stringify(tasks))}
         users={JSON.parse(JSON.stringify(users))}
         isAdmin={isAdmin}
+        currentUserId={userId}
+        canDeleteFiles={isAdmin || role === "MANAGER"}
         templates={JSON.parse(JSON.stringify(templates))}
       />
     </div>

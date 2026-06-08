@@ -8,7 +8,7 @@ type Priority = "LOW" | "MEDIUM" | "HIGH";
 type Tab = "detay" | "dosyalar" | "yorumlar" | "aktivite" | "zaman";
 
 interface User { id: string; name: string; email?: string; }
-interface FileRecord { id: string; filename: string; comment?: string | null; uploadedBy: { name: string }; createdAt: string; }
+interface FileRecord { id: string; filename: string; comment?: string | null; uploadedBy: { id: string; name: string }; uploadedById: string; createdAt: string; }
 interface FeedbackRecord { id: string; message: string; fromUser: { name: string; role: string }; createdAt: string; }
 interface CommentRecord {
   id: string;
@@ -87,11 +87,13 @@ interface Props {
   task: TaskFull;
   users: User[];
   isAdmin: boolean;
+  currentUserId: string;
+  canDeleteFiles: boolean;
   onClose: () => void;
   onUpdate: (task: TaskFull) => void;
 }
 
-export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: Props) {
+export default function TaskModal({ task, users, isAdmin, currentUserId, canDeleteFiles, onClose, onUpdate }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("detay");
   const [status, setStatus] = useState<Status>(task.status);
   // Multi-assignee: use assignees array if present, else fall back to single assignedToId
@@ -210,6 +212,18 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function handleFileDelete(fileId: string) {
+    if (!confirm("Bu dosyayı silmek istediğinize emin misiniz?")) return;
+    try {
+      const res = await fetch(`/api/files/${fileId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      setFiles((prev) => prev.filter((f) => f.id !== fileId));
+      showToast("Dosya silindi");
+    } catch {
+      showToast("Silme başarısız");
     }
   }
 
@@ -515,16 +529,29 @@ export default function TaskModal({ task, users, isAdmin, onClose, onUpdate }: P
                           <p className="text-[10px] text-indigo-600 mt-0.5 italic">"{f.comment}"</p>
                         )}
                       </div>
-                      <a
-                        href={`/api/files/${f.id}/download`}
-                        download={f.filename}
-                        className="flex items-center gap-1 text-xs text-[#F57C28] hover:text-[#D96A1A] font-medium flex-shrink-0 py-1 px-2 rounded-lg hover:bg-orange-50 transition-colors"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        İndir
-                      </a>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <a
+                          href={`/api/files/${f.id}/download`}
+                          download={f.filename}
+                          className="flex items-center gap-1 text-xs text-[#F57C28] hover:text-[#D96A1A] font-medium py-1 px-2 rounded-lg hover:bg-orange-50 transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          İndir
+                        </a>
+                        {(canDeleteFiles || f.uploadedById === currentUserId) && (
+                          <button
+                            onClick={() => handleFileDelete(f.id)}
+                            title="Dosyayı sil"
+                            className="flex items-center justify-center p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

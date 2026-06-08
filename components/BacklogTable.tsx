@@ -26,6 +26,8 @@ interface Props {
   initialTasks: TaskFull[];
   users: User[];
   isAdmin: boolean;
+  currentUserId: string;
+  canDeleteFiles: boolean;
   templates?: Template[];
 }
 
@@ -58,7 +60,7 @@ function SortIcon({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol; s
   );
 }
 
-export default function BacklogTable({ initialTasks, users, isAdmin, templates }: Props) {
+export default function BacklogTable({ initialTasks, users, isAdmin, currentUserId, canDeleteFiles, templates }: Props) {
   const router = useRouter();
   const [tasks, setTasks] = useState<TaskFull[]>(initialTasks);
   const [toast, setToast] = useState<string | null>(null);
@@ -433,7 +435,7 @@ export default function BacklogTable({ initialTasks, users, isAdmin, templates }
 
       {/* Modals */}
       {viewTask && (
-        <TaskModal task={viewTask} users={users} isAdmin={isAdmin} onClose={() => setViewTask(null)} onUpdate={handleUpdate} />
+        <TaskModal task={viewTask} users={users} isAdmin={isAdmin} currentUserId={currentUserId} canDeleteFiles={canDeleteFiles} onClose={() => setViewTask(null)} onUpdate={handleUpdate} />
       )}
       {editTask && (
         <TaskFormModal task={editTask} users={users} templates={templates} onClose={() => setEditTask(null)} onUpdate={handleUpdate} />
