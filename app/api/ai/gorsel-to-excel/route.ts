@@ -8,6 +8,8 @@ export const dynamic = "force-dynamic";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_VISION_PAGES = 6;
+// 1-2 sayfa: tek çağrı, 3+ sayfa: sayfa sayfa işle
+const PAGED_THRESHOLD = 2;
 
 async function pdfToBase64Images(buffer: Buffer): Promise<string[]> {
   const { pdf } = await import("pdf-to-img");
@@ -33,6 +35,10 @@ function parseJsonContent(content: string): any {
     }
     throw new Error("Geçersiz yanıt formatı.");
   }
+}
+
+function imageContent(b64: string) {
+  return { type: "image_url" as const, image_url: { url: `data:image/png;base64,${b64}`, detail: "high" as const } };
 }
 
 export async function POST(req: NextRequest) {
@@ -73,38 +79,31 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
 
     if (file.type === "application/pdf") {
-      // Try text extraction first
+      // Metin tabanlı yol
       const { text: pdfText } = await extractText(new Uint8Array(buffer), { mergePages: true });
 
       if (pdfText?.trim() && pdfText.trim().length >= 50) {
-        // Text-based path — single call
-        const messageContent = [
-          {
-            type: "text",
-            text: `${prompt}\n\nBelge içeriği:\n${pdfText.slice(0, 8000)}`,
-          },
-        ];
-
         const response = await openai.chat.completions.create({
           model: "gpt-5.4-nano",
-          messages: [{ role: "user", content: messageContent }],
+          messages: [{
+            role: "user",
+            content: [{ type: "text", text: `${prompt}\n\nBelge içeriği:\n${pdfText.slice(0, 8000)}` }],
+          }],
           response_format: { type: "json_object" },
           max_completion_tokens: 8000,
         });
 
         const result = parseJsonContent(response.choices[0].message.content ?? "{}");
-
         if (!Array.isArray(result.headers) || !Array.isArray(result.rows)) {
           return NextResponse.json(
             { error: "Görsel analiz edildi ancak tablo yapısı çıkarılamadı. Daha net bir görsel deneyin" },
             { status: 422 }
           );
         }
-
         return NextResponse.json(result);
       }
 
-      // Vision path — convert pages then process each separately
+      // Görsel yol — sayfalara çevir
       let pageImages: string[];
       try {
         pageImages = await pdfToBase64Images(buffer);
@@ -122,14 +121,41 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Process first page — extract full structure (headers + rows + metadata)
+      // ── 1-2 sayfa: tek çağrıda tüm sayfalar ───────────────────────────────
+      if (pageImages.length <= PAGED_THRESHOLD) {
+        const response = await openai.chat.completions.create({
+          model: "gpt-5.4-nano",
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              ...pageImages.map(imageContent),
+            ],
+          }],
+          response_format: { type: "json_object" },
+          max_completion_tokens: 8000,
+        });
+
+        const result = parseJsonContent(response.choices[0].message.content ?? "{}");
+        if (!Array.isArray(result.headers) || !Array.isArray(result.rows)) {
+          return NextResponse.json(
+            { error: "Görsel analiz edildi ancak tablo yapısı çıkarılamadı. Daha net bir görsel deneyin" },
+            { status: 422 }
+          );
+        }
+        return NextResponse.json(result);
+      }
+
+      // ── 3+ sayfa: sayfa sayfa işle ─────────────────────────────────────────
+
+      // Sayfa 1: tam yapı (headers + rows)
       const firstResponse = await openai.chat.completions.create({
         model: "gpt-5.4-nano",
         messages: [{
           role: "user",
           content: [
             { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:image/png;base64,${pageImages[0]}`, detail: "high" } },
+            imageContent(pageImages[0]),
           ],
         }],
         response_format: { type: "json_object" },
@@ -137,7 +163,6 @@ export async function POST(req: NextRequest) {
       });
 
       const firstResult = parseJsonContent(firstResponse.choices[0].message.content ?? "{}");
-
       if (!Array.isArray(firstResult.headers) || !Array.isArray(firstResult.rows)) {
         return NextResponse.json(
           { error: "Görsel analiz edildi ancak tablo yapısı çıkarılamadı. Daha net bir görsel deneyin" },
@@ -148,13 +173,11 @@ export async function POST(req: NextRequest) {
       const headers: string[] = firstResult.headers;
       const allRows: any[][] = [...firstResult.rows];
 
-      // Process remaining pages — extract only rows using the same column structure
+      // Sayfa 2-N: sadece satırlar
       for (let i = 1; i < pageImages.length; i++) {
         const pagePrompt =
-          `Bu tablo belgesinin ${i + 1}. sayfasıdır. ` +
-          `Sütun başlıkları sırasıyla: ${headers.join(", ")}. ` +
-          `Yalnızca bu sayfadaki tablo satırlarını aynı sütun sırasıyla çıkar. ` +
-          `Başlık satırı ekleme. Sadece şu JSON formatında döndür: {"rows": [[...], ...]}`;
+          `Sayfa ${i + 1}. Sütunlar: ${headers.join(", ")}. ` +
+          `Sadece bu sayfanın tablo satırlarını aynı sırayla çıkar. {"rows": [[...]]}`;
 
         const pageResponse = await openai.chat.completions.create({
           model: "gpt-5.4-nano",
@@ -162,7 +185,7 @@ export async function POST(req: NextRequest) {
             role: "user",
             content: [
               { type: "text", text: pagePrompt },
-              { type: "image_url", image_url: { url: `data:image/png;base64,${pageImages[i]}`, detail: "high" } },
+              imageContent(pageImages[i]),
             ],
           }],
           response_format: { type: "json_object" },
@@ -178,33 +201,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...firstResult, rows: allRows });
     }
 
-    // Single image path — one call
+    // Tek görsel yolu
     const base64 = buffer.toString("base64");
     const mimeType = file.type as "image/jpeg" | "image/png" | "image/webp";
-    const messageContent = [
-      { type: "text", text: prompt },
-      {
-        type: "image_url",
-        image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },
-      },
-    ];
-
     const response = await openai.chat.completions.create({
       model: "gpt-5.4-nano",
-      messages: [{ role: "user", content: messageContent }],
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" } },
+        ],
+      }],
       response_format: { type: "json_object" },
       max_completion_tokens: 8000,
     });
 
     const result = parseJsonContent(response.choices[0].message.content ?? "{}");
-
     if (!Array.isArray(result.headers) || !Array.isArray(result.rows)) {
       return NextResponse.json(
         { error: "Görsel analiz edildi ancak tablo yapısı çıkarılamadı. Daha net bir görsel deneyin" },
         { status: 422 }
       );
     }
-
     return NextResponse.json(result);
   } catch (err: any) {
     console.error("[gorsel-to-excel]", err);

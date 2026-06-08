@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_VISION_PAGES = 6;
+// 1-2 sayfa: tek çağrı, 3+ sayfa: sayfa sayfa işle
+const PAGED_THRESHOLD = 2;
 
 async function pdfToBase64Images(buffer: Buffer): Promise<string[]> {
   const { pdf } = await import("pdf-to-img");
@@ -32,6 +34,10 @@ function parseJsonContent(content: string): any {
     }
     throw new Error("Geçersiz yanıt formatı.");
   }
+}
+
+function imageContent(b64: string) {
+  return { type: "image_url" as const, image_url: { url: `data:image/png;base64,${b64}`, detail: "high" as const } };
 }
 
 export async function POST(req: NextRequest) {
@@ -61,7 +67,6 @@ export async function POST(req: NextRequest) {
   if (file.size > MAX_SIZE) {
     return NextResponse.json({ error: "Dosya boyutu 10MB'ı geçemez" }, { status: 400 });
   }
-
   if (file.type !== "application/pdf") {
     return NextResponse.json({ error: "Yalnızca PDF dosyaları desteklenmektedir" }, { status: 400 });
   }
@@ -88,32 +93,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Sayfa 1: tam yapı (mukellef, donem, bolumler, ozet) ──────────────────
+    // ── 1-2 sayfa: tek çağrıda tüm sayfalar ─────────────────────────────────
+    if (pageImages.length <= PAGED_THRESHOLD) {
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.4-mini",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            ...pageImages.map(imageContent),
+          ],
+        }],
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_completion_tokens: 16000,
+      });
+
+      const parsed = parseJsonContent(response.choices[0].message.content ?? "{}");
+      return NextResponse.json({ data: parsed });
+    }
+
+    // ── 3+ sayfa: sayfa sayfa işle ───────────────────────────────────────────
+
+    // Sayfa 1: tam yapı (mukellef, donem, bolumler, ozet)
     const firstResponse = await openai.chat.completions.create({
       model: "gpt-5.4-mini",
       messages: [{
         role: "user",
         content: [
           { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: `data:image/png;base64,${pageImages[0]}`, detail: "high" } },
+          imageContent(pageImages[0]),
         ],
       }],
       response_format: { type: "json_object" },
       temperature: 0,
-      max_completion_tokens: 32000,
+      max_completion_tokens: 16000,
     });
 
     const firstResult = parseJsonContent(firstResponse.choices[0].message.content ?? "{}");
-
-    // bolumler: array of sections, each section may have satirlar
     const allBolumler: any[] = Array.isArray(firstResult.bolumler) ? [...firstResult.bolumler] : [];
 
-    // ── Sayfa 2-N: sadece bölümler/satırlar ──────────────────────────────────
+    // Sayfa 2-N: sadece bölümler
     for (let i = 1; i < pageImages.length; i++) {
-      const pagePrompt =
-        `Bu beyanname belgesinin ${i + 1}. sayfasıdır. ` +
-        `Mükellef ve dönem bilgisi ekleme; yalnızca bu sayfadaki bölümleri ve satırlarını çıkar. ` +
-        `Şu JSON formatında döndür: {"bolumler": [{...}, ...]}`;
+      const pagePrompt = `Sayfa ${i + 1}. Sadece bu sayfadaki beyanname bölümlerini ve satırlarını çıkar. {"bolumler": [...]}`;
 
       const pageResponse = await openai.chat.completions.create({
         model: "gpt-5.4-mini",
@@ -121,12 +143,12 @@ export async function POST(req: NextRequest) {
           role: "user",
           content: [
             { type: "text", text: pagePrompt },
-            { type: "image_url", image_url: { url: `data:image/png;base64,${pageImages[i]}`, detail: "high" } },
+            imageContent(pageImages[i]),
           ],
         }],
         response_format: { type: "json_object" },
         temperature: 0,
-        max_completion_tokens: 32000,
+        max_completion_tokens: 16000,
       });
 
       const pageResult = parseJsonContent(pageResponse.choices[0].message.content ?? "{}");
@@ -135,14 +157,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Özet: tüm birleşik bölümlerden oluştur ───────────────────────────────
+    // Özet: tüm birleşik bölümlerden
     let ozet = firstResult.ozet ?? null;
-
-    if (pageImages.length > 1 && allBolumler.length > 0) {
+    if (allBolumler.length > 0) {
       const ozetPrompt =
-        `Aşağıdaki beyanname bölümleri tüm sayfalardan birleştirilerek elde edilmiştir. ` +
-        `Bu verilere dayanarak belgenin özetini oluştur. ` +
-        `Sadece {"ozet": {...}} formatında döndür:\n\n` +
+        `Aşağıdaki beyanname bölümlerine göre özet oluştur. Sadece {"ozet": {...}} döndür:\n\n` +
         JSON.stringify({ bolumler: allBolumler }).slice(0, 6000);
 
       const ozetResponse = await openai.chat.completions.create({
@@ -154,9 +173,7 @@ export async function POST(req: NextRequest) {
       });
 
       const ozetResult = parseJsonContent(ozetResponse.choices[0].message.content ?? "{}");
-      if (ozetResult.ozet) {
-        ozet = ozetResult.ozet;
-      }
+      if (ozetResult.ozet) ozet = ozetResult.ozet;
     }
 
     const merged = {
