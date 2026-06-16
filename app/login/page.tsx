@@ -47,7 +47,7 @@ export default function LoginPage() {
         <div className="flex flex-col items-center mb-8">
           <a href="/">
             <img
-              src="/logo-login.png?v=2"
+              src="/logo-login.png?v=20260616"
               alt="Vezin"
               style={{ width: "300px", height: "auto" }}
             />

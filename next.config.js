@@ -7,11 +7,11 @@ const nextConfig = {
   async headers() {
     return [
       {
-        source: "/:all*(png|jpg|jpeg|svg|webp)",
+        source: "/:path*(png|jpg|jpeg|svg|webp|ico)",
         headers: [
           {
             key: "Cache-Control",
-            value: "public, max-age=3600, must-revalidate",
+            value: "public, max-age=0, must-revalidate",
           },
         ],
       },

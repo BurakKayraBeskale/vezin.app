@@ -198,7 +198,7 @@ export default function Sidebar({
       <div style={{ width: "100%", padding: "20px 16px", display: "flex", alignItems: "center" }}>
         <a href="/" style={{ flex: 1, display: "block" }}>
           <img
-            src="/logo-white.png?v=2"
+            src="/logo-white.png?v=20260616"
             alt="Vezin"
             style={{ width: "100%", height: "auto" }}
           />
