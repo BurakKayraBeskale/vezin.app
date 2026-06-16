@@ -17,13 +17,17 @@ function norm(s: any): string {
 }
 
 function findCol(headers: string[], keywords: string[]): number {
-  const normed = headers.map(norm);
+  // Her başlığı kesinlikle string'e çevir; undefined/null/nesne hepsini yakala
+  const normed: string[] = Array.from({ length: headers.length }, (_, i) =>
+    norm(headers[i])
+  );
   for (const kw of keywords) {
     const idx = normed.indexOf(norm(kw));
     if (idx !== -1) return idx;
   }
   for (const kw of keywords) {
-    const idx = normed.findIndex((h) => (h ?? "").includes(norm(kw)));
+    const needle = norm(kw);
+    const idx = normed.findIndex((h) => String(h ?? "").includes(needle));
     if (idx !== -1) return idx;
   }
   return -1;
@@ -131,15 +135,22 @@ export async function POST(req: NextRequest) {
     function readSheet(ws: any): { headers: string[]; rows: any[][] } {
       const allRows: any[][] = [];
       ws.eachRow((row: any) => {
-        // row.values sparse dizi olabilir; Array.from ile boşlukları undefined'a dönüştür
-        const vals = Array.from<any>({ length: (row.values?.length ?? 1) - 1 },
-          (_, i) => row.values?.[i + 1] ?? undefined);
+        // row.values 1-tabanlı sparse dizi; Array.from ile DENSE diziye çevir
+        const len = Math.max(0, (row.values?.length ?? 1) - 1);
+        const vals: any[] = Array.from({ length: len }, (_, i) => {
+          const cell = row.values?.[i + 1];
+          return cell === undefined ? null : cell; // sparse deliği null'a çevir
+        });
         allRows.push(vals);
       });
       if (allRows.length === 0) return { headers: [], rows: [] };
-      const headers = allRows[0].map((c: any) => cellText(c).trim());
+      // Başlık satırı: her hücreyi kesinlikle string'e çevir
+      const headers: string[] = Array.from(
+        { length: allRows[0].length },
+        (_, i) => String(cellText(allRows[0][i]) ?? "").trim()
+      );
       const rows = allRows.slice(1).filter((r) =>
-        r.some((c: any) => cellText(c).trim() !== "")
+        r.some((c: any) => String(cellText(c) ?? "").trim() !== "")
       );
       return { headers, rows };
     }
