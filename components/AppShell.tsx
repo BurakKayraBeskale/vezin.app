@@ -131,7 +131,7 @@ export default function AppShell({
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 bg-[#F57C28] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
             <Image
-              src="/logo.png"
+              src="/logo-white.png?v=20260616"
               alt="Vezin"
               width={28}
               height={28}
