@@ -8,7 +8,7 @@ const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
 // ── Yardımcı fonksiyonlar ─────────────────────────────────────────────────────
 
-function norm(s: string): string {
+function norm(s: any): string {
   return String(s ?? "")
     .toUpperCase()
     .replace(/İ/g, "I").replace(/Ş/g, "S").replace(/Ğ/g, "G")
@@ -23,14 +23,22 @@ function findCol(headers: string[], keywords: string[]): number {
     if (idx !== -1) return idx;
   }
   for (const kw of keywords) {
-    const idx = normed.findIndex((h) => h.includes(norm(kw)));
+    const idx = normed.findIndex((h) => (h ?? "").includes(norm(kw)));
     if (idx !== -1) return idx;
   }
   return -1;
 }
 
-function get(row: any[], idx: number): any {
-  return idx >= 0 ? (row[idx] ?? "") : "";
+function get(row: any[], idx: number): string {
+  if (idx < 0 || idx >= row.length) return "";
+  const v = row[idx];
+  if (v == null) return "";
+  if (typeof v === "object") {
+    if (v.richText) return v.richText.map((r: any) => r.text ?? "").join("");
+    if (v.result != null) return String(v.result);
+    if (v.text != null) return String(v.text);
+  }
+  return String(v);
 }
 
 function toNum(val: any): number {
@@ -109,19 +117,45 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Sheet okuma yardımcısı ─────────────────────────────────────────────────
+    function cellText(c: any): string {
+      if (c == null) return "";
+      // ExcelJS zengin metin / formül nesnelerini düzleştir
+      if (typeof c === "object") {
+        if (c.richText) return c.richText.map((r: any) => r.text ?? "").join("");
+        if (c.result != null) return String(c.result);
+        if (c.text != null) return String(c.text);
+      }
+      return String(c);
+    }
+
     function readSheet(ws: any): { headers: string[]; rows: any[][] } {
       const allRows: any[][] = [];
       ws.eachRow((row: any) => {
-        allRows.push(row.values.slice(1)); // index 0 boş, 1'den başla
+        // row.values sparse dizi olabilir; Array.from ile boşlukları undefined'a dönüştür
+        const vals = Array.from<any>({ length: (row.values?.length ?? 1) - 1 },
+          (_, i) => row.values?.[i + 1] ?? undefined);
+        allRows.push(vals);
       });
       if (allRows.length === 0) return { headers: [], rows: [] };
-      const headers = allRows[0].map((c: any) => String(c ?? "").trim());
-      const rows = allRows.slice(1).filter((r) => r.some((c: any) => String(c ?? "").trim() !== ""));
+      const headers = allRows[0].map((c: any) => cellText(c).trim());
+      const rows = allRows.slice(1).filter((r) =>
+        r.some((c: any) => cellText(c).trim() !== "")
+      );
       return { headers, rows };
     }
 
     const f1 = readSheet(wbIn.worksheets[0]);
     const f2 = readSheet(wbIn.worksheets[1]);
+
+    // Başlık satırı kontrolü
+    const f1HasHeaders = f1.headers.some((h) => h !== "");
+    const f2HasHeaders = f2.headers.some((h) => h !== "");
+    if (!f1HasHeaders || !f2HasHeaders) {
+      return NextResponse.json(
+        { error: "Dosyada karşılaştırma için iki sayfa bulunamadı veya başlık satırı boş. Lütfen 1. sayfada Firma 1, 2. sayfada Firma 2 verilerini içeren bir Excel dosyası yükleyin." },
+        { status: 400 }
+      );
+    }
 
     // ── Sütun tespiti ─────────────────────────────────────────────────────────
     const f1KeyIdx  = findCol(f1.headers, ["FATURA NO", "BELGE NO", "ETTN", "FATURA", "BELGE", "NO"]);
