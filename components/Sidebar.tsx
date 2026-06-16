@@ -198,9 +198,9 @@ export default function Sidebar({
       <div style={{ width: "100%", padding: "20px 16px", display: "flex", alignItems: "center" }}>
         <a href="/" style={{ flex: 1, display: "block" }}>
           <img
-            src="/logo-white.png?v=2"
+            src="/logo-login.png"
             alt="Vezin"
-            style={{ width: "100%", height: "auto" }}
+            style={{ width: "100%", height: "auto", filter: "brightness(0) invert(1)" }}
           />
         </a>
         {/* Close button — only visible on mobile */}
