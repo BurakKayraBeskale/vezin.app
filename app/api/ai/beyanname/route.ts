@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
 
     // Sayfa 2-N: sadece bölümler
     for (let i = 1; i < pageImages.length; i++) {
-      const pagePrompt = `Sayfa ${i + 1}. Sadece bu sayfadaki beyanname bölümlerini ve satırlarını çıkar. {"bolumler": [...]}`;
+      const pagePrompt = `Sayfa ${i + 1}. Sadece bu sayfadaki beyanname bölümlerini ve satırlarını çıkar. Çıktıyı geçerli JSON formatında döndür: {"bolumler": [...]}`;
 
       const pageResponse = await openai.chat.completions.create({
         model: "gpt-5.4-mini",
@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
     let ozet = firstResult.ozet ?? null;
     if (allBolumler.length > 0) {
       const ozetPrompt =
-        `Aşağıdaki beyanname bölümlerine göre özet oluştur. Sadece {"ozet": {...}} döndür:\n\n` +
+        `Aşağıdaki beyanname bölümlerine göre özet oluştur. Çıktıyı geçerli JSON formatında döndür, sadece {"ozet": {...}} ver:\n\n` +
         JSON.stringify({ bolumler: allBolumler }).slice(0, 6000);
 
       const ozetResponse = await openai.chat.completions.create({
