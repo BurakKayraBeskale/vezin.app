@@ -48,8 +48,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
   }
 
-  const { role, department } = token as any;
-  if (role !== "ADMIN" && department !== "YEMINLI_MALI_MUSAVIR") {
+  const { role } = token as any;
+  if (role !== "ADMIN") {
     return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
   }
 

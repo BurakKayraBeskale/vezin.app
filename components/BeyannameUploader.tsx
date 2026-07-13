@@ -16,7 +16,34 @@ interface BeyannameResult {
   ozet?: string;
 }
 
-type Tab = "tekli" | "tam-tasdik";
+type Tab = "tekli" | "tam-tasdik" | "capraz-kontrol";
+
+// ── Çapraz Kontrol types ───────────────────────────────────────────────────
+
+interface CheckItem {
+  name: string;
+  detail: string;
+  value1?: number;
+  value1Label?: string;
+  value2?: number;
+  value2Label?: string;
+  diff?: number;
+  diffPercent?: number;
+  status: "UYGUN" | "UYARI" | "BİLGİ";
+}
+
+interface ExtractionItem {
+  dosya_adi: string;
+  belge_turu: string;
+  mukellef?: any;
+  donem?: string;
+  veriler: any[];
+}
+
+interface KontrolResult {
+  extractions: ExtractionItem[];
+  checks: CheckItem[];
+}
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 
@@ -477,6 +504,269 @@ function TamTasdikPanel() {
   );
 }
 
+// ── Çapraz Kontrol ────────────────────────────────────────────────────────
+
+function statusMeta(status: CheckItem["status"]) {
+  if (status === "UYARI") return { bg: "bg-red-50 dark:bg-red-500/10", border: "border-red-200 dark:border-red-500/20", text: "text-red-700 dark:text-red-400", badge: "bg-red-500" };
+  if (status === "UYGUN") return { bg: "bg-emerald-50 dark:bg-emerald-500/10", border: "border-emerald-200 dark:border-emerald-500/20", text: "text-emerald-700 dark:text-emerald-400", badge: "bg-emerald-500" };
+  return { bg: "bg-amber-50 dark:bg-amber-500/10", border: "border-amber-200 dark:border-amber-500/20", text: "text-amber-700 dark:text-amber-400", badge: "bg-amber-400" };
+}
+
+function CaprazKontrolPanel() {
+  const [files, setFiles]         = useState<File[]>([]);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const [result, setResult]       = useState<KontrolResult | null>(null);
+  const [xlLoading, setXlLoading] = useState(false);
+
+  function addFiles(incoming: File[]) {
+    const pdfs = incoming.filter(f => f.type === "application/pdf");
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.name + f.size));
+      const fresh = pdfs.filter(f => !existing.has(f.name + f.size));
+      return [...prev, ...fresh];
+    });
+    setError(null);
+    setResult(null);
+  }
+
+  function removeFile(idx: number) {
+    setFiles(prev => prev.filter((_, i) => i !== idx));
+    setResult(null);
+  }
+
+  async function runKontrol() {
+    if (files.length === 0) return;
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append("files[]", f);
+      const res  = await fetch("/api/ai/capraz-kontrol", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? "İşlem başarısız"); return; }
+      setResult(json);
+    } catch { setError("Sunucuya bağlanılamadı."); }
+    finally   { setLoading(false); }
+  }
+
+  async function downloadExcel() {
+    if (!result) return;
+    setXlLoading(true);
+    try {
+      const res = await fetch("/api/ai/capraz-kontrol/excel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError(json.error ?? "Excel oluşturulamadı");
+        return;
+      }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `capraz-kontrol-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { setError("Excel indirilemedi."); }
+    finally   { setXlLoading(false); }
+  }
+
+  const uyariCount = result?.checks.filter(c => c.status === "UYARI").length ?? 0;
+  const uygunCount = result?.checks.filter(c => c.status === "UYGUN").length ?? 0;
+  const bilgiCount = result?.checks.filter(c => c.status === "BİLGİ").length  ?? 0;
+
+  return (
+    <div className="space-y-5">
+      {/* Açıklama */}
+      <div className="flex items-start gap-3 p-4 rounded-xl bg-[#F57C28]/5 border border-[#F57C28]/20">
+        <svg className="w-5 h-5 text-[#F57C28] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+        </svg>
+        <p className="text-xs text-gray-600 dark:text-white/60 leading-relaxed">
+          Aynı mükellefin aynı döneme ait farklı beyanname türlerini (KDV, Muhtasar, SGK, Geçici Vergi…) yükleyin.
+          Sistem tutarlılık kontrolü yapar; sonuçları Excel olarak indirin.
+        </p>
+      </div>
+
+      {/* Drop zone */}
+      {!result && (
+        <DropZone
+          onFiles={addFiles}
+          multiple
+          label="Birden fazla PDF sürükleyin ya da tıklayın"
+          hint="PDF · Maks 10MB · KDV + Muhtasar + SGK + Geçici Vergi vb."
+        />
+      )}
+
+      {/* Dosya listesi */}
+      {files.length > 0 && !result && (
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">
+              {files.length} Dosya
+            </span>
+            <button
+              onClick={() => { setFiles([]); setResult(null); setError(null); }}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-white/60 transition-colors"
+            >
+              Tümünü temizle
+            </button>
+          </div>
+          <ul className="divide-y divide-gray-100 dark:divide-white/5">
+            {files.map((f, i) => (
+              <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                <svg className="w-4 h-4 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                </svg>
+                <span className="text-sm text-gray-700 dark:text-white/70 flex-1 truncate">{f.name}</span>
+                <span className="text-xs text-gray-400 dark:text-white/30 flex-shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                <button
+                  onClick={() => removeFile(i)}
+                  disabled={loading}
+                  className="flex-shrink-0 p-1 rounded text-gray-300 hover:text-gray-500 dark:hover:text-white/60 transition-colors disabled:opacity-40"
+                >
+                  <IconX />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {error && <ErrorBox message={error} />}
+
+      {/* Loading */}
+      {loading && (
+        <div className="flex flex-col items-center gap-3 py-8">
+          <Spinner />
+          <p className="text-sm text-gray-500 dark:text-white/40">
+            Beyannameler analiz ediliyor, kontroller çalışıyor…
+          </p>
+          <p className="text-xs text-gray-400 dark:text-white/30">
+            {files.length} dosya · her dosya için 1 AI çağrısı
+          </p>
+        </div>
+      )}
+
+      {/* Kontrol Et butonu */}
+      {!loading && !result && files.length > 0 && (
+        <button
+          onClick={runKontrol}
+          className="w-full py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors"
+        >
+          Kontrol Et
+        </button>
+      )}
+
+      {/* Sonuçlar */}
+      {result && (
+        <div className="space-y-4">
+          {/* Özet sayaçlar */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Uyarı",      count: uyariCount, cls: "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20" },
+              { label: "Uygun",      count: uygunCount, cls: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20" },
+              { label: "Bilgi Notu", count: bilgiCount, cls: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20" },
+            ].map(({ label, count, cls }) => (
+              <div key={label} className={clsx("rounded-xl border p-3 text-center", cls)}>
+                <p className="text-2xl font-bold">{count}</p>
+                <p className="text-xs font-semibold mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Yüklenen beyannameler */}
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10">
+              <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">
+                Tespit Edilen Beyannameler — {result.extractions.length}
+              </span>
+            </div>
+            <ul className="divide-y divide-gray-100 dark:divide-white/5">
+              {result.extractions.map((ext, i) => (
+                <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#F57C28]/10 text-[#F57C28] uppercase tracking-wide flex-shrink-0">
+                    {safeStr(ext.belge_turu) || "?"}
+                  </span>
+                  <span className="text-sm text-gray-700 dark:text-white/70 flex-1 truncate">{safeStr(ext.donem) || "—"}</span>
+                  <span className="text-xs text-gray-400 dark:text-white/30 truncate flex-shrink-0">{ext.dosya_adi}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Kontrol sonuçları */}
+          <div className="space-y-2">
+            {result.checks.map((check, i) => {
+              const m = statusMeta(check.status);
+              return (
+                <div key={i} className={clsx("rounded-xl border p-3.5", m.bg, m.border)}>
+                  <div className="flex items-start gap-2.5">
+                    <span className={clsx("mt-0.5 flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white", m.badge)}>
+                      {check.status}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className={clsx("text-sm font-semibold", m.text)}>{check.name}</p>
+                      <p className={clsx("text-xs mt-0.5 leading-relaxed", m.text, "opacity-80")}>{check.detail}</p>
+                      {(check.value1 != null || check.value2 != null) && (
+                        <div className="mt-2 flex flex-wrap gap-3">
+                          {check.value1 != null && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">{check.value1Label ?? "Değer 1"}</p>
+                              <p className={clsx("text-xs font-bold tabular-nums", m.text)}>
+                                {check.value1.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺
+                              </p>
+                            </div>
+                          )}
+                          {check.value2 != null && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">{check.value2Label ?? "Değer 2"}</p>
+                              <p className={clsx("text-xs font-bold tabular-nums", m.text)}>
+                                {check.value2.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺
+                              </p>
+                            </div>
+                          )}
+                          {check.diffPercent != null && (
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">Fark</p>
+                              <p className={clsx("text-xs font-bold", m.text)}>%{check.diffPercent.toFixed(1)}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Aksiyon butonları */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setResult(null); setFiles([]); setError(null); }}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+            >
+              Yeni Kontrol
+            </button>
+            <button
+              onClick={downloadExcel}
+              disabled={xlLoading}
+              className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+            >
+              {xlLoading ? <Spinner size={4} /> : <IconDownload className="w-4 h-4" />}
+              Excel Raporu İndir
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function BeyannameUploader() {
@@ -488,8 +778,9 @@ export default function BeyannameUploader() {
       <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
         {(
           [
-            { id: "tekli",      label: "Tekli Dönüştürme" },
-            { id: "tam-tasdik", label: "YMM Tam Tasdik Özeti" },
+            { id: "tekli",           label: "Tekli Dönüştürme"    },
+            { id: "tam-tasdik",      label: "Tam Tasdik Özeti"    },
+            { id: "capraz-kontrol",  label: "Çapraz Kontrol"      },
           ] as const
         ).map(({ id, label }) => (
           <button
@@ -507,8 +798,9 @@ export default function BeyannameUploader() {
         ))}
       </div>
 
-      {tab === "tekli"      && <TekliPanel />}
-      {tab === "tam-tasdik" && <TamTasdikPanel />}
+      {tab === "tekli"          && <TekliPanel />}
+      {tab === "tam-tasdik"     && <TamTasdikPanel />}
+      {tab === "capraz-kontrol" && <CaprazKontrolPanel />}
     </div>
   );
 }
