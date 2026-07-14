@@ -1,7 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import clsx from "clsx";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+} from "recharts";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -38,6 +41,165 @@ interface KdvParseResult {
   invoices: KdvInvoice[];
   excluded: KdvExcluded[];
   stats: { invoiceCount: number; excludedCount: number; totalKdvHaric: number; totalKdv: number };
+}
+
+// ── Satış Fatura types ─────────────────────────────────────────────────────
+
+interface SatisInvoiceLine {
+  cins: string; miktar: number; birim: string;
+  kdvHaricTutar: number; kdvOrani: number; kdvTutari: number;
+}
+interface SatisInvoice {
+  id: string; seri: string; siraNo: string;
+  tarihIso: string; tarihFmt: string; donemi: string;
+  aliciUnvan: string; aliciVergiNo: string;
+  kdvHaricTutar: number; kdvTutari: number; kdvOrani: number;
+  tur: "Normal" | "İhraç Kayıtlı" | "KDV İstisnası";
+  satirlar: SatisInvoiceLine[]; sourceFile: string;
+}
+interface SatisParseResult {
+  invoices: SatisInvoice[];
+  skipped: { name: string; reason: string }[];
+  stats: {
+    invoiceCount: number; skippedCount: number;
+    ihracCount: number; istisnaCount: number;
+    totalKdvHaric: number; totalKdv: number;
+  };
+}
+
+// ── Dashboard types ─────────────────────────────────────────────────────────
+interface DashboardRecord {
+  id: number; tur: string; faturaSayisi: number;
+  toplamKdv: number; toplamKdvHaric: number; haricSayisi: number;
+  createdAt: string;
+}
+
+// ── Excel import types ──────────────────────────────────────────────────────
+interface ExcelFieldDef { key: string; label: string; required: boolean; hints: string[]; }
+interface ExcelImportData { headers: string[]; rows: string[][]; filename: string; }
+
+const ALIM_EXCEL_FIELDS: ExcelFieldDef[] = [
+  { key: "tarih",    label: "Fatura Tarihi",   required: true,  hints: ["tarih", "date", "düzenleme"] },
+  { key: "unvan",    label: "Satıcı Unvanı",   required: true,  hints: ["unvan", "satıcı", "firma", "tedarikçi", "ad"] },
+  { key: "vergiNo",  label: "Satıcı VKN",       required: false, hints: ["vkn", "vergi", "kimlik", "tckn"] },
+  { key: "kdvHaric", label: "KDV Hariç Tutar", required: true,  hints: ["kdv hariç", "matrah", "hariç", "net tutar"] },
+  { key: "kdv",      label: "KDV Tutarı",       required: true,  hints: ["kdv", "vergi tutarı", "katma değer"] },
+  { key: "faturaNo", label: "Fatura No (opt.)", required: false, hints: ["fatura no", "belge no", "seri", "no"] },
+];
+
+const SATIS_EXCEL_FIELDS: ExcelFieldDef[] = [
+  { key: "tarih",    label: "Fatura Tarihi",   required: true,  hints: ["tarih", "date"] },
+  { key: "unvan",    label: "Alıcı Unvanı",    required: true,  hints: ["unvan", "alıcı", "müşteri", "firma", "ad"] },
+  { key: "vergiNo",  label: "Alıcı VKN",        required: false, hints: ["vkn", "vergi", "kimlik"] },
+  { key: "kdvHaric", label: "KDV Hariç Tutar", required: true,  hints: ["kdv hariç", "matrah", "hariç", "net"] },
+  { key: "kdv",      label: "KDV Tutarı",       required: true,  hints: ["kdv", "vergi tutarı"] },
+  { key: "faturaNo", label: "Fatura No (opt.)", required: false, hints: ["fatura no", "no"] },
+  { key: "tur",      label: "Tür (opt.)",       required: false, hints: ["tür", "tip", "ihraç"] },
+];
+
+function parseExcelDate(s: string): { iso: string; fmt: string } | null {
+  let m: RegExpMatchArray | null;
+  m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (m) {
+    const [, d, mo, y] = m;
+    return { iso: `${y}-${mo.padStart(2,"0")}-${d.padStart(2,"0")}`, fmt: `${d.padStart(2,"0")}.${mo.padStart(2,"0")}.${y}` };
+  }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return { iso: s, fmt: `${m[3]}.${m[2]}.${m[1]}` };
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const [, d, mo, y] = m;
+    return { iso: `${y}-${mo.padStart(2,"0")}-${d.padStart(2,"0")}`, fmt: `${d.padStart(2,"0")}.${mo.padStart(2,"0")}.${y}` };
+  }
+  const n = Number(s);
+  if (!isNaN(n) && n > 40000 && n < 70000) {
+    const dt = new Date((n - 25569) * 86400 * 1000);
+    const iso = dt.toISOString().slice(0, 10);
+    const [y2, mo2, da2] = iso.split("-");
+    return { iso, fmt: `${da2}.${mo2}.${y2}` };
+  }
+  return null;
+}
+
+function parseNumStr(s: string): number {
+  return parseFloat(s.replace(/[^\d,.]/g, "").replace(",", ".")) || 0;
+}
+
+function normalizeExcelToKdvInvoice(
+  mapping: Record<string, number | null>,
+  rows: string[][],
+): KdvInvoice[] {
+  const get = (row: string[], key: string) => {
+    const idx = mapping[key]; return idx != null && idx >= 0 ? (row[idx] ?? "") : "";
+  };
+  return rows
+    .map((row, i) => {
+      const tarihRaw = get(row, "tarih");
+      const tarih    = parseExcelDate(tarihRaw) ?? { iso: "", fmt: tarihRaw };
+      const kdvHaric = parseNumStr(get(row, "kdvHaric"));
+      const kdv      = parseNumStr(get(row, "kdv"));
+      const fNo      = get(row, "faturaNo") || `EXCEL-${i + 1}`;
+      const mf       = fNo.match(/^([A-Za-z]{1,3})(\d+)$/);
+      const donemi   = tarih.iso.slice(0, 7).replace("-", "/") || "";
+      return {
+        id: fNo, seri: mf ? mf[1].toUpperCase() : "", siraNo: mf ? mf[2] : fNo,
+        tarihIso: tarih.iso, tarihFmt: tarih.fmt, donemi,
+        saticiUnvan: get(row, "unvan"), saticiVergiNo: get(row, "vergiNo"),
+        kdvHaricTutar: kdvHaric, kdvTutari: kdv,
+        kdvOrani: kdv > 0 && kdvHaric > 0 ? Math.round((kdv / kdvHaric) * 100) : 0,
+        satirlar: [{ cins: "—", miktar: 1, birim: "", kdvHaricTutar: kdvHaric, kdvOrani: 0, kdvTutari: kdv }],
+        sourceFile: "excel-import",
+      } as KdvInvoice;
+    })
+    .filter(inv => inv.saticiUnvan || inv.kdvTutari > 0);
+}
+
+function normalizeExcelToSatisInvoice(
+  mapping: Record<string, number | null>,
+  rows: string[][],
+): SatisInvoice[] {
+  const get = (row: string[], key: string) => {
+    const idx = mapping[key]; return idx != null && idx >= 0 ? (row[idx] ?? "") : "";
+  };
+  return rows
+    .map((row, i) => {
+      const tarihRaw = get(row, "tarih");
+      const tarih    = parseExcelDate(tarihRaw) ?? { iso: "", fmt: tarihRaw };
+      const kdvHaric = parseNumStr(get(row, "kdvHaric"));
+      const kdv      = parseNumStr(get(row, "kdv"));
+      const fNo      = get(row, "faturaNo") || `EXCEL-${i + 1}`;
+      const mf       = fNo.match(/^([A-Za-z]{1,3})(\d+)$/);
+      const turRaw   = get(row, "tur").toLowerCase();
+      const tur: SatisInvoice["tur"] = turRaw.includes("ihraç") ? "İhraç Kayıtlı"
+        : (turRaw.includes("istisna") || kdv === 0) ? "KDV İstisnası" : "Normal";
+      const donemi = tarih.iso.slice(0, 7).replace("-", "/") || "";
+      return {
+        id: fNo, seri: mf ? mf[1].toUpperCase() : "", siraNo: mf ? mf[2] : fNo,
+        tarihIso: tarih.iso, tarihFmt: tarih.fmt, donemi,
+        aliciUnvan: get(row, "unvan"), aliciVergiNo: get(row, "vergiNo"),
+        kdvHaricTutar: kdvHaric, kdvTutari: kdv, kdvOrani: 0,
+        tur, satirlar: [{ cins: "—", miktar: 1, birim: "", kdvHaricTutar: kdvHaric, kdvOrani: 0, kdvTutari: kdv }],
+        sourceFile: "excel-import",
+      } as SatisInvoice;
+    })
+    .filter(inv => inv.aliciUnvan || inv.kdvTutari > 0);
+}
+
+async function saveDashboardRecord(
+  tur: "indirilen" | "yuklenilen" | "satis",
+  stats: { invoiceCount?: number; totalKdv?: number; totalKdvHaric?: number; excludedCount?: number; skippedCount?: number },
+) {
+  try {
+    await fetch("/api/kdv-iade/dashboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tur, faturaSayisi: stats.invoiceCount ?? 0,
+        toplamKdv: stats.totalKdv ?? 0, toplamKdvHaric: stats.totalKdvHaric ?? 0,
+        haricSayisi: stats.excludedCount ?? stats.skippedCount ?? 0,
+      }),
+    });
+  } catch { /* ignore */ }
 }
 
 // ── Çapraz Kontrol types ───────────────────────────────────────────────────
@@ -792,15 +954,16 @@ function CaprazKontrolPanel() {
 // ── KDV İade — İndirilecek KDV ───────────────────────────────────────────
 
 function IndirilenKdvPanel() {
-  const xmlInputRef                   = useRef<HTMLInputElement>(null);
-  const [files, setFiles]             = useState<File[]>([]);
-  const [dragging, setDragging]       = useState(false);
-  const [merge, setMerge]             = useState(true);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState<string | null>(null);
-  const [result, setResult]           = useState<KdvParseResult | null>(null);
-  const [xlLoading, setXlLoading]     = useState(false);
+  const xmlInputRef                     = useRef<HTMLInputElement>(null);
+  const [files, setFiles]               = useState<File[]>([]);
+  const [dragging, setDragging]         = useState(false);
+  const [merge, setMerge]               = useState(true);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState<string | null>(null);
+  const [result, setResult]             = useState<KdvParseResult | null>(null);
+  const [xlLoading, setXlLoading]       = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
+  const [inputMethod, setInputMethod]   = useState<"xml" | "excel">("xml");
 
   function addFiles(incoming: File[]) {
     const valid = incoming.filter(f => {
@@ -830,6 +993,7 @@ function IndirilenKdvPanel() {
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? "İşlem başarısız"); return; }
       setResult(json);
+      saveDashboardRecord("indirilen", json.stats);
     } catch { setError("Sunucuya bağlanılamadı."); }
     finally   { setLoading(false); }
   }
@@ -876,8 +1040,22 @@ function IndirilenKdvPanel() {
         </p>
       </div>
 
-      {/* Upload area */}
+      {/* Giriş yöntemi */}
       {!result && (
+        <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
+          {([ { id: "xml", label: "XML Yükle" }, { id: "excel", label: "Excel'den Aktar" } ] as const).map(({ id, label }) => (
+            <button key={id} onClick={() => setInputMethod(id)}
+              className={clsx("flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
+                inputMethod === id ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm" : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60"
+              )}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* XML: Upload area */}
+      {inputMethod === "xml" && !result && (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
@@ -915,8 +1093,8 @@ function IndirilenKdvPanel() {
         </div>
       )}
 
-      {/* Dosya listesi */}
-      {files.length > 0 && !result && (
+      {/* XML: Dosya listesi */}
+      {inputMethod === "xml" && files.length > 0 && !result && (
         <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
           <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">
@@ -954,8 +1132,8 @@ function IndirilenKdvPanel() {
         </div>
       )}
 
-      {/* Seçenekler */}
-      {files.length > 0 && !result && (
+      {/* XML: Seçenekler */}
+      {inputMethod === "xml" && files.length > 0 && !result && (
         <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02]">
           <div>
             <p className="text-sm font-semibold text-gray-800 dark:text-white">Satır Görünümü</p>
@@ -980,8 +1158,8 @@ function IndirilenKdvPanel() {
 
       {error && <ErrorBox message={error} />}
 
-      {/* Loading */}
-      {loading && (
+      {/* XML: Loading */}
+      {inputMethod === "xml" && loading && (
         <div className="flex flex-col items-center gap-3 py-8">
           <Spinner />
           <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
@@ -989,14 +1167,32 @@ function IndirilenKdvPanel() {
         </div>
       )}
 
-      {/* Liste Oluştur butonu */}
-      {!loading && !result && files.length > 0 && (
+      {/* XML: Liste Oluştur butonu */}
+      {inputMethod === "xml" && !loading && !result && files.length > 0 && (
         <button
           onClick={parse}
           className="w-full py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors"
         >
           Liste Oluştur
         </button>
+      )}
+
+      {/* Excel: Import Widget */}
+      {inputMethod === "excel" && !result && (
+        <ExcelImportWidget
+          fields={ALIM_EXCEL_FIELDS}
+          onImport={(mapping, rows) => {
+            const invoices = normalizeExcelToKdvInvoice(mapping, rows);
+            const stats = {
+              invoiceCount: invoices.length, excludedCount: 0,
+              totalKdvHaric: invoices.reduce((s, i) => s + i.kdvHaricTutar, 0),
+              totalKdv: invoices.reduce((s, i) => s + i.kdvTutari, 0),
+            };
+            setResult({ invoices, excluded: [], stats });
+            saveDashboardRecord("indirilen", stats);
+          }}
+          onClose={() => setInputMethod("xml")}
+        />
       )}
 
       {/* Sonuçlar */}
@@ -1115,6 +1311,7 @@ function YuklenilenKdvPanel() {
   const [yuklenimTuru, setYuklenimTuru] = useState("Doğrudan yüklenim");
   const [toplamHasilat, setToplamHasilat]     = useState("");
   const [iadeIslemTutari, setIadeIslemTutari] = useState("");
+  const [inputMethod, setInputMethod]   = useState<"xml" | "excel">("xml");
 
   const ratio = (() => {
     const h = parseFloat(toplamHasilat.replace(",", "."));
@@ -1156,6 +1353,7 @@ function YuklenilenKdvPanel() {
       if (method === "manuel") {
         setSelected(new Set((json as KdvParseResult).invoices.map((inv: KdvInvoice) => inv.id)));
       }
+      saveDashboardRecord("yuklenilen", json.stats);
     } catch { setError("Sunucuya bağlanılamadı."); }
     finally   { setLoading(false); }
   }
@@ -1231,7 +1429,21 @@ function YuklenilenKdvPanel() {
         </p>
       </div>
 
-      {/* Yöntem seçici */}
+      {/* Giriş yöntemi */}
+      {!result && (
+        <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
+          {([ { id: "xml", label: "XML Yükle" }, { id: "excel", label: "Excel'den Aktar" } ] as const).map(({ id, label }) => (
+            <button key={id} onClick={() => setInputMethod(id)}
+              className={clsx("flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
+                inputMethod === id ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm" : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60"
+              )}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Yöntem seçici (Manuel / Oran) */}
       <div className="flex gap-2 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
         {([
           { id: "manuel", label: "Manuel Seçim" },
@@ -1252,8 +1464,8 @@ function YuklenilenKdvPanel() {
         ))}
       </div>
 
-      {/* Upload area */}
-      {!result && (
+      {/* XML: Upload area */}
+      {inputMethod === "xml" && !result && (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
@@ -1291,8 +1503,8 @@ function YuklenilenKdvPanel() {
         </div>
       )}
 
-      {/* Dosya listesi */}
-      {files.length > 0 && !result && (
+      {/* XML: Dosya listesi */}
+      {inputMethod === "xml" && files.length > 0 && !result && (
         <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
           <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">
@@ -1332,22 +1544,41 @@ function YuklenilenKdvPanel() {
 
       {error && <ErrorBox message={error} />}
 
-      {/* Loading */}
-      {loading && (
+      {/* XML: Loading */}
+      {inputMethod === "xml" && loading && (
         <div className="flex flex-col items-center gap-3 py-8">
           <Spinner />
           <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
         </div>
       )}
 
-      {/* Ayrıştır butonu */}
-      {!loading && !result && files.length > 0 && (
+      {/* XML: Ayrıştır butonu */}
+      {inputMethod === "xml" && !loading && !result && files.length > 0 && (
         <button
           onClick={parse}
           className="w-full py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors"
         >
           Faturaları Yükle
         </button>
+      )}
+
+      {/* Excel: Import Widget */}
+      {inputMethod === "excel" && !result && (
+        <ExcelImportWidget
+          fields={ALIM_EXCEL_FIELDS}
+          onImport={(mapping, rows) => {
+            const invoices = normalizeExcelToKdvInvoice(mapping, rows);
+            const stats = {
+              invoiceCount: invoices.length, excludedCount: 0,
+              totalKdvHaric: invoices.reduce((s, i) => s + i.kdvHaricTutar, 0),
+              totalKdv: invoices.reduce((s, i) => s + i.kdvTutari, 0),
+            };
+            setResult({ invoices, excluded: [], stats });
+            if (method === "manuel") setSelected(new Set(invoices.map(inv => inv.id)));
+            saveDashboardRecord("yuklenilen", stats);
+          }}
+          onClose={() => setInputMethod("xml")}
+        />
       )}
 
       {/* Sonuçlar */}
@@ -1510,24 +1741,491 @@ function YuklenilenKdvPanel() {
   );
 }
 
-// ── KDV İade Listeleri wrapper (inner sub-tabs) ───────────────────────────
+// ── Excel Import Widget ────────────────────────────────────────────────────
 
-type KdvSubTab = "indirilen" | "yuklenilen";
+function ExcelImportWidget({
+  fields, onImport, onClose,
+}: {
+  fields: ExcelFieldDef[];
+  onImport: (mapping: Record<string, number | null>, rows: string[][]) => void;
+  onClose: () => void;
+}) {
+  const fileInputRef                = useRef<HTMLInputElement>(null);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+  const [data, setData]             = useState<ExcelImportData | null>(null);
+  const [mapping, setMapping]       = useState<Record<string, number | null>>({});
 
-function KdvIadePanel() {
-  const [subTab, setSubTab] = useState<KdvSubTab>("indirilen");
+  function autoDetect(headers: string[]): Record<string, number | null> {
+    const m: Record<string, number | null> = {};
+    for (const field of fields) {
+      const idx = headers.findIndex(h =>
+        field.hints.some(hint => h.toLowerCase().includes(hint))
+      );
+      m[field.key] = idx >= 0 ? idx : null;
+    }
+    return m;
+  }
+
+  async function handleFile(file: File) {
+    if (!file.name.match(/\.(xlsx|xls)$/i)) { setError("Yalnızca .xlsx / .xls desteklenir"); return; }
+    setLoading(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res  = await fetch("/api/kdv-iade/excel-import", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? "Okunamadı"); return; }
+      setData({ headers: json.headers, rows: json.rows, filename: json.filename });
+      setMapping(autoDetect(json.headers));
+    } catch { setError("Dosya yüklenemedi."); }
+    finally { setLoading(false); }
+  }
+
+  const canConfirm = fields.filter(f => f.required).every(f => (mapping[f.key] ?? -1) >= 0);
+
+  if (!data) {
+    return (
+      <div className="space-y-3">
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          className="rounded-2xl border-2 border-dashed border-emerald-300 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/5 p-8 flex flex-col items-center gap-3 cursor-pointer hover:border-emerald-400 transition-colors"
+        >
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+          <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+            <svg className="w-6 h-6 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+            </svg>
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-gray-700 dark:text-white/70">Excel fatura listesini yükleyin</p>
+            <p className="text-xs text-gray-400 dark:text-white/30 mt-0.5">.xlsx · .xls · Sütun eşleştirme yapılacak</p>
+          </div>
+        </div>
+        {loading && <div className="flex items-center justify-center gap-2 py-3"><Spinner size={4} /><p className="text-sm text-gray-500 dark:text-white/40">Dosya okunuyor…</p></div>}
+        {error && <ErrorBox message={error} />}
+        <button onClick={onClose} className="w-full py-2 rounded-lg border border-gray-200 dark:border-white/10 text-sm text-gray-500 dark:text-white/40 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+          ← XML Yüklemeye Dön
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20">
+        <div>
+          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">{data.filename}</p>
+          <p className="text-xs text-emerald-600/70 dark:text-emerald-400/60">{data.rows.length} satır · {data.headers.length} sütun</p>
+        </div>
+        <button onClick={() => { setData(null); setError(null); }} className="text-xs text-emerald-600 dark:text-emerald-400 underline">Değiştir</button>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider mb-2">Sütun Eşleştirme</p>
+        <div className="space-y-2">
+          {fields.map(field => (
+            <div key={field.key} className="flex items-center gap-2 p-2 rounded-lg border border-gray-100 dark:border-white/5 bg-white dark:bg-white/[0.02]">
+              <span className="w-36 text-xs font-medium text-gray-700 dark:text-white/70 flex-shrink-0">
+                {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
+              </span>
+              <select
+                value={mapping[field.key] ?? ""}
+                onChange={e => setMapping(prev => ({ ...prev, [field.key]: e.target.value === "" ? null : Number(e.target.value) }))}
+                className="flex-1 text-xs rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-700 dark:text-white px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#F57C28]/40"
+              >
+                <option value="">— Yok —</option>
+                {data.headers.map((h, idx) => (
+                  <option key={idx} value={idx}>{h || `Sütun ${idx + 1}`}</option>
+                ))}
+              </select>
+              {(mapping[field.key] ?? -1) >= 0 && data.rows[0] && (
+                <span className="text-[10px] text-gray-400 dark:text-white/30 truncate max-w-24 flex-shrink-0">
+                  ↳ {data.rows[0][mapping[field.key]!] || "—"}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {error && <ErrorBox message={error} />}
+
+      <div className="flex gap-3">
+        <button onClick={onClose}
+          className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+          İptal
+        </button>
+        <button
+          onClick={() => { if (data) onImport(mapping, data.rows); }}
+          disabled={!canConfirm}
+          className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+        >
+          Aktar ({data.rows.length} satır)
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── KDV İade Dashboard ──────────────────────────────────────────────────────
+
+function KdvIadeDashboard({ refreshKey }: { refreshKey: number }) {
+  const [records, setRecords] = useState<DashboardRecord[]>([]);
+  const [stats, setStats]     = useState<{
+    indirilen: { sayi: number; kdv: number };
+    yuklenilen: { sayi: number; kdv: number };
+    satis: { sayi: number; kdv: number };
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/kdv-iade/dashboard")
+      .then(r => r.json())
+      .then(d => { setRecords(d.records ?? []); setStats(d.stats ?? null); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [refreshKey]);
+
+  const chartData = (() => {
+    const byMonth: Record<string, { ay: string; indirilen: number; yuklenilen: number; satis: number }> = {};
+    for (const r of records) {
+      const ay = r.createdAt.slice(0, 7);
+      if (!byMonth[ay]) byMonth[ay] = { ay, indirilen: 0, yuklenilen: 0, satis: 0 };
+      const k = r.tur as "indirilen" | "yuklenilen" | "satis";
+      if (k in byMonth[ay]) byMonth[ay][k] += r.toplamKdv;
+    }
+    return Object.values(byMonth).sort((a, b) => a.ay.localeCompare(b.ay)).slice(-6);
+  })();
+
+  if (loading || !stats || records.length === 0) return null;
+
+  const fmtK = (n: number) =>
+    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M ₺`
+    : n >= 1000    ? `${(n / 1000).toFixed(0)}K ₺`
+    : `${n.toFixed(0)} ₺`;
+
+  return (
+    <div className="space-y-3 pb-4 border-b border-gray-100 dark:border-white/5">
+      <p className="text-xs font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider">İşlem Geçmişi</p>
+      <div className="grid grid-cols-3 gap-2">
+        {([
+          { tur: "indirilen",  label: "İndirilecek KDV", color: "text-blue-500",    bg: "bg-blue-50 dark:bg-blue-500/10 border-blue-100 dark:border-blue-500/20" },
+          { tur: "yuklenilen", label: "Yüklenilen KDV",  color: "text-[#F57C28]",   bg: "bg-orange-50 dark:bg-[#F57C28]/10 border-orange-100 dark:border-[#F57C28]/20" },
+          { tur: "satis",      label: "Satış KDV",       color: "text-emerald-500", bg: "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20" },
+        ] as const).map(({ tur, label, color, bg }) => {
+          const s = stats[tur];
+          return (
+            <div key={tur} className={`rounded-xl border p-3 ${bg}`}>
+              <p className={`text-sm font-bold ${color} tabular-nums`}>{fmtK(s.kdv)}</p>
+              <p className="text-[10px] text-gray-500 dark:text-white/40 mt-0.5">{label}</p>
+              <p className="text-[10px] text-gray-400 dark:text-white/30">{s.sayi} fatura</p>
+            </div>
+          );
+        })}
+      </div>
+      {chartData.length >= 2 && (
+        <div className="rounded-xl border border-gray-100 dark:border-white/5 p-3 bg-white dark:bg-white/[0.01]">
+          <p className="text-[10px] font-semibold text-gray-400 dark:text-white/30 uppercase tracking-wider mb-2">Aylık KDV (son 6 ay)</p>
+          <ResponsiveContainer width="100%" height={130}>
+            <BarChart data={chartData} barSize={7} barGap={1} barCategoryGap="30%">
+              <XAxis dataKey="ay" tick={{ fontSize: 9 }} tickLine={false} axisLine={false} />
+              <YAxis hide />
+              <Tooltip
+                formatter={(v: number, name: string) => [fmtK(v), name]}
+                contentStyle={{ fontSize: 10, border: "1px solid #e5e7eb", borderRadius: 8, padding: "4px 8px" }}
+              />
+              <Bar dataKey="indirilen" name="İndirilecek" fill="#3B82F6" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="yuklenilen" name="Yüklenilen" fill="#F57C28" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="satis" name="Satış" fill="#10B981" radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── KDV İade — Satış Faturaları ───────────────────────────────────────────
+
+function SatisFaturaPanel() {
+  const xmlInputRef                   = useRef<HTMLInputElement>(null);
+  const [files, setFiles]             = useState<File[]>([]);
+  const [dragging, setDragging]       = useState(false);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const [result, setResult]           = useState<SatisParseResult | null>(null);
+  const [xlLoading, setXlLoading]     = useState(false);
+  const [inputMethod, setInputMethod] = useState<"xml" | "excel">("xml");
+
+  function addFiles(incoming: File[]) {
+    const valid = incoming.filter(f => {
+      const lc = f.name.toLowerCase();
+      return lc.endsWith(".xml") || lc.endsWith(".zip");
+    });
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.name + f.size));
+      return [...prev, ...valid.filter(f => !existing.has(f.name + f.size))];
+    });
+    setError(null); setResult(null);
+  }
+
+  function removeFile(idx: number) {
+    setFiles(prev => prev.filter((_, i) => i !== idx));
+    setResult(null);
+  }
+
+  async function parse() {
+    if (files.length === 0) return;
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append("files[]", f);
+      const res  = await fetch("/api/kdv-iade/satis-listesi", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? "İşlem başarısız"); return; }
+      setResult(json);
+      saveDashboardRecord("satis", json.stats);
+    } catch { setError("Sunucuya bağlanılamadı."); }
+    finally   { setLoading(false); }
+  }
+
+  async function downloadExcel() {
+    if (!result) return;
+    setXlLoading(true);
+    try {
+      const res = await fetch("/api/kdv-iade/satis-listesi/excel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoices: result.invoices }),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); setError(j.error ?? "Excel oluşturulamadı"); return; }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url; a.download = `satis-fatura-${new Date().toISOString().slice(0, 10)}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { setError("Excel indirilemedi."); }
+    finally   { setXlLoading(false); }
+  }
+
+  const fmtTRY = (n: number) =>
+    n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ₺";
+
+  const TUR_BADGE: Record<SatisInvoice["tur"], string> = {
+    "Normal":         "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/60",
+    "İhraç Kayıtlı":  "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400",
+    "KDV İstisnası":  "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-400",
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Açıklama */}
+      <div className="flex items-start gap-3 p-4 rounded-xl bg-[#F57C28]/5 border border-[#F57C28]/20">
+        <svg className="w-5 h-5 text-[#F57C28] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+        </svg>
+        <p className="text-xs text-gray-600 dark:text-white/60 leading-relaxed">
+          Satış e-fatura XML'lerinden GİB formatında <strong>Satış Fatura Listesi</strong> oluşturur.
+          Tüm faturalar dahil edilir; <strong>İhraç Kayıtlı</strong> ve <strong>KDV İstisnası</strong> kapsamındakiler renk + etiketle işaretlenir.
+        </p>
+      </div>
+
+      {/* Giriş yöntemi */}
+      {!result && (
+        <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
+          {([ { id: "xml", label: "XML Yükle" }, { id: "excel", label: "Excel'den Aktar" } ] as const).map(({ id, label }) => (
+            <button key={id} onClick={() => setInputMethod(id)}
+              className={clsx("flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
+                inputMethod === id ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm" : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60"
+              )}>{label}</button>
+          ))}
+        </div>
+      )}
+
+      {/* XML: Upload area */}
+      {inputMethod === "xml" && !result && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(Array.from(e.dataTransfer.files)); }}
+          onClick={() => xmlInputRef.current?.click()}
+          className={clsx(
+            "rounded-2xl border-2 border-dashed p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
+            dragging ? "border-[#F57C28] bg-[#F57C28]/5" : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] hover:border-[#F57C28]/50 hover:bg-[#F57C28]/[0.03]"
+          )}
+        >
+          <input ref={xmlInputRef} type="file" accept=".xml,.zip" multiple className="hidden"
+            onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+          <div className="w-12 h-12 rounded-xl bg-[#F57C28]/10 flex items-center justify-center mb-3">
+            <svg className="w-6 h-6 text-[#F57C28]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium text-gray-600 dark:text-white/60">XML veya ZIP sürükleyin ya da tıklayın</p>
+          <p className="text-xs text-gray-400 dark:text-white/30 mt-1">.xml · .zip · Çoklu seçim desteklenir</p>
+        </div>
+      )}
+
+      {/* XML: Dosya listesi */}
+      {inputMethod === "xml" && files.length > 0 && !result && (
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">{files.length} Dosya Seçildi</span>
+            <button onClick={() => { setFiles([]); setError(null); }} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-white/60 transition-colors">Tümünü temizle</button>
+          </div>
+          <ul className="divide-y divide-gray-100 dark:divide-white/5 max-h-48 overflow-y-auto">
+            {files.map((f, i) => (
+              <li key={i} className="flex items-center gap-3 px-4 py-2">
+                <span className={clsx("text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 uppercase",
+                  f.name.toLowerCase().endsWith(".zip") ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400" : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
+                )}>{f.name.toLowerCase().endsWith(".zip") ? "ZIP" : "XML"}</span>
+                <span className="text-xs text-gray-700 dark:text-white/70 flex-1 truncate">{f.name}</span>
+                <span className="text-xs text-gray-400 dark:text-white/30 flex-shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                <button onClick={(e) => { e.stopPropagation(); removeFile(i); }} className="flex-shrink-0 p-1 rounded text-gray-300 hover:text-gray-500 transition-colors"><IconX /></button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {error && <ErrorBox message={error} />}
+
+      {/* XML: Loading */}
+      {inputMethod === "xml" && loading && (
+        <div className="flex flex-col items-center gap-3 py-8">
+          <Spinner />
+          <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
+          <p className="text-xs text-gray-400 dark:text-white/30">AI çağrısı yok · tamamen kod taraflı</p>
+        </div>
+      )}
+
+      {/* XML: Liste Oluştur */}
+      {inputMethod === "xml" && !loading && !result && files.length > 0 && (
+        <button onClick={parse} className="w-full py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors">
+          Liste Oluştur
+        </button>
+      )}
+
+      {/* Excel: Import Widget */}
+      {inputMethod === "excel" && !result && (
+        <ExcelImportWidget
+          fields={SATIS_EXCEL_FIELDS}
+          onImport={(mapping, rows) => {
+            const invoices = normalizeExcelToSatisInvoice(mapping, rows);
+            const stats = {
+              invoiceCount: invoices.length, skippedCount: 0,
+              ihracCount: invoices.filter(i => i.tur === "İhraç Kayıtlı").length,
+              istisnaCount: invoices.filter(i => i.tur === "KDV İstisnası").length,
+              totalKdvHaric: invoices.reduce((s, i) => s + i.kdvHaricTutar, 0),
+              totalKdv: invoices.reduce((s, i) => s + i.kdvTutari, 0),
+            };
+            setResult({ invoices, skipped: [], stats });
+            saveDashboardRecord("satis", stats);
+          }}
+          onClose={() => setInputMethod("xml")}
+        />
+      )}
+
+      {/* Sonuçlar */}
+      {result && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{result.stats.invoiceCount}</p>
+              <p className="text-xs text-gray-500 dark:text-white/40 mt-0.5">Fatura işlendi</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
+              <p className="text-lg font-bold text-[#F57C28] tabular-nums">{fmtTRY(result.stats.totalKdv)}</p>
+              <p className="text-xs text-gray-500 dark:text-white/40 mt-0.5">Toplam Satış KDV</p>
+            </div>
+            {result.stats.ihracCount > 0 && (
+              <div className="rounded-xl border border-blue-200 dark:border-blue-500/20 p-4 bg-blue-50 dark:bg-blue-500/5">
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{result.stats.ihracCount}</p>
+                <p className="text-xs text-blue-500/80 dark:text-blue-400/60 mt-0.5">İhraç Kayıtlı</p>
+              </div>
+            )}
+            {result.stats.istisnaCount > 0 && (
+              <div className="rounded-xl border border-yellow-200 dark:border-yellow-500/20 p-4 bg-yellow-50 dark:bg-yellow-500/5">
+                <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{result.stats.istisnaCount}</p>
+                <p className="text-xs text-yellow-500/80 dark:text-yellow-400/60 mt-0.5">KDV İstisnası</p>
+              </div>
+            )}
+          </div>
+
+          {/* Fatura önizlemesi */}
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10">
+              <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">Önizleme — ilk 10 fatura</span>
+            </div>
+            <ul className="divide-y divide-gray-100 dark:divide-white/5 max-h-64 overflow-y-auto">
+              {result.invoices.slice(0, 10).map(inv => (
+                <li key={inv.id} className="px-4 py-2.5 flex items-center gap-3">
+                  <span className={clsx("text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0", TUR_BADGE[inv.tur])}>
+                    {inv.tur === "Normal" ? "NRM" : inv.tur === "İhraç Kayıtlı" ? "İHR" : "İST"}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-800 dark:text-white truncate">{inv.aliciUnvan || "—"}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-white/30">{inv.tarihFmt} · {inv.id}</p>
+                  </div>
+                  <p className="text-xs font-semibold text-[#F57C28] tabular-nums flex-shrink-0">{fmtTRY(inv.kdvTutari)}</p>
+                </li>
+              ))}
+              {result.invoices.length > 10 && (
+                <li className="px-4 py-2 text-xs text-gray-400 dark:text-white/30 text-center">
+                  … ve {result.invoices.length - 10} fatura daha
+                </li>
+              )}
+            </ul>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setResult(null); setFiles([]); setError(null); }}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+            >
+              Yeni Liste
+            </button>
+            <button
+              onClick={downloadExcel}
+              disabled={xlLoading || result.invoices.length === 0}
+              className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+            >
+              {xlLoading ? <Spinner size={4} /> : <IconDownload className="w-4 h-4" />}
+              GİB Formatında Excel İndir
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── KDV İade Listeleri wrapper (inner sub-tabs) ───────────────────────────
+
+type KdvSubTab = "indirilen" | "yuklenilen" | "satis";
+
+function KdvIadePanel() {
+  const [subTab, setSubTab]   = useState<KdvSubTab>("indirilen");
+  const [dashKey, setDashKey] = useState(0);
+
+  return (
+    <div className="space-y-4">
+      {/* Dashboard */}
+      <KdvIadeDashboard refreshKey={dashKey} />
+
       {/* Inner sub-tab bar */}
       <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
         {([
-          { id: "indirilen",  label: "İndirilecek KDV" },
-          { id: "yuklenilen", label: "Yüklenilen KDV"  },
+          { id: "indirilen",  label: "İndirilecek KDV"  },
+          { id: "yuklenilen", label: "Yüklenilen KDV"   },
+          { id: "satis",      label: "Satış Faturaları" },
         ] as const).map(({ id, label }) => (
           <button
             key={id}
-            onClick={() => setSubTab(id)}
+            onClick={() => { setSubTab(id); setDashKey(k => k + 1); }}
             className={clsx(
               "flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
               subTab === id
@@ -1542,6 +2240,7 @@ function KdvIadePanel() {
 
       {subTab === "indirilen"  && <IndirilenKdvPanel />}
       {subTab === "yuklenilen" && <YuklenilenKdvPanel />}
+      {subTab === "satis"      && <SatisFaturaPanel />}
     </div>
   );
 }

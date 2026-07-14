@@ -266,6 +266,16 @@ model CompanyAssignment {
   @@unique([companyId, userId])
 }
 
+model KdvIadeKayit {
+  id             Int      @id @default(autoincrement())
+  tur            String   // "indirilen" | "yuklenilen" | "satis"
+  faturaSayisi   Int
+  toplamKdv      Float
+  toplamKdvHaric Float    @default(0)
+  haricSayisi    Int      @default(0)
+  createdAt      DateTime @default(now())
+}
+
 // module: "BEYANNAME" | "TXT_EXCEL" | "KARSILASTIRMA" | "TARAYICI"
 model AiPrompt {
   id        String   @id @default(cuid())
