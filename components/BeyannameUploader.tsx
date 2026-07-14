@@ -789,9 +789,9 @@ function CaprazKontrolPanel() {
   );
 }
 
-// ── KDV İade Listeleri ────────────────────────────────────────────────────
+// ── KDV İade — İndirilecek KDV ───────────────────────────────────────────
 
-function KdvIadePanel() {
+function IndirilenKdvPanel() {
   const xmlInputRef                   = useRef<HTMLInputElement>(null);
   const [files, setFiles]             = useState<File[]>([]);
   const [dragging, setDragging]       = useState(false);
@@ -1094,6 +1094,454 @@ function KdvIadePanel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── KDV İade — Yüklenilen KDV ────────────────────────────────────────────
+
+type YukMethod = "manuel" | "oran";
+
+function YuklenilenKdvPanel() {
+  const xmlInputRef                     = useRef<HTMLInputElement>(null);
+  const [files, setFiles]               = useState<File[]>([]);
+  const [dragging, setDragging]         = useState(false);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState<string | null>(null);
+  const [result, setResult]             = useState<KdvParseResult | null>(null);
+  const [xlLoading, setXlLoading]       = useState(false);
+  const [method, setMethod]             = useState<YukMethod>("manuel");
+  const [selected, setSelected]         = useState<Set<string>>(new Set());
+  const [yuklenimTuru, setYuklenimTuru] = useState("Doğrudan yüklenim");
+  const [toplamHasilat, setToplamHasilat]     = useState("");
+  const [iadeIslemTutari, setIadeIslemTutari] = useState("");
+
+  const ratio = (() => {
+    const h = parseFloat(toplamHasilat.replace(",", "."));
+    const i = parseFloat(iadeIslemTutari.replace(",", "."));
+    if (h > 0 && i >= 0) return i / h;
+    return null;
+  })();
+
+  function addFiles(incoming: File[]) {
+    const valid = incoming.filter(f => {
+      const lc = f.name.toLowerCase();
+      return lc.endsWith(".xml") || lc.endsWith(".zip");
+    });
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.name + f.size));
+      return [...prev, ...valid.filter(f => !existing.has(f.name + f.size))];
+    });
+    setError(null);
+    setResult(null);
+    setSelected(new Set());
+  }
+
+  function removeFile(idx: number) {
+    setFiles(prev => prev.filter((_, i) => i !== idx));
+    setResult(null);
+    setSelected(new Set());
+  }
+
+  async function parse() {
+    if (files.length === 0) return;
+    setLoading(true); setError(null); setResult(null); setSelected(new Set());
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append("files[]", f);
+      const res  = await fetch("/api/kdv-iade/indirilecek-liste", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? "İşlem başarısız"); return; }
+      setResult(json);
+      if (method === "manuel") {
+        setSelected(new Set((json as KdvParseResult).invoices.map((inv: KdvInvoice) => inv.id)));
+      }
+    } catch { setError("Sunucuya bağlanılamadı."); }
+    finally   { setLoading(false); }
+  }
+
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (!result) return;
+    if (selected.size === result.invoices.length) setSelected(new Set());
+    else setSelected(new Set(result.invoices.map(inv => inv.id)));
+  }
+
+  async function downloadExcel() {
+    if (!result) return;
+    const selectedInvoices = method === "manuel"
+      ? result.invoices.filter(inv => selected.has(inv.id))
+      : result.invoices;
+
+    if (selectedInvoices.length === 0) { setError("Lütfen en az bir fatura seçin."); return; }
+    if (method === "oran" && !ratio) { setError("Geçerli bir hasılat ve iade tutarı girin."); return; }
+
+    setXlLoading(true); setError(null);
+    try {
+      const body: any = {
+        invoices: selectedInvoices,
+        method,
+        yuklenimTuru: method === "oran" ? "Genel gider payı" : yuklenimTuru,
+      };
+      if (method === "oran") {
+        body.toplamHasilat    = parseFloat(toplamHasilat.replace(",", "."));
+        body.iadeIslemTutari  = parseFloat(iadeIslemTutari.replace(",", "."));
+      }
+      const res = await fetch("/api/kdv-iade/yuklenilen-liste", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError(json.error ?? "Excel oluşturulamadı");
+        return;
+      }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `yuklenilen-kdv-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { setError("Excel indirilemedi."); }
+    finally   { setXlLoading(false); }
+  }
+
+  const fmtTRY = (n: number) =>
+    n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ₺";
+
+  return (
+    <div className="space-y-5">
+      {/* Açıklama */}
+      <div className="flex items-start gap-3 p-4 rounded-xl bg-[#F57C28]/5 border border-[#F57C28]/20">
+        <svg className="w-5 h-5 text-[#F57C28] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+        </svg>
+        <p className="text-xs text-gray-600 dark:text-white/60 leading-relaxed">
+          Yüklenilen KDV listesi iki yöntemle oluşturulabilir: <strong>Manuel Seçim</strong> — faturalar checkbox ile seçilir;{" "}
+          <strong>Oranla Dağıtım</strong> — toplam hasılata oranla her faturanın yüklenilen KDV'si hesaplanır.
+        </p>
+      </div>
+
+      {/* Yöntem seçici */}
+      <div className="flex gap-2 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
+        {([
+          { id: "manuel", label: "Manuel Seçim" },
+          { id: "oran",   label: "Oranla Dağıtım" },
+        ] as const).map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => { setMethod(id); setResult(null); setFiles([]); setError(null); setSelected(new Set()); }}
+            className={clsx(
+              "flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
+              method === id
+                ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm"
+                : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Upload area */}
+      {!result && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault(); setDragging(false);
+            addFiles(Array.from(e.dataTransfer.files));
+          }}
+          onClick={() => xmlInputRef.current?.click()}
+          className={clsx(
+            "rounded-2xl border-2 border-dashed p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
+            dragging
+              ? "border-[#F57C28] bg-[#F57C28]/5"
+              : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] hover:border-[#F57C28]/50 hover:bg-[#F57C28]/[0.03]"
+          )}
+        >
+          <input
+            ref={xmlInputRef}
+            type="file"
+            accept=".xml,.zip"
+            multiple
+            className="hidden"
+            onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
+          />
+          <div className="w-12 h-12 rounded-xl bg-[#F57C28]/10 flex items-center justify-center mb-3">
+            <svg className="w-6 h-6 text-[#F57C28]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium text-gray-600 dark:text-white/60">
+            XML veya ZIP sürükleyin ya da tıklayın
+          </p>
+          <p className="text-xs text-gray-400 dark:text-white/30 mt-1">
+            .xml · .zip · Çoklu seçim desteklenir
+          </p>
+        </div>
+      )}
+
+      {/* Dosya listesi */}
+      {files.length > 0 && !result && (
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">
+              {files.length} Dosya Seçildi
+            </span>
+            <button
+              onClick={() => { setFiles([]); setError(null); }}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-white/60 transition-colors"
+            >
+              Tümünü temizle
+            </button>
+          </div>
+          <ul className="divide-y divide-gray-100 dark:divide-white/5 max-h-48 overflow-y-auto">
+            {files.map((f, i) => (
+              <li key={i} className="flex items-center gap-3 px-4 py-2">
+                <span className={clsx(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 uppercase",
+                  f.name.toLowerCase().endsWith(".zip")
+                    ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                    : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
+                )}>
+                  {f.name.toLowerCase().endsWith(".zip") ? "ZIP" : "XML"}
+                </span>
+                <span className="text-sm text-gray-700 dark:text-white/70 flex-1 truncate text-xs">{f.name}</span>
+                <span className="text-xs text-gray-400 dark:text-white/30 flex-shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                  className="flex-shrink-0 p-1 rounded text-gray-300 hover:text-gray-500 transition-colors"
+                >
+                  <IconX />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {error && <ErrorBox message={error} />}
+
+      {/* Loading */}
+      {loading && (
+        <div className="flex flex-col items-center gap-3 py-8">
+          <Spinner />
+          <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
+        </div>
+      )}
+
+      {/* Ayrıştır butonu */}
+      {!loading && !result && files.length > 0 && (
+        <button
+          onClick={parse}
+          className="w-full py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors"
+        >
+          Faturaları Yükle
+        </button>
+      )}
+
+      {/* Sonuçlar */}
+      {result && (
+        <div className="space-y-4">
+          {/* Özet */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{result.stats.invoiceCount}</p>
+              <p className="text-xs text-gray-500 dark:text-white/40 mt-0.5">Fatura yüklendi</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
+              <p className="text-lg font-bold text-[#F57C28] tabular-nums">{fmtTRY(result.stats.totalKdv)}</p>
+              <p className="text-xs text-gray-500 dark:text-white/40 mt-0.5">Toplam KDV</p>
+            </div>
+          </div>
+
+          {/* Yöntem 1: Manuel Seçim */}
+          {method === "manuel" && (
+            <div className="space-y-3">
+              {/* Yüklenim Türü */}
+              <div className="p-3 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02]">
+                <label className="text-xs font-semibold text-gray-600 dark:text-white/60 block mb-1.5">Yüklenim Türü</label>
+                <select
+                  value={yuklenimTuru}
+                  onChange={e => setYuklenimTuru(e.target.value)}
+                  className="w-full text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-800 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/40"
+                >
+                  <option value="Doğrudan yüklenim">Doğrudan yüklenim</option>
+                  <option value="Genel gider payı">Genel gider payı</option>
+                  <option value="ATİK">ATİK</option>
+                </select>
+              </div>
+
+              {/* Fatura tablosu */}
+              <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">
+                    {selected.size} / {result.invoices.length} fatura seçili
+                  </span>
+                  <button
+                    onClick={toggleAll}
+                    className="text-xs text-[#F57C28] font-semibold hover:underline"
+                  >
+                    {selected.size === result.invoices.length ? "Tümünü kaldır" : "Tümünü seç"}
+                  </button>
+                </div>
+                <ul className="divide-y divide-gray-100 dark:divide-white/5 max-h-64 overflow-y-auto">
+                  {result.invoices.map(inv => (
+                    <li
+                      key={inv.id}
+                      className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.03]"
+                      onClick={() => toggleSelect(inv.id)}
+                    >
+                      <div className={clsx(
+                        "w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center transition-colors",
+                        selected.has(inv.id)
+                          ? "bg-[#F57C28] border-[#F57C28]"
+                          : "border-gray-300 dark:border-white/20"
+                      )}>
+                        {selected.has(inv.id) && (
+                          <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-800 dark:text-white truncate">{inv.saticiUnvan}</p>
+                        <p className="text-[10px] text-gray-400 dark:text-white/30">{inv.tarihFmt} · {inv.id}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-xs font-semibold text-[#F57C28] tabular-nums">{fmtTRY(inv.kdvTutari)}</p>
+                        <p className="text-[10px] text-gray-400 dark:text-white/30">KDV</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Seçili toplam */}
+              {selected.size > 0 && (
+                <div className="flex items-center justify-between p-3 rounded-xl border border-[#F57C28]/20 bg-[#F57C28]/5">
+                  <p className="text-xs text-gray-600 dark:text-white/60">Seçili {selected.size} faturanın toplam KDV'si:</p>
+                  <p className="text-sm font-bold text-[#F57C28] tabular-nums">
+                    {fmtTRY(result.invoices.filter(i => selected.has(i.id)).reduce((s, i) => s + i.kdvTutari, 0))}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Yöntem 2: Oranla Dağıtım */}
+          {method === "oran" && (
+            <div className="space-y-3">
+              <div className="p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02] space-y-3">
+                <p className="text-xs font-semibold text-gray-600 dark:text-white/60 uppercase tracking-wider">Oran Hesaplama</p>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-white/40 block mb-1">Toplam Hasılat (₺)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={toplamHasilat}
+                    onChange={e => setToplamHasilat(e.target.value)}
+                    placeholder="0,00"
+                    className="w-full text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-800 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 dark:text-white/40 block mb-1">İade İşlem Tutarı (₺)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={iadeIslemTutari}
+                    onChange={e => setIadeIslemTutari(e.target.value)}
+                    placeholder="0,00"
+                    className="w-full text-sm rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-800 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/40"
+                  />
+                </div>
+                {ratio !== null && (
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-[#F57C28]/5 border border-[#F57C28]/20">
+                    <p className="text-xs text-gray-600 dark:text-white/60">Hesaplanan Oran</p>
+                    <p className="text-sm font-bold text-[#F57C28]">%{(ratio * 100).toFixed(4)}</p>
+                  </div>
+                )}
+                {ratio !== null && (
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20">
+                    <p className="text-xs text-gray-600 dark:text-white/60">Toplam Yüklenilen KDV</p>
+                    <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      {fmtTRY(result.stats.totalKdv * ratio)}
+                    </p>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 dark:text-white/30 text-center">
+                Tüm {result.invoices.length} fatura listeye dahil edilir · Yüklenim türü: <strong>Genel gider payı</strong>
+              </p>
+            </div>
+          )}
+
+          {/* Aksiyon butonları */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setResult(null); setFiles([]); setError(null); setSelected(new Set()); }}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+            >
+              Yeni Liste
+            </button>
+            <button
+              onClick={downloadExcel}
+              disabled={xlLoading || (method === "manuel" && selected.size === 0) || (method === "oran" && ratio === null)}
+              className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+            >
+              {xlLoading ? <Spinner size={4} /> : <IconDownload className="w-4 h-4" />}
+              GİB Formatında Excel İndir
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── KDV İade Listeleri wrapper (inner sub-tabs) ───────────────────────────
+
+type KdvSubTab = "indirilen" | "yuklenilen";
+
+function KdvIadePanel() {
+  const [subTab, setSubTab] = useState<KdvSubTab>("indirilen");
+
+  return (
+    <div className="space-y-4">
+      {/* Inner sub-tab bar */}
+      <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
+        {([
+          { id: "indirilen",  label: "İndirilecek KDV" },
+          { id: "yuklenilen", label: "Yüklenilen KDV"  },
+        ] as const).map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setSubTab(id)}
+            className={clsx(
+              "flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
+              subTab === id
+                ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm"
+                : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "indirilen"  && <IndirilenKdvPanel />}
+      {subTab === "yuklenilen" && <YuklenilenKdvPanel />}
     </div>
   );
 }
