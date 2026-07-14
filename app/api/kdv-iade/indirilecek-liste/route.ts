@@ -1,0 +1,363 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+
+export const dynamic = "force-dynamic";
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+export interface InvoiceLine {
+  cins: string;
+  miktar: number;
+  birim: string;
+  kdvHaricTutar: number;
+  kdvOrani: number;
+  kdvTutari: number;
+}
+
+export interface ParsedInvoice {
+  id: string;
+  seri: string;
+  siraNo: string;
+  tarihIso: string;    // YYYY-MM-DD (for sorting)
+  tarihFmt: string;    // DD.MM.YYYY (for display/Excel)
+  donemi: string;      // YYYY/MM
+  saticiUnvan: string;
+  saticiVergiNo: string;
+  kdvHaricTutar: number;
+  kdvTutari: number;
+  kdvOrani: number;
+  satirlar: InvoiceLine[];
+  sourceFile: string;
+}
+
+export interface ExcludedInvoice {
+  id: string;
+  tarihFmt: string;
+  saticiUnvan: string;
+  neden: string;
+  sourceFile: string;
+}
+
+// ── Minimal XML helpers (no external deps, strips UBL-TR namespaces) ───────
+
+function stripNs(raw: string): string {
+  // Strip UTF-8 BOM and namespace prefixes from tags
+  return raw
+    .replace(/^\uFEFF/, "")
+    .replace(/<([A-Za-z][A-Za-z0-9_-]*):([A-Za-z][A-Za-z0-9_-]*)/g, "<$2")
+    .replace(/<\/([A-Za-z][A-Za-z0-9_-]*):([A-Za-z][A-Za-z0-9_-]*)/g, "</$2");
+}
+
+function decode(s: string): string {
+  return s
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n));
+}
+
+/** Text content of first matching tag */
+function firstText(xml: string, tag: string): string {
+  const re = new RegExp(`<${tag}(?:\\s[^>]*)?>([^<]*)<\\/${tag}>`, "s");
+  const m  = xml.match(re);
+  return m ? decode(m[1].trim()) : "";
+}
+
+/** Attribute value of first matching tag */
+function firstAttr(xml: string, tag: string, attr: string): string {
+  const re = new RegExp(`<${tag}[^>]*\\s${attr}="([^"]*)"`, "i");
+  const m  = xml.match(re);
+  return m ? m[1] : "";
+}
+
+/** Content of first <tag>...</tag> block (simple, no deep nesting) */
+function firstBlock(xml: string, tag: string): string {
+  const si = xml.indexOf(`<${tag}`);
+  if (si === -1) return "";
+  // Check this is the actual tag, not a prefix (next char must be > or space/newline)
+  const nc = xml[si + tag.length + 1];
+  if (nc && nc !== ">" && nc !== " " && nc !== "\n" && nc !== "\r" && nc !== "/") return "";
+  const ei = xml.indexOf(`</${tag}>`, si);
+  if (ei === -1) return "";
+  return xml.slice(si, ei + `</${tag}>`.length);
+}
+
+/** All non-nested <tag>...</tag> blocks */
+function allBlocks(xml: string, tag: string): string[] {
+  const blocks: string[] = [];
+  const openMark  = `<${tag}`;
+  const closeMark = `</${tag}>`;
+  let pos = 0;
+
+  while (pos < xml.length) {
+    const si = xml.indexOf(openMark, pos);
+    if (si === -1) break;
+
+    // Verify it's this exact tag (next char must be > or whitespace or /)
+    const afterName = xml[si + openMark.length];
+    if (afterName && afterName !== ">" && afterName !== " " && afterName !== "\n" && afterName !== "\r" && afterName !== "/") {
+      pos = si + 1;
+      continue;
+    }
+
+    let depth = 1;
+    let i = si + openMark.length;
+    let found = false;
+
+    while (i < xml.length && depth > 0) {
+      const no = xml.indexOf(openMark, i);
+      const nc = xml.indexOf(closeMark, i);
+      if (nc === -1) break;
+
+      const validOpen = no !== -1 && (() => {
+        const c = xml[no + openMark.length];
+        return c === ">" || c === " " || c === "\n" || c === "\r" || c === "/";
+      })();
+
+      if (validOpen && no < nc) {
+        depth++;
+        i = no + openMark.length;
+      } else {
+        depth--;
+        if (depth === 0) {
+          blocks.push(xml.slice(si, nc + closeMark.length));
+          pos = nc + closeMark.length;
+          found = true;
+        } else {
+          i = nc + closeMark.length;
+        }
+      }
+    }
+    if (!found) break;
+  }
+  return blocks;
+}
+
+function toNum(s: string): number {
+  return parseFloat(s.replace(/\s/g, "").replace(",", ".")) || 0;
+}
+
+function fmtDate(iso: string): string {
+  const p = iso.split("-");
+  return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : iso;
+}
+
+function kdvDonemi(iso: string): string {
+  const p = iso.split("-");
+  return p.length >= 2 ? `${p[0]}/${p[1]}` : iso;
+}
+
+function parseId(id: string): { seri: string; siraNo: string } {
+  const m = id.match(/^([A-Za-z]{1,3})(\d+)$/);
+  if (m) return { seri: m[1].toUpperCase(), siraNo: m[2] };
+  return { seri: "", siraNo: id };
+}
+
+// ── İhraç kayıtlı detection ────────────────────────────────────────────────
+
+const IHRAC_CODES = new Set(["803"]);
+const IHRAC_TEXTS = ["ihraç kayıtlı", "ihrac kayitli", "ihracat kayitli", "ihracat kayıtlı"];
+
+function isIhracKayitli(xml: string): boolean {
+  const lower = xml.toLowerCase();
+  if (IHRAC_TEXTS.some(t => lower.includes(t))) return true;
+  if (firstText(xml, "InvoiceTypeCode").toUpperCase() === "IHRACAT") return true;
+  // Check AllowanceChargeReasonCode 803
+  for (const block of allBlocks(xml, "AllowanceCharge")) {
+    if (IHRAC_CODES.has(firstText(block, "AllowanceChargeReasonCode"))) return true;
+  }
+  // Check TaxExemptionReasonCode
+  for (const block of allBlocks(xml, "TaxSubtotal")) {
+    if (IHRAC_CODES.has(firstText(block, "TaxExemptionReasonCode"))) return true;
+  }
+  return false;
+}
+
+// ── Single invoice parser ──────────────────────────────────────────────────
+
+function parseInvoice(
+  xmlRaw: string,
+  sourceFile: string,
+): { invoice?: ParsedInvoice; excluded?: ExcludedInvoice } {
+  const xml = stripNs(xmlRaw);
+
+  const typeCode    = firstText(xml, "InvoiceTypeCode").toUpperCase();
+  const id          = firstText(xml, "ID");
+  const issueDate   = firstText(xml, "IssueDate");
+  const tarihFmt    = fmtDate(issueDate);
+
+  // Supplier info (within AccountingSupplierParty block)
+  const supplierBlock  = firstBlock(xml, "AccountingSupplierParty");
+  const partyNameBlock = firstBlock(supplierBlock, "PartyName");
+  const saticiUnvan    = decode(firstText(partyNameBlock, "Name") || firstText(supplierBlock, "Name"));
+  const saticiVergiNo  = firstText(supplierBlock, "CompanyID");
+
+  const makeExcluded = (neden: string): ExcludedInvoice => ({
+    id, tarihFmt, saticiUnvan, neden, sourceFile,
+  });
+
+  // ── Filter 1: İade faturası ──
+  if (typeCode === "IADE") return { excluded: makeExcluded("İade Faturası") };
+
+  // ── Header-level TaxTotal (before InvoiceLine blocks) ──
+  // Find TaxTotal that appears before the first InvoiceLine
+  const firstLineIdx = xml.indexOf("<InvoiceLine");
+  const headerPart   = firstLineIdx > -1 ? xml.slice(0, firstLineIdx) : xml;
+  const taxTotalBlock    = firstBlock(headerPart, "TaxTotal") || firstBlock(xml, "TaxTotal");
+  const taxSubtotalBlock = firstBlock(taxTotalBlock, "TaxSubtotal");
+
+  const totalKdv  = toNum(firstText(taxTotalBlock, "TaxAmount"));
+  const kdvOrani  = toNum(firstText(taxSubtotalBlock, "Percent"));
+
+  // ── Filter 2: KDV = 0 ──
+  if (totalKdv === 0) return { excluded: makeExcluded("KDV = 0") };
+
+  // ── Filter 3: İhraç kayıtlı ──
+  if (isIhracKayitli(xml)) return { excluded: makeExcluded("İhraç Kayıtlı") };
+
+  // ── Parse invoice lines ──
+  const lineBlocks = allBlocks(xml, "InvoiceLine");
+  let satirlar: InvoiceLine[] = lineBlocks.map(lb => {
+    const itemBlock      = firstBlock(lb, "Item");
+    const cins           = firstText(itemBlock, "Name") || firstText(lb, "Description") || "";
+    const miktarStr      = firstText(lb, "InvoicedQuantity");
+    const miktar         = toNum(miktarStr);
+    const birim          = firstAttr(lb, "InvoicedQuantity", "unitCode");
+    const kdvHaricTutar  = toNum(firstText(lb, "LineExtensionAmount"));
+
+    const lineTaxTotal      = firstBlock(lb, "TaxTotal");
+    const lineKdvTutari     = toNum(firstText(lineTaxTotal, "TaxAmount"));
+    const lineTaxSub        = firstBlock(lineTaxTotal, "TaxSubtotal");
+    const lineKdvOrani      = toNum(firstText(lineTaxSub, "Percent"));
+
+    return { cins, miktar, birim, kdvHaricTutar, kdvOrani: lineKdvOrani, kdvTutari: lineKdvTutari };
+  });
+
+  // Fallback: if no lines parsed, create one synthetic line from header
+  if (satirlar.length === 0) {
+    const kdvHaricTutar = toNum(firstText(xml, "TaxExclusiveAmount"));
+    satirlar = [{
+      cins: "—",
+      miktar: 1,
+      birim: "",
+      kdvHaricTutar,
+      kdvOrani,
+      kdvTutari: totalKdv,
+    }];
+  }
+
+  const kdvHaricTutar = toNum(firstText(headerPart, "TaxExclusiveAmount")) ||
+    satirlar.reduce((s, l) => s + l.kdvHaricTutar, 0);
+
+  const { seri, siraNo } = parseId(id);
+
+  return {
+    invoice: {
+      id, seri, siraNo,
+      tarihIso: issueDate,
+      tarihFmt,
+      donemi: kdvDonemi(issueDate),
+      saticiUnvan, saticiVergiNo,
+      kdvHaricTutar,
+      kdvTutari: totalKdv,
+      kdvOrani,
+      satirlar,
+      sourceFile,
+    },
+  };
+}
+
+// ── XML sources extraction (handles ZIP) ──────────────────────────────────
+
+async function collectXmlSources(
+  files: File[],
+): Promise<Array<{ name: string; content: string }>> {
+  const sources: Array<{ name: string; content: string }> = [];
+
+  for (const file of files) {
+    const lc = file.name.toLowerCase();
+
+    if (lc.endsWith(".xml")) {
+      const buf  = Buffer.from(await file.arrayBuffer());
+      sources.push({ name: file.name, content: buf.toString("utf8") });
+    } else if (lc.endsWith(".zip")) {
+      const JSZip = require("jszip");
+      const buf   = Buffer.from(await file.arrayBuffer());
+      const zip   = await JSZip.loadAsync(buf);
+      for (const [path, entry] of Object.entries(zip.files) as Array<[string, any]>) {
+        if (!entry.dir && path.match(/\.xml$/i)) {
+          const content = await entry.async("string");
+          sources.push({ name: path.split("/").pop() || path, content });
+        }
+      }
+    }
+  }
+
+  return sources;
+}
+
+// ── Route ─────────────────────────────────────────────────────────────────
+
+export async function POST(req: NextRequest) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token) return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
+  const { role } = token as any;
+  if (role !== "ADMIN") return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
+
+  let formData: FormData;
+  try { formData = await req.formData(); }
+  catch { return NextResponse.json({ error: "Geçersiz istek formatı" }, { status: 400 }); }
+
+  const files = formData.getAll("files[]") as File[];
+  if (!files || files.length === 0)
+    return NextResponse.json({ error: "En az bir dosya yükleyin" }, { status: 400 });
+
+  for (const file of files) {
+    const lc = file.name.toLowerCase();
+    if (!lc.endsWith(".xml") && !lc.endsWith(".zip")) {
+      return NextResponse.json({ error: `"${file.name}" desteklenmiyor (XML veya ZIP gerekli)` }, { status: 400 });
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      return NextResponse.json({ error: `"${file.name}" 50MB sınırını aşıyor` }, { status: 400 });
+    }
+  }
+
+  try {
+    const sources = await collectXmlSources(files);
+    if (sources.length === 0)
+      return NextResponse.json({ error: "İçinde XML dosyası bulunamadı" }, { status: 400 });
+
+    const invoices: ParsedInvoice[]    = [];
+    const excluded: ExcludedInvoice[]  = [];
+
+    for (const { name, content } of sources) {
+      // Quick check: is this actually an invoice XML?
+      if (!content.includes("Invoice")) {
+        excluded.push({ id: name, tarihFmt: "—", saticiUnvan: "—", neden: "Fatura değil", sourceFile: name });
+        continue;
+      }
+      const { invoice, excluded: ex } = parseInvoice(content, name);
+      if (invoice) invoices.push(invoice);
+      if (ex)      excluded.push(ex);
+    }
+
+    // Sort by date ascending
+    invoices.sort((a, b) => a.tarihIso.localeCompare(b.tarihIso));
+
+    const totalKdvHaric = invoices.reduce((s, i) => s + i.kdvHaricTutar, 0);
+    const totalKdv      = invoices.reduce((s, i) => s + i.kdvTutari, 0);
+
+    return NextResponse.json({
+      invoices,
+      excluded,
+      stats: {
+        invoiceCount: invoices.length,
+        excludedCount: excluded.length,
+        totalKdvHaric,
+        totalKdv,
+      },
+    });
+  } catch (err: any) {
+    console.error("[kdv-iade/indirilecek-liste]", err);
+    return NextResponse.json({ error: "İşlem hatası: " + (err?.message ?? "Bilinmeyen hata") }, { status: 500 });
+  }
+}

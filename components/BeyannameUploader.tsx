@@ -16,7 +16,29 @@ interface BeyannameResult {
   ozet?: string;
 }
 
-type Tab = "tekli" | "tam-tasdik" | "capraz-kontrol";
+type Tab = "tekli" | "tam-tasdik" | "capraz-kontrol" | "kdv-iade";
+
+// ── KDV İade types ─────────────────────────────────────────────────────────
+
+interface KdvInvoiceLine {
+  cins: string; miktar: number; birim: string;
+  kdvHaricTutar: number; kdvOrani: number; kdvTutari: number;
+}
+interface KdvInvoice {
+  id: string; seri: string; siraNo: string;
+  tarihIso: string; tarihFmt: string; donemi: string;
+  saticiUnvan: string; saticiVergiNo: string;
+  kdvHaricTutar: number; kdvTutari: number; kdvOrani: number;
+  satirlar: KdvInvoiceLine[]; sourceFile: string;
+}
+interface KdvExcluded {
+  id: string; tarihFmt: string; saticiUnvan: string; neden: string; sourceFile: string;
+}
+interface KdvParseResult {
+  invoices: KdvInvoice[];
+  excluded: KdvExcluded[];
+  stats: { invoiceCount: number; excludedCount: number; totalKdvHaric: number; totalKdv: number };
+}
 
 // ── Çapraz Kontrol types ───────────────────────────────────────────────────
 
@@ -767,6 +789,315 @@ function CaprazKontrolPanel() {
   );
 }
 
+// ── KDV İade Listeleri ────────────────────────────────────────────────────
+
+function KdvIadePanel() {
+  const xmlInputRef                   = useRef<HTMLInputElement>(null);
+  const [files, setFiles]             = useState<File[]>([]);
+  const [dragging, setDragging]       = useState(false);
+  const [merge, setMerge]             = useState(true);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const [result, setResult]           = useState<KdvParseResult | null>(null);
+  const [xlLoading, setXlLoading]     = useState(false);
+  const [showExcluded, setShowExcluded] = useState(false);
+
+  function addFiles(incoming: File[]) {
+    const valid = incoming.filter(f => {
+      const lc = f.name.toLowerCase();
+      return lc.endsWith(".xml") || lc.endsWith(".zip");
+    });
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.name + f.size));
+      return [...prev, ...valid.filter(f => !existing.has(f.name + f.size))];
+    });
+    setError(null);
+    setResult(null);
+  }
+
+  function removeFile(idx: number) {
+    setFiles(prev => prev.filter((_, i) => i !== idx));
+    setResult(null);
+  }
+
+  async function parse() {
+    if (files.length === 0) return;
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append("files[]", f);
+      const res  = await fetch("/api/kdv-iade/indirilecek-liste", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? "İşlem başarısız"); return; }
+      setResult(json);
+    } catch { setError("Sunucuya bağlanılamadı."); }
+    finally   { setLoading(false); }
+  }
+
+  async function downloadExcel() {
+    if (!result) return;
+    setXlLoading(true);
+    try {
+      const res = await fetch("/api/kdv-iade/indirilecek-liste/excel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoices: result.invoices, merge }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError(json.error ?? "Excel oluşturulamadı");
+        return;
+      }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `indirilecek-kdv-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { setError("Excel indirilemedi."); }
+    finally   { setXlLoading(false); }
+  }
+
+  const fmtTRY = (n: number) =>
+    n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ₺";
+
+  return (
+    <div className="space-y-5">
+      {/* Açıklama */}
+      <div className="flex items-start gap-3 p-4 rounded-xl bg-[#F57C28]/5 border border-[#F57C28]/20">
+        <svg className="w-5 h-5 text-[#F57C28] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+        </svg>
+        <p className="text-xs text-gray-600 dark:text-white/60 leading-relaxed">
+          e-Fatura XML dosyalarından GİB formatında <strong>İndirilecek KDV Listesi</strong> oluşturur.
+          AI kullanılmaz — tamamen kod tarafında parse edilir.
+          ZIP içindeki XML'ler otomatik açılır. İade, KDV=0 ve ihraç kayıtlı faturalar otomatik hariç tutulur.
+        </p>
+      </div>
+
+      {/* Upload area */}
+      {!result && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault(); setDragging(false);
+            addFiles(Array.from(e.dataTransfer.files));
+          }}
+          onClick={() => xmlInputRef.current?.click()}
+          className={clsx(
+            "rounded-2xl border-2 border-dashed p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
+            dragging
+              ? "border-[#F57C28] bg-[#F57C28]/5"
+              : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] hover:border-[#F57C28]/50 hover:bg-[#F57C28]/[0.03]"
+          )}
+        >
+          <input
+            ref={xmlInputRef}
+            type="file"
+            accept=".xml,.zip"
+            multiple
+            className="hidden"
+            onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
+          />
+          <div className="w-12 h-12 rounded-xl bg-[#F57C28]/10 flex items-center justify-center mb-3">
+            <svg className="w-6 h-6 text-[#F57C28]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium text-gray-600 dark:text-white/60">
+            XML veya ZIP sürükleyin ya da tıklayın
+          </p>
+          <p className="text-xs text-gray-400 dark:text-white/30 mt-1">
+            .xml · .zip (içindeki XML'ler otomatik açılır) · Çoklu seçim desteklenir
+          </p>
+        </div>
+      )}
+
+      {/* Dosya listesi */}
+      {files.length > 0 && !result && (
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">
+              {files.length} Dosya Seçildi
+            </span>
+            <button
+              onClick={() => { setFiles([]); setError(null); }}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-white/60 transition-colors"
+            >
+              Tümünü temizle
+            </button>
+          </div>
+          <ul className="divide-y divide-gray-100 dark:divide-white/5 max-h-48 overflow-y-auto">
+            {files.map((f, i) => (
+              <li key={i} className="flex items-center gap-3 px-4 py-2">
+                <span className={clsx(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 uppercase",
+                  f.name.toLowerCase().endsWith(".zip")
+                    ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                    : "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
+                )}>
+                  {f.name.toLowerCase().endsWith(".zip") ? "ZIP" : "XML"}
+                </span>
+                <span className="text-sm text-gray-700 dark:text-white/70 flex-1 truncate text-xs">{f.name}</span>
+                <span className="text-xs text-gray-400 dark:text-white/30 flex-shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                  className="flex-shrink-0 p-1 rounded text-gray-300 hover:text-gray-500 transition-colors"
+                >
+                  <IconX />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Seçenekler */}
+      {files.length > 0 && !result && (
+        <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02]">
+          <div>
+            <p className="text-sm font-semibold text-gray-800 dark:text-white">Satır Görünümü</p>
+            <p className="text-xs text-gray-400 dark:text-white/30 mt-0.5">
+              {merge ? "Aynı faturanın kalemleri tek satırda birleştirilir" : "Her kalem ayrı satır olarak listelenir"}
+            </p>
+          </div>
+          <button
+            onClick={() => setMerge(p => !p)}
+            className={clsx(
+              "relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out",
+              merge ? "bg-[#F57C28]" : "bg-gray-200 dark:bg-white/10"
+            )}
+          >
+            <span className={clsx(
+              "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform duration-200 ease-in-out",
+              merge ? "translate-x-5" : "translate-x-0"
+            )} />
+          </button>
+        </div>
+      )}
+
+      {error && <ErrorBox message={error} />}
+
+      {/* Loading */}
+      {loading && (
+        <div className="flex flex-col items-center gap-3 py-8">
+          <Spinner />
+          <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
+          <p className="text-xs text-gray-400 dark:text-white/30">AI çağrısı yok · tamamen kod taraflı</p>
+        </div>
+      )}
+
+      {/* Liste Oluştur butonu */}
+      {!loading && !result && files.length > 0 && (
+        <button
+          onClick={parse}
+          className="w-full py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors"
+        >
+          Liste Oluştur
+        </button>
+      )}
+
+      {/* Sonuçlar */}
+      {result && (
+        <div className="space-y-4">
+          {/* Özet kartları */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{result.stats.invoiceCount}</p>
+              <p className="text-xs text-gray-500 dark:text-white/40 mt-0.5">Fatura dahil edildi</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
+              <p className="text-lg font-bold text-[#F57C28] tabular-nums">{fmtTRY(result.stats.totalKdv)}</p>
+              <p className="text-xs text-gray-500 dark:text-white/40 mt-0.5">Toplam İndirilecek KDV</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
+              <p className="text-lg font-bold text-gray-700 dark:text-white/80 tabular-nums">{fmtTRY(result.stats.totalKdvHaric)}</p>
+              <p className="text-xs text-gray-500 dark:text-white/40 mt-0.5">KDV Hariç Tutar</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
+              <p className="text-2xl font-bold text-amber-500">{result.stats.excludedCount}</p>
+              <p className="text-xs text-gray-500 dark:text-white/40 mt-0.5">Fatura hariç tutuldu</p>
+            </div>
+          </div>
+
+          {/* Hariç tutulanlar */}
+          {result.excluded.length > 0 && (
+            <div className="rounded-2xl border border-amber-200 dark:border-amber-500/20 overflow-hidden">
+              <button
+                onClick={() => setShowExcluded(p => !p)}
+                className="w-full px-4 py-2.5 flex items-center justify-between bg-amber-50 dark:bg-amber-500/10 text-left"
+              >
+                <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                  Hariç Tutulan Faturalar — {result.excluded.length}
+                </span>
+                <svg
+                  className={clsx("w-4 h-4 text-amber-500 transition-transform", showExcluded && "rotate-180")}
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showExcluded && (
+                <ul className="divide-y divide-amber-100 dark:divide-amber-500/10 max-h-48 overflow-y-auto">
+                  {result.excluded.map((ex, i) => (
+                    <li key={i} className="px-4 py-2 flex items-center gap-3 bg-white dark:bg-white/[0.01]">
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400 flex-shrink-0">
+                        {ex.neden}
+                      </span>
+                      <span className="text-xs text-gray-600 dark:text-white/60 flex-1 truncate">{ex.saticiUnvan || ex.id}</span>
+                      <span className="text-xs text-gray-400 dark:text-white/30 flex-shrink-0">{ex.tarihFmt}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Satır görünümü toggle */}
+          <div className="flex items-center justify-between p-3 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.02]">
+            <p className="text-xs text-gray-600 dark:text-white/60">
+              <span className="font-semibold">Excel görünümü:</span>{" "}
+              {merge ? "Fatura başına 1 satır (birleştirilmiş)" : "Kalem başına 1 satır"}
+            </p>
+            <button
+              onClick={() => setMerge(p => !p)}
+              className={clsx(
+                "relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
+                merge ? "bg-[#F57C28]" : "bg-gray-200 dark:bg-white/10"
+              )}
+            >
+              <span className={clsx(
+                "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform",
+                merge ? "translate-x-4" : "translate-x-0"
+              )} />
+            </button>
+          </div>
+
+          {/* Aksiyon butonları */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setResult(null); setFiles([]); setError(null); setShowExcluded(false); }}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+            >
+              Yeni Liste
+            </button>
+            <button
+              onClick={downloadExcel}
+              disabled={xlLoading || result.invoices.length === 0}
+              className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+            >
+              {xlLoading ? <Spinner size={4} /> : <IconDownload className="w-4 h-4" />}
+              GİB Formatında Excel İndir
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function BeyannameUploader() {
@@ -778,9 +1109,10 @@ export default function BeyannameUploader() {
       <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
         {(
           [
-            { id: "tekli",           label: "Tekli Dönüştürme"    },
-            { id: "tam-tasdik",      label: "Tam Tasdik Özeti"    },
-            { id: "capraz-kontrol",  label: "Çapraz Kontrol"      },
+            { id: "tekli",          label: "Tekli Dönüştürme" },
+            { id: "tam-tasdik",     label: "Tam Tasdik Özeti" },
+            { id: "capraz-kontrol", label: "Çapraz Kontrol"   },
+            { id: "kdv-iade",       label: "KDV İade Listesi" },
           ] as const
         ).map(({ id, label }) => (
           <button
@@ -801,6 +1133,7 @@ export default function BeyannameUploader() {
       {tab === "tekli"          && <TekliPanel />}
       {tab === "tam-tasdik"     && <TamTasdikPanel />}
       {tab === "capraz-kontrol" && <CaprazKontrolPanel />}
+      {tab === "kdv-iade"       && <KdvIadePanel />}
     </div>
   );
 }
