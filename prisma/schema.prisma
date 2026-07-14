@@ -267,13 +267,12 @@ model CompanyAssignment {
 }
 
 model KdvIadeKayit {
-  id             Int      @id @default(autoincrement())
-  tur            String   // "indirilen" | "yuklenilen" | "satis"
-  faturaSayisi   Int
-  toplamKdv      Float
-  toplamKdvHaric Float    @default(0)
-  haricSayisi    Int      @default(0)
-  createdAt      DateTime @default(now())
+  id           String   @id @default(cuid())
+  tur          String   // "indirilecek" | "yuklenilen" | "satis"
+  faturaSayisi Int
+  toplamKdv    Float
+  haricTutulan Int      @default(0)
+  createdAt    DateTime @default(now())
 }
 
 // module: "BEYANNAME" | "TXT_EXCEL" | "KARSILASTIRMA" | "TARAYICI"

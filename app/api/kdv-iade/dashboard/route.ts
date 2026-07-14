@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   if (!token) return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const { tur, faturaSayisi, toplamKdv, toplamKdvHaric, haricSayisi } = body;
+  const { tur, faturaSayisi, toplamKdv, haricTutulan } = body;
 
   if (!tur || faturaSayisi == null || toplamKdv == null)
     return NextResponse.json({ error: "Eksik alan" }, { status: 400 });
@@ -51,8 +51,7 @@ export async function POST(req: NextRequest) {
         tur,
         faturaSayisi: Number(faturaSayisi),
         toplamKdv:    Number(toplamKdv),
-        toplamKdvHaric: Number(toplamKdvHaric ?? 0),
-        haricSayisi:  Number(haricSayisi ?? 0),
+        haricTutulan: Number(haricTutulan ?? 0),
       },
     });
     return NextResponse.json(record);

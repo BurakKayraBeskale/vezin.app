@@ -69,8 +69,8 @@ interface SatisParseResult {
 
 // ── Dashboard types ─────────────────────────────────────────────────────────
 interface DashboardRecord {
-  id: number; tur: string; faturaSayisi: number;
-  toplamKdv: number; toplamKdvHaric: number; haricSayisi: number;
+  id: string; tur: string; faturaSayisi: number;
+  toplamKdv: number; haricTutulan: number;
   createdAt: string;
 }
 
@@ -187,7 +187,7 @@ function normalizeExcelToSatisInvoice(
 
 async function saveDashboardRecord(
   tur: "indirilen" | "yuklenilen" | "satis",
-  stats: { invoiceCount?: number; totalKdv?: number; totalKdvHaric?: number; excludedCount?: number; skippedCount?: number },
+  stats: { invoiceCount?: number; totalKdv?: number; excludedCount?: number; skippedCount?: number },
 ) {
   try {
     await fetch("/api/kdv-iade/dashboard", {
@@ -195,8 +195,8 @@ async function saveDashboardRecord(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         tur, faturaSayisi: stats.invoiceCount ?? 0,
-        toplamKdv: stats.totalKdv ?? 0, toplamKdvHaric: stats.totalKdvHaric ?? 0,
-        haricSayisi: stats.excludedCount ?? stats.skippedCount ?? 0,
+        toplamKdv: stats.totalKdv ?? 0,
+        haricTutulan: stats.excludedCount ?? stats.skippedCount ?? 0,
       }),
     });
   } catch { /* ignore */ }
