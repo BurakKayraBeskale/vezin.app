@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const MAX_SIZE = 10 * 1024 * 1024;
-const MAX_VISION_PAGES = 4;
+const MAX_VISION_PAGES = 6;
 const MAX_FILES = 20;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -18,6 +18,8 @@ export interface Extraction {
   mukellef: { unvan?: string; vergi_kimlik_no?: string; vergi_dairesi?: string } | string;
   donem: string;
   veriler: Array<{ alan: string; deger: string; birim?: string }>;
+  failed?: boolean;
+  failedReason?: string;
 }
 
 export interface CheckResult {
@@ -257,6 +259,21 @@ function runChecks(extractions: Extraction[]): CheckResult[] {
 
 // ── AI extraction per file ─────────────────────────────────────────────────
 
+/** Mark extraction as failed if critical fields are missing */
+function markExtractionStatus(ext: Extraction): Extraction {
+  const mk = ext.mukellef;
+  const unvan   = typeof mk === "object" ? safeStr((mk as any).unvan   ?? "") : safeStr(mk);
+  const vergiNo = typeof mk === "object" ? safeStr((mk as any).vergi_kimlik_no ?? "") : "";
+  const hasContent = ext.belge_turu.trim() !== "" || ext.veriler.length > 0 || unvan.trim() !== "" || vergiNo.trim() !== "";
+  if (!hasContent) {
+    return { ...ext, failed: true, failedReason: ext.failedReason ?? "Beyanname verisi çıkarılamadı" };
+  }
+  if (!ext.belge_turu.trim() || !ext.donem.trim() || !unvan.trim()) {
+    return { ...ext, failed: true, failedReason: "Belge türü, dönem veya mükellef bilgisi eksik" };
+  }
+  return { ...ext, failed: false };
+}
+
 async function extractFromFile(
   openai: any,
   file: File,
@@ -274,20 +291,21 @@ async function extractFromFile(
       pageImages.push((img as Buffer).toString("base64"));
       page++;
     }
-  } catch { /* proceed with empty */ }
+  } catch {
+    return {
+      dosya_adi: file.name, belge_turu: "", mukellef: {}, donem: "", veriler: [],
+      failed: true, failedReason: "PDF görüntüye dönüştürülemedi",
+    };
+  }
 
-  const base: Extraction = {
-    dosya_adi: file.name,
-    belge_turu: "",
-    mukellef: { unvan: "", vergi_kimlik_no: "", vergi_dairesi: "" },
-    donem: "",
-    veriler: [],
-  };
+  if (pageImages.length === 0) {
+    return {
+      dosya_adi: file.name, belge_turu: "", mukellef: {}, donem: "", veriler: [],
+      failed: true, failedReason: "PDF sayfası okunamadı — dosya bozuk olabilir",
+    };
+  }
 
-  if (pageImages.length === 0) return base;
-
-  const prompt =
-    basePrompt +
+  const jsonSchema =
     `\n\nYanıtını YALNIZCA şu JSON formatında ver (başka alan ekleme):
 {
   "belge_turu": "KDV / Muhtasar / Kurumlar Vergisi / Gelir Vergisi / SGK / Geçici Vergi / diğer",
@@ -296,25 +314,143 @@ async function extractFromFile(
   "veriler": [{"alan": "...", "deger": "...", "birim": "TRY veya boş"}]
 }`;
 
+  const prompt = basePrompt + jsonSchema;
+
   try {
-    const response = await openai.chat.completions.create({
+    if (pageImages.length <= 2) {
+      // ── Tek geçiş: tüm sayfalar aynı anda (beyanname/route.ts ile aynı mantık) ──
+      const response = await openai.chat.completions.create({
+        model: "gpt-5.4-mini",
+        messages: [{ role: "user", content: [{ type: "text", text: prompt }, ...pageImages.map(imageContent)] }],
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_completion_tokens: 2000,
+      });
+      const parsed = parseJsonContent(response.choices[0].message.content ?? "{}");
+      return markExtractionStatus({ dosya_adi: file.name, ...parsed, veriler: parsed.veriler ?? [] });
+    }
+
+    // ── Çok geçişli: sayfa 1–2 tam yapı, kalan sayfalar ek veriler ──
+    const firstResp = await openai.chat.completions.create({
       model: "gpt-5.4-mini",
-      messages: [{
-        role: "user",
-        content: [
-          { type: "text", text: prompt },
-          ...pageImages.slice(0, 2).map(imageContent),
-        ],
-      }],
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }, ...pageImages.slice(0, 2).map(imageContent)] }],
       response_format: { type: "json_object" },
       temperature: 0,
       max_completion_tokens: 2000,
     });
-    const parsed = parseJsonContent(response.choices[0].message.content ?? "{}");
-    return { dosya_adi: file.name, ...parsed, veriler: parsed.veriler ?? [] };
+    const first = parseJsonContent(firstResp.choices[0].message.content ?? "{}");
+    let allVeriler: any[] = first.veriler ?? [];
+
+    for (let i = 2; i < pageImages.length; i++) {
+      const extraPrompt = basePrompt +
+        `\n\nBu sayfadaki TÜM veri alanlarını çıkar. YALNIZCA şu JSON formatında ver:
+{"veriler": [{"alan": "...", "deger": "...", "birim": "TRY veya boş"}]}`;
+      const extraResp = await openai.chat.completions.create({
+        model: "gpt-5.4-mini",
+        messages: [{ role: "user", content: [{ type: "text", text: extraPrompt }, imageContent(pageImages[i])] }],
+        response_format: { type: "json_object" },
+        temperature: 0,
+        max_completion_tokens: 2000,
+      });
+      const extra = parseJsonContent(extraResp.choices[0].message.content ?? "{}");
+      allVeriler = [...allVeriler, ...(extra.veriler ?? [])];
+    }
+
+    return markExtractionStatus({
+      dosya_adi: file.name,
+      belge_turu: first.belge_turu ?? "",
+      mukellef:   first.mukellef  ?? {},
+      donem:      first.donem     ?? "",
+      veriler:    allVeriler,
+    });
   } catch {
-    return base;
+    return {
+      dosya_adi: file.name, belge_turu: "", mukellef: {}, donem: "", veriler: [],
+      failed: true, failedReason: "AI yanıtı alınamadı",
+    };
   }
+}
+
+// ── Single-document internal consistency checks ────────────────────────────
+
+function runSingleChecks(ext: Extraction): CheckResult[] {
+  if (ext.failed) return [];
+  const results: CheckResult[] = [];
+  const tur   = (ext.belge_turu ?? "").toLowerCase();
+  const label = safeStr(ext.belge_turu) || ext.dosya_adi;
+
+  // 1. VKN (10 hane) / TCKN (11 hane) doğrulama
+  const mk      = ext.mukellef;
+  const vergiNo = typeof mk === "object" ? safeStr((mk as any).vergi_kimlik_no ?? "") : "";
+  const cleanNo = vergiNo.replace(/\D/g, "");
+  if (cleanNo.length > 0) {
+    if (cleanNo.length !== 10 && cleanNo.length !== 11) {
+      results.push({
+        name: `VKN/TCKN Doğrulama — ${label}`,
+        detail: `Kimlik no "${vergiNo}" geçersiz uzunluk (${cleanNo.length} hane) — VKN 10, TCKN 11 hane olmalı`,
+        status: "UYARI",
+      });
+    } else {
+      results.push({
+        name: `VKN/TCKN Doğrulama — ${label}`,
+        detail: `${cleanNo.length === 10 ? "VKN" : "TCKN"} format geçerli (${cleanNo.length} hane): ${vergiNo}`,
+        status: "UYGUN",
+      });
+    }
+  }
+
+  // KDV beyannamesi iç tutarlılık kontrolleri
+  if (tur.includes("kdv") || tur.includes("katma")) {
+    const odenecek   = findField(ext.veriler, ["ödenecek kdv", "ödenmesi gereken kdv", "ödenecek"]);
+    const devreden   = findField(ext.veriler, ["devreden kdv", "sonraki döneme devreden", "devreden"]);
+    const hesaplanan = findField(ext.veriler, ["hesaplanan kdv", "hesaplanan katma değer vergisi"]);
+    const indirilecek = findField(ext.veriler, ["indirilecek kdv", "toplam indirim", "indirilecek katma"]);
+
+    // 2. Ödenecek/Devreden KDV mantık: ikisi aynı anda pozitif olamaz
+    if (odenecek > 0 && devreden > 0) {
+      results.push({
+        name: `KDV Ödenecek/Devreden Mantık — ${label}`,
+        detail: "Ödenecek KDV ve Devreden KDV aynı anda pozitif olamaz — çelişki var",
+        value1: odenecek,  value1Label: "Ödenecek KDV",
+        value2: devreden,  value2Label: "Devreden KDV",
+        status: "UYARI",
+      });
+    } else if (odenecek > 0 || devreden > 0) {
+      results.push({
+        name: `KDV Ödenecek/Devreden Mantık — ${label}`,
+        detail: odenecek > 0
+          ? `Ödenecek KDV: ${odenecek.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — tutarlı`
+          : `Devreden KDV: ${devreden.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — tutarlı`,
+        status: "UYGUN",
+      });
+    }
+
+    // 3. Hesaplanan KDV − İndirilecek KDV ≈ Ödenecek/Devreden (%1 tolerans)
+    const sonuc = odenecek > 0 ? odenecek : devreden;
+    if (hesaplanan > 0 && indirilecek > 0 && sonuc > 0) {
+      const expected = hesaplanan - indirilecek;
+      const diff     = Math.abs(expected - sonuc);
+      const diffPct  = hesaplanan > 0 ? (diff / hesaplanan) * 100 : 0;
+      if (diffPct > 1) {
+        results.push({
+          name: `KDV Matrah Tutarlılığı — ${label}`,
+          detail: `Hesaplanan(${hesaplanan.toLocaleString("tr-TR")}) − İndirilecek(${indirilecek.toLocaleString("tr-TR")}) = ${expected.toLocaleString("tr-TR")} ₺ ≠ ${sonuc.toLocaleString("tr-TR")} ₺ (%${diffPct.toFixed(1)} fark — eşik %1)`,
+          value1: expected, value1Label: "Hesap.−İndir.",
+          value2: sonuc,    value2Label: odenecek > 0 ? "Ödenecek KDV" : "Devreden KDV",
+          diff, diffPercent: diffPct,
+          status: "UYARI",
+        });
+      } else {
+        results.push({
+          name: `KDV Matrah Tutarlılığı — ${label}`,
+          detail: `Hesaplanan − İndirilecek ≈ Ödenecek/Devreden KDV — uyumlu (%${diffPct.toFixed(1)} fark)`,
+          status: "UYGUN",
+        });
+      }
+    }
+  }
+
+  return results;
 }
 
 // ── Route handler ──────────────────────────────────────────────────────────
@@ -351,13 +487,23 @@ export async function POST(req: NextRequest) {
 
   try {
     const extractions: Extraction[] = [];
+    let failedCount  = 0;
+    let successCount = 0;
     for (const file of files) {
       const ext = await extractFromFile(openai, file, basePrompt);
       extractions.push(ext);
+      if (ext.failed) failedCount++; else successCount++;
     }
 
-    const checks = runChecks(extractions);
-    return NextResponse.json({ extractions, checks });
+    // Tek-belge iç tutarlılık kontrolleri
+    const singleChecks: CheckResult[] = [];
+    for (const ext of extractions) singleChecks.push(...runSingleChecks(ext));
+
+    // Çapraz kontroller yalnızca başarılı çıkarımlar üzerinde çalışır
+    const crossChecks = runChecks(extractions.filter(e => !e.failed));
+    const checks = [...singleChecks, ...crossChecks];
+
+    return NextResponse.json({ extractions, checks, failedCount, successCount });
   } catch (err: any) {
     console.error("[capraz-kontrol] Hata:", err?.status, err?.code, err?.message);
     return NextResponse.json(

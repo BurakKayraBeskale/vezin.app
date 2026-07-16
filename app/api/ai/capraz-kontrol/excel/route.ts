@@ -11,6 +11,8 @@ interface Extraction {
   mukellef: { unvan?: string; vergi_kimlik_no?: string; vergi_dairesi?: string } | string;
   donem: string;
   veriler: Array<{ alan: string; deger: string; birim?: string }>;
+  failed?: boolean;
+  failedReason?: string;
 }
 
 interface CheckResult {
@@ -79,7 +81,7 @@ const C = {
 
 // ── Excel builder ──────────────────────────────────────────────────────────
 
-async function buildExcel(extractions: Extraction[], checks: CheckResult[]): Promise<Uint8Array> {
+async function buildExcel(extractions: Extraction[], checks: CheckResult[], failedCount: number, successCount: number): Promise<Uint8Array> {
   const ExcelJS = require("exceljs");
   const wb = new ExcelJS.Workbook();
 
@@ -157,12 +159,14 @@ async function buildExcel(extractions: Extraction[], checks: CheckResult[]): Pro
   secHeader(ws1, 4, "Mükellef Bilgileri", 2);
   let r1 = 5;
   const infoRows: [string, string][] = [
-    ["Mükellef Unvanı",          mukellef.unvan   || "—"],
-    ["Vergi Dairesi",            mukellef.daire   || "—"],
-    ["Vergi Kimlik No",          mukellef.vergiNo || "—"],
-    ["İnceleme Dönemi",          donemAlt         || "—"],
-    ["Rapor Tarihi",             today],
+    ["Mükellef Unvanı",           mukellef.unvan   || "—"],
+    ["Vergi Dairesi",             mukellef.daire   || "—"],
+    ["Vergi Kimlik No",           mukellef.vergiNo || "—"],
+    ["İnceleme Dönemi",           donemAlt         || "—"],
+    ["Rapor Tarihi",              today],
     ["Yüklenen Beyanname Sayısı", String(extractions.length)],
+    ["Başarıyla Okunan",          String(successCount)],
+    ["Okunamayan (Hata)",         String(failedCount)],
   ];
   for (const [label, value] of infoRows) {
     const row = ws1.getRow(r1);
@@ -179,6 +183,28 @@ async function buildExcel(extractions: Extraction[], checks: CheckResult[]): Pro
   }
 
   r1 += 2;
+
+  // Okunamayan dosyalar — kırmızı hata satırları
+  const failedExtractions = extractions.filter(e => e.failed);
+  if (failedExtractions.length > 0) {
+    secHeader(ws1, r1, `HATA: ${failedExtractions.length} Dosyadan Veri Çıkarılamadı`, 2);
+    r1++;
+    for (const fe of failedExtractions) {
+      const row = ws1.getRow(r1);
+      const lc  = row.getCell(1);
+      lc.value = fe.dosya_adi; lc.fill = solidFill(C.RED);
+      lc.font  = { bold: true, size: 10, color: { argb: C.RED_DARK } };
+      lc.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+      const vc  = row.getCell(2);
+      vc.value = fe.failedReason ?? "Veri çıkarılamadı"; vc.fill = solidFill(C.RED);
+      vc.font  = { size: 10, color: { argb: C.RED_DARK } };
+      vc.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+      applyBorders(row, 2);
+      row.height = 19;
+      r1++;
+    }
+    r1 += 2;
+  }
 
   // Kontrol özeti sayıları
   secHeader(ws1, r1, "Kontrol Özeti", 2);
@@ -286,6 +312,29 @@ async function buildExcel(extractions: Extraction[], checks: CheckResult[]): Pro
   ws2.getRow(4).height = 28;
 
   let r2 = 5;
+
+  // Önce başarısız çıkarım satırları (kırmızı, kontrollerin başına)
+  for (const fe of extractions.filter(e => e.failed)) {
+    const row = ws2.getRow(r2);
+    row.getCell(1).value = "ÇIKARIM BAŞARISIZ";
+    row.getCell(2).value = `${fe.dosya_adi}: ${fe.failedReason ?? "Veri çıkarılamadı"}`;
+    row.getCell(7).value = "HATA";
+    for (let i = 1; i <= 7; i++) {
+      row.getCell(i).fill = solidFill(C.RED);
+      row.getCell(i).font = { size: 10, color: { argb: C.RED_DARK }, bold: i === 1 || i === 7 };
+      row.getCell(i).alignment = {
+        horizontal: i >= 3 && i <= 6 ? "right" : (i === 7 ? "center" : "left"),
+        vertical: "middle", wrapText: i <= 2, indent: i <= 2 ? 1 : 0,
+      };
+      row.getCell(i).border = {
+        top: { style: "hair" }, left: { style: "thin" },
+        bottom: { style: "hair" }, right: { style: "thin" },
+      };
+    }
+    row.height = 22;
+    r2++;
+  }
+
   for (const check of checks) {
     const bg = statusFill(check.status);
     const fc = statusFontColor(check.status);
@@ -408,14 +457,16 @@ export async function POST(req: NextRequest) {
   if (role !== "ADMIN") return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
-  const extractions: Extraction[] = body.extractions ?? [];
-  const checks: CheckResult[]     = body.checks      ?? [];
+  const extractions: Extraction[] = body.extractions  ?? [];
+  const checks: CheckResult[]     = body.checks       ?? [];
+  const failedCount: number       = body.failedCount  ?? extractions.filter((e: Extraction) => e.failed).length;
+  const successCount: number      = body.successCount ?? extractions.filter((e: Extraction) => !e.failed).length;
 
   if (extractions.length === 0)
     return NextResponse.json({ error: "Veri bulunamadı" }, { status: 400 });
 
   try {
-    const buf      = await buildExcel(extractions, checks);
+    const buf      = await buildExcel(extractions, checks, failedCount, successCount);
     const filename = `capraz-kontrol-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     return new NextResponse(buf as unknown as BodyInit, {

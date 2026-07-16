@@ -222,11 +222,15 @@ interface ExtractionItem {
   mukellef?: any;
   donem?: string;
   veriler: any[];
+  failed?: boolean;
+  failedReason?: string;
 }
 
 interface KontrolResult {
   extractions: ExtractionItem[];
   checks: CheckItem[];
+  failedCount?: number;
+  successCount?: number;
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -758,9 +762,11 @@ function CaprazKontrolPanel() {
     finally   { setXlLoading(false); }
   }
 
-  const uyariCount = result?.checks.filter(c => c.status === "UYARI").length ?? 0;
-  const uygunCount = result?.checks.filter(c => c.status === "UYGUN").length ?? 0;
-  const bilgiCount = result?.checks.filter(c => c.status === "BİLGİ").length  ?? 0;
+  const uyariCount   = result?.checks.filter(c => c.status === "UYARI").length ?? 0;
+  const uygunCount   = result?.checks.filter(c => c.status === "UYGUN").length ?? 0;
+  const bilgiCount   = result?.checks.filter(c => c.status === "BİLGİ").length  ?? 0;
+  const failedCount  = result?.failedCount  ?? result?.extractions.filter(e => e.failed).length ?? 0;
+  const successCount = result?.successCount ?? result?.extractions.filter(e => !e.failed).length ?? 0;
 
   return (
     <div className="space-y-5">
@@ -848,8 +854,34 @@ function CaprazKontrolPanel() {
       {/* Sonuçlar */}
       {result && (
         <div className="space-y-4">
-          {/* Özet sayaçlar */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Çıkarım hatası kritik banner */}
+          {failedCount > 0 && (
+            <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-300 dark:border-red-500/30">
+              <svg className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <p className="text-xs font-semibold text-red-700 dark:text-red-400">
+                HATA: {failedCount} dosyadan veri çıkarılamadı — bu dosyalar için kontroller yapılamadı
+              </p>
+            </div>
+          )}
+
+          {/* Dosya okuma istatistikleri */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: "Yüklenen",          count: result.extractions.length, cls: "bg-gray-50 dark:bg-white/[0.04] text-gray-700 dark:text-white/70 border-gray-200 dark:border-white/10" },
+              { label: "Başarıyla Okunan",  count: successCount, cls: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20" },
+              { label: "Okunamayan",        count: failedCount,  cls: failedCount > 0 ? "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20" : "bg-gray-50 dark:bg-white/[0.04] text-gray-400 dark:text-white/30 border-gray-200 dark:border-white/10" },
+            ].map(({ label, count, cls }) => (
+              <div key={label} className={clsx("rounded-xl border p-3 text-center", cls)}>
+                <p className="text-xl font-bold">{count}</p>
+                <p className="text-[10px] font-semibold mt-0.5 leading-tight">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Kontrol sonuç sayaçları */}
+          <div className="grid grid-cols-3 gap-2">
             {[
               { label: "Uyarı",      count: uyariCount, cls: "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20" },
               { label: "Uygun",      count: uygunCount, cls: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20" },
@@ -872,10 +904,20 @@ function CaprazKontrolPanel() {
             <ul className="divide-y divide-gray-100 dark:divide-white/5">
               {result.extractions.map((ext, i) => (
                 <li key={i} className="flex items-center gap-3 px-4 py-2.5">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#F57C28]/10 text-[#F57C28] uppercase tracking-wide flex-shrink-0">
-                    {safeStr(ext.belge_turu) || "?"}
+                  {ext.failed ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 uppercase tracking-wide flex-shrink-0">
+                      OKUNAMADI
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#F57C28]/10 text-[#F57C28] uppercase tracking-wide flex-shrink-0">
+                      {safeStr(ext.belge_turu) || "?"}
+                    </span>
+                  )}
+                  <span className="text-sm text-gray-700 dark:text-white/70 flex-1 truncate">
+                    {ext.failed
+                      ? (ext.failedReason ?? "Veri çıkarılamadı")
+                      : (safeStr(ext.donem) || "—")}
                   </span>
-                  <span className="text-sm text-gray-700 dark:text-white/70 flex-1 truncate">{safeStr(ext.donem) || "—"}</span>
                   <span className="text-xs text-gray-400 dark:text-white/30 truncate flex-shrink-0">{ext.dosya_adi}</span>
                 </li>
               ))}
