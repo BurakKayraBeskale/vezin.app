@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
+import { pdfToBase64Images, imageContent, parseJsonContent } from "@/lib/pdf-vision-extractor";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const MAX_SIZE = 10 * 1024 * 1024;
-const MAX_VISION_PAGES = 6;
-const MAX_FILES = 20;
+const MAX_SIZE   = 10 * 1024 * 1024;
+const MAX_FILES  = 20;
+const MAX_TOKENS = 16000; // beyanname/route.ts ile aynı
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -51,35 +52,6 @@ function safeStr(val: any): string {
 function toNum(val: any): number {
   const s = safeStr(val).replace(/[^0-9.,-]/g, "").replace(",", ".");
   return parseFloat(s) || 0;
-}
-
-function parseJsonContent(content: string): any {
-  try { return JSON.parse(content); } catch { /* fall through */ }
-  const match = content.match(/\{[\s\S]*\}/);
-  if (match) {
-    try { return JSON.parse(match[0]); } catch { /* fall through */ }
-  }
-  return {};
-}
-
-function imageContent(b64: string) {
-  return {
-    type: "image_url" as const,
-    image_url: { url: `data:image/png;base64,${b64}`, detail: "high" as const },
-  };
-}
-
-async function pdfToBase64Images(buffer: Buffer): Promise<string[]> {
-  const { pdf } = await import("pdf-to-img");
-  const images: string[] = [];
-  const document = await pdf(buffer, { scale: 2 });
-  let page = 0;
-  for await (const img of document) {
-    if (page >= MAX_VISION_PAGES) break;
-    images.push((img as Buffer).toString("base64"));
-    page++;
-  }
-  return images;
 }
 
 /** Find highest-value field matching any keyword in veriler */
@@ -259,18 +231,31 @@ function runChecks(extractions: Extraction[]): CheckResult[] {
 
 // ── AI extraction per file ─────────────────────────────────────────────────
 
-/** Mark extraction as failed if critical fields are missing */
-function markExtractionStatus(ext: Extraction): Extraction {
-  const mk = ext.mukellef;
+/** Mark extraction as failed; logs which specific field caused the failure. */
+function markExtractionStatus(ext: Extraction, fileName: string): Extraction {
+  const mk      = ext.mukellef;
   const unvan   = typeof mk === "object" ? safeStr((mk as any).unvan   ?? "") : safeStr(mk);
   const vergiNo = typeof mk === "object" ? safeStr((mk as any).vergi_kimlik_no ?? "") : "";
   const hasContent = ext.belge_turu.trim() !== "" || ext.veriler.length > 0 || unvan.trim() !== "" || vergiNo.trim() !== "";
+
   if (!hasContent) {
-    return { ...ext, failed: true, failedReason: ext.failedReason ?? "Beyanname verisi çıkarılamadı" };
+    const reason = "Beyanname verisi çıkarılamadı — GPT yanıtı tamamen boş";
+    console.warn(`[capraz-kontrol] BAŞARISIZ dosya="${fileName}" neden="${reason}"`);
+    return { ...ext, failed: true, failedReason: reason };
   }
-  if (!ext.belge_turu.trim() || !ext.donem.trim() || !unvan.trim()) {
-    return { ...ext, failed: true, failedReason: "Belge türü, dönem veya mükellef bilgisi eksik" };
+
+  const missing: string[] = [];
+  if (!ext.belge_turu.trim()) missing.push("belge türü");
+  if (!ext.donem.trim())      missing.push("dönem bilgisi");
+  if (!unvan.trim())          missing.push("mükellef unvanı");
+
+  if (missing.length > 0) {
+    const reason = `${missing.join(", ")} çıkarılamadı`;
+    console.warn(`[capraz-kontrol] BAŞARISIZ dosya="${fileName}" eksik_alanlar=${JSON.stringify(missing)} neden="${reason}"`);
+    return { ...ext, failed: true, failedReason: reason };
   }
+
+  console.log(`[capraz-kontrol] BAŞARILI dosya="${fileName}" belge_turu="${ext.belge_turu}" donem="${ext.donem}" vkn="${vergiNo}" veriler=${ext.veriler.length}`);
   return { ...ext, failed: false };
 }
 
@@ -283,22 +268,19 @@ async function extractFromFile(
 
   let pageImages: string[] = [];
   try {
-    const { pdf } = await import("pdf-to-img");
-    const document = await pdf(buffer, { scale: 2 });
-    let page = 0;
-    for await (const img of document) {
-      if (page >= MAX_VISION_PAGES) break;
-      pageImages.push((img as Buffer).toString("base64"));
-      page++;
-    }
+    pageImages = await pdfToBase64Images(buffer);
   } catch {
+    console.error(`[capraz-kontrol] PDF→görüntü hatası dosya="${file.name}"`);
     return {
       dosya_adi: file.name, belge_turu: "", mukellef: {}, donem: "", veriler: [],
       failed: true, failedReason: "PDF görüntüye dönüştürülemedi",
     };
   }
 
+  console.log(`[capraz-kontrol] dosya="${file.name}" sayfa_sayisi=${pageImages.length}`);
+
   if (pageImages.length === 0) {
+    console.warn(`[capraz-kontrol] 0 sayfa dosya="${file.name}" — bozuk PDF?`);
     return {
       dosya_adi: file.name, belge_turu: "", mukellef: {}, donem: "", veriler: [],
       failed: true, failedReason: "PDF sayfası okunamadı — dosya bozuk olabilir",
@@ -317,53 +299,58 @@ async function extractFromFile(
   const prompt = basePrompt + jsonSchema;
 
   try {
+    let parsed: any;
+
     if (pageImages.length <= 2) {
-      // ── Tek geçiş: tüm sayfalar aynı anda (beyanname/route.ts ile aynı mantık) ──
+      // ── Tek geçiş: tüm sayfalar aynı anda ─────────────────────────────────
       const response = await openai.chat.completions.create({
         model: "gpt-5.4-mini",
         messages: [{ role: "user", content: [{ type: "text", text: prompt }, ...pageImages.map(imageContent)] }],
         response_format: { type: "json_object" },
         temperature: 0,
-        max_completion_tokens: 2000,
+        max_completion_tokens: MAX_TOKENS,
       });
-      const parsed = parseJsonContent(response.choices[0].message.content ?? "{}");
-      return markExtractionStatus({ dosya_adi: file.name, ...parsed, veriler: parsed.veriler ?? [] });
+      parsed = parseJsonContent(response.choices[0].message.content ?? "{}");
+      console.log(`[capraz-kontrol] GPT yanıtı dosya="${file.name}" belge_turu="${parsed?.belge_turu}" donem=${JSON.stringify(parsed?.donem)} vkn="${parsed?.mukellef?.vergi_kimlik_no}" veriler=${parsed?.veriler?.length ?? 0} bolumler=${parsed?.bolumler?.length ?? "—"}`);
+      return markExtractionStatus({ dosya_adi: file.name, ...parsed, veriler: parsed.veriler ?? [] }, file.name);
     }
 
-    // ── Çok geçişli: sayfa 1–2 tam yapı, kalan sayfalar ek veriler ──
+    // ── Çok geçişli: sayfa 1 tam yapı, kalan sayfalar ek veriler ───────────
     const firstResp = await openai.chat.completions.create({
       model: "gpt-5.4-mini",
-      messages: [{ role: "user", content: [{ type: "text", text: prompt }, ...pageImages.slice(0, 2).map(imageContent)] }],
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }, imageContent(pageImages[0])] }],
       response_format: { type: "json_object" },
       temperature: 0,
-      max_completion_tokens: 2000,
+      max_completion_tokens: MAX_TOKENS,
     });
     const first = parseJsonContent(firstResp.choices[0].message.content ?? "{}");
+    console.log(`[capraz-kontrol] GPT geçiş-1 dosya="${file.name}" belge_turu="${first?.belge_turu}" donem=${JSON.stringify(first?.donem)} vkn="${first?.mukellef?.vergi_kimlik_no}" veriler=${first?.veriler?.length ?? 0}`);
     let allVeriler: any[] = first.veriler ?? [];
 
-    for (let i = 2; i < pageImages.length; i++) {
+    for (let i = 1; i < pageImages.length; i++) {
       const extraPrompt = basePrompt +
-        `\n\nBu sayfadaki TÜM veri alanlarını çıkar. YALNIZCA şu JSON formatında ver:
-{"veriler": [{"alan": "...", "deger": "...", "birim": "TRY veya boş"}]}`;
+        `\n\nBu sayfadaki TÜM veri alanlarını çıkar. YALNIZCA şu JSON formatında ver:\n{"veriler": [{"alan": "...", "deger": "...", "birim": "TRY veya boş"}]}`;
       const extraResp = await openai.chat.completions.create({
         model: "gpt-5.4-mini",
         messages: [{ role: "user", content: [{ type: "text", text: extraPrompt }, imageContent(pageImages[i])] }],
         response_format: { type: "json_object" },
         temperature: 0,
-        max_completion_tokens: 2000,
+        max_completion_tokens: MAX_TOKENS,
       });
       const extra = parseJsonContent(extraResp.choices[0].message.content ?? "{}");
+      console.log(`[capraz-kontrol] GPT geçiş-${i + 1} dosya="${file.name}" ek_veriler=${extra?.veriler?.length ?? 0}`);
       allVeriler = [...allVeriler, ...(extra.veriler ?? [])];
     }
 
-    return markExtractionStatus({
-      dosya_adi: file.name,
+    parsed = {
       belge_turu: first.belge_turu ?? "",
       mukellef:   first.mukellef  ?? {},
       donem:      first.donem     ?? "",
       veriler:    allVeriler,
-    });
-  } catch {
+    };
+    return markExtractionStatus({ dosya_adi: file.name, ...parsed }, file.name);
+  } catch (err: any) {
+    console.error(`[capraz-kontrol] AI hatası dosya="${file.name}"`, err?.message ?? err);
     return {
       dosya_adi: file.name, belge_turu: "", mukellef: {}, donem: "", veriler: [],
       failed: true, failedReason: "AI yanıtı alınamadı",

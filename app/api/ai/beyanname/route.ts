@@ -2,27 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
+import { pdfToBase64Images, imageContent } from "@/lib/pdf-vision-extractor";
 
 export const dynamic = "force-dynamic";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_VISION_PAGES = 6;
 // 1-2 sayfa: tek çağrı, 3+ sayfa: sayfa sayfa işle
 const PAGED_THRESHOLD = 2;
 
-async function pdfToBase64Images(buffer: Buffer): Promise<string[]> {
-  const { pdf } = await import("pdf-to-img");
-  const images: string[] = [];
-  const document = await pdf(buffer, { scale: 2 });
-  let page = 0;
-  for await (const img of document) {
-    if (page >= MAX_VISION_PAGES) break;
-    images.push((img as Buffer).toString("base64"));
-    page++;
-  }
-  return images;
-}
-
+// Tek-dosya route'unda başarısız JSON sert hata fırlatır (çok-dosya capraz-kontrol'den farklı).
 function parseJsonContent(content: string): any {
   try {
     return JSON.parse(content);
@@ -34,10 +22,6 @@ function parseJsonContent(content: string): any {
     }
     throw new Error("Geçersiz yanıt formatı.");
   }
-}
-
-function imageContent(b64: string) {
-  return { type: "image_url" as const, image_url: { url: `data:image/png;base64,${b64}`, detail: "high" as const } };
 }
 
 export async function POST(req: NextRequest) {
