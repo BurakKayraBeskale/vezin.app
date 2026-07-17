@@ -37,6 +37,8 @@ export interface BeyanneExtraction {
 export interface SkorKontrol {
   ad: string;
   aciklama: string;
+  /** Neden bu kontrol yapılır ve neden puan düşürür — Tutarlılık Analizi sayfasında gösterilir */
+  aciklamaDetay?: string;
   durum: "GECTI" | "BASARISIZ" | "BILGI";
   etki: number;           // 0 for passed/info, negative (e.g. -15) for failed
   agirlik: "kritik" | "orta" | "hafif";
@@ -128,16 +130,19 @@ function checkVknTckn(ext: BeyanneExtraction): SkorKontrol[] {
   const vergiNo = getVergiNo(ext);
   if (!vergiNo) return [];
 
+  const detay = "VKN (Vergi Kimlik No) 10, TCKN (TC Kimlik No) 11 haneden oluşur. Yanlış uzunlukta bir numara, başka mükellefe ait belge karışmış ya da OCR okuma hatası yaşanmış olabileceğine işaret eder. GİB sistemi bu tutarsızlığı tespit ederse düzeltme talep edebilir.";
   if (vergiNo.length !== 10 && vergiNo.length !== 11) {
     return [{
       ad: "VKN/TCKN Doğrulama",
       aciklama: `Kimlik no "${vergiNo}" geçersiz uzunluk (${vergiNo.length} hane) — VKN 10, TCKN 11 hane olmalı`,
+      aciklamaDetay: detay,
       durum: "BASARISIZ", etki: -5, agirlik: "hafif",
     }];
   }
   return [{
     ad: "VKN/TCKN Doğrulama",
     aciklama: `${vergiNo.length === 10 ? "VKN" : "TCKN"} format geçerli (${vergiNo.length} hane)`,
+    aciklamaDetay: detay,
     durum: "GECTI", etki: 0, agirlik: "hafif",
   }];
 }
@@ -145,10 +150,12 @@ function checkVknTckn(ext: BeyanneExtraction): SkorKontrol[] {
 /** 2. Dönem YYYY-MM veya YYYY formatında mı? — hafif −5 */
 function checkDonemFormat(ext: BeyanneExtraction): SkorKontrol[] {
   const donem = safeStr(ext.donem ?? "").trim();
+  const detay = "Beyanname dönemi YYYY-MM (aylık) veya YYYY (yıllık) formatında belirtilmelidir. Tanımlanamayan bir dönem formatı, belgenin yanlış ya da eksik çıkarıldığını, dolayısıyla diğer kontrollerin güvenilirliğini de etkileyebileceğini gösterir.";
   if (!donem) {
     return [{
       ad: "Dönem / Tarih Formatı",
       aciklama: "Dönem bilgisi tespit edilemedi",
+      aciklamaDetay: detay,
       durum: "BASARISIZ", etki: -5, agirlik: "hafif",
     }];
   }
@@ -161,12 +168,14 @@ function checkDonemFormat(ext: BeyanneExtraction): SkorKontrol[] {
     return [{
       ad: "Dönem / Tarih Formatı",
       aciklama: `Dönem "${donem}" tanınan bir format değil (beklenen: YYYY-MM veya YYYY)`,
+      aciklamaDetay: detay,
       durum: "BASARISIZ", etki: -5, agirlik: "hafif",
     }];
   }
   return [{
     ad: "Dönem / Tarih Formatı",
     aciklama: `Dönem "${donem}" — geçerli format`,
+    aciklamaDetay: detay,
     durum: "GECTI", etki: 0, agirlik: "hafif",
   }];
 }
@@ -203,10 +212,12 @@ function checkKdvMatrahOran(ext: BeyanneExtraction): SkorKontrol[] {
       const implied  = (hesaplanan / matrah) * 100;
       const standard = [1, 8, 10, 18, 20, 25];
       const nearest  = standard.reduce((b, r) => Math.abs(r - implied) < Math.abs(b - implied) ? r : b);
-      if (Math.abs(implied - nearest) > 3) {
+      const kdvDetay = "Hesaplanan KDV = Matrah × KDV Oranı formülüne uygun olmalıdır. %1'den fazla sapma, hesap hatası, yanlış oran uygulaması veya satır kayması işaretidir. Vergi dairesi incelemelerinde ilk kontrol edilen kalemlerden biridir; fark varsa düzeltme beyannamesi gerekebilir.";
+    if (Math.abs(implied - nearest) > 3) {
         return [{
           ad: "Matrah × KDV Oranı Tutarlılığı",
           aciklama: `Hesaplanan KDV / Matrah = %${implied.toFixed(1)} — standart oranlardan (%1, %8, %10, %20) belirgin sapma`,
+          aciklamaDetay: kdvDetay,
           durum: "BASARISIZ", etki: -15, agirlik: "kritik",
           deger1: matrah, deger1Etiket: "Matrah",
           deger2: hesaplanan, deger2Etiket: "Hesaplanan KDV",
@@ -215,6 +226,7 @@ function checkKdvMatrahOran(ext: BeyanneExtraction): SkorKontrol[] {
       return [{
         ad: "Matrah × KDV Oranı Tutarlılığı",
         aciklama: `Zımni KDV oranı %${implied.toFixed(1)} — standart oran %${nearest} ile uyumlu`,
+        aciklamaDetay: kdvDetay,
         durum: "GECTI", etki: 0, agirlik: "kritik",
       }];
     }
@@ -237,13 +249,16 @@ function checkKdvMatrahOran(ext: BeyanneExtraction): SkorKontrol[] {
       });
     }
   }
+  const kdvTripletDetay = "Hesaplanan KDV = Matrah × KDV Oranı formülüne uygun olmalıdır. %1'den fazla sapma, hesap hatası, yanlış oran uygulaması veya satır kayması işaretidir. Vergi dairesi incelemelerinde ilk kontrol edilen kalemlerden biridir; fark varsa düzeltme beyannamesi gerekebilir.";
   if (failed.length > 0) {
     failed[0].etki = -15; // deduct once for the whole check
+    failed.forEach(f => { f.aciklamaDetay = kdvTripletDetay; });
     return failed;
   }
   return [{
     ad: "Matrah × KDV Oranı Tutarlılığı",
     aciklama: `${triplets.length} KDV oranı grubu kontrol edildi — matrah × oran ≈ KDV, uyumlu`,
+    aciklamaDetay: kdvTripletDetay,
     durum: "GECTI", etki: 0, agirlik: "kritik",
   }];
 }
@@ -257,10 +272,12 @@ function checkOdenecekDevreden(ext: BeyanneExtraction): SkorKontrol[] {
   const odenecek   = findField(veriler, ["ödenecek kdv", "ödenmesi gereken kdv", "ödenecek"]);
   const devreden   = findField(veriler, ["devreden kdv", "sonraki döneme devreden", "devreden"]);
 
+  const detay = "Bir KDV döneminde ya ödenecek KDV (hesaplanan > indirilecek) ya da devreden KDV (indirilecek > hesaplanan) oluşabilir; ikisi aynı anda pozitif olamaz. Bu çelişki, beyanname doldurma hatası veya PDF okuma yanlışlığına işaret eder. GİB beyanname kontrollerinde bu hata otomatik olarak tespit edilir.";
   if (odenecek > 0 && devreden > 0) {
     return [{
       ad: "KDV Ödenecek / Devreden Mantık",
       aciklama: "Ödenecek KDV ve Devreden KDV aynı anda pozitif olamaz — çelişki tespit edildi",
+      aciklamaDetay: detay,
       durum: "BASARISIZ", etki: -15, agirlik: "kritik",
       deger1: odenecek, deger1Etiket: "Ödenecek KDV",
       deger2: devreden, deger2Etiket: "Devreden KDV",
@@ -272,6 +289,7 @@ function checkOdenecekDevreden(ext: BeyanneExtraction): SkorKontrol[] {
       aciklama: odenecek > 0
         ? `Ödenecek KDV: ${odenecek.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — tutarlı`
         : `Devreden KDV: ${devreden.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — tutarlı`,
+      aciklamaDetay: detay,
       durum: "GECTI", etki: 0, agirlik: "kritik",
     }];
   }
@@ -290,6 +308,7 @@ function checkKdvToplam(ext: BeyanneExtraction): SkorKontrol[] {
   const devreden    = findField(veriler, ["devreden kdv", "sonraki döneme devreden", "devreden"]);
   const sonuc       = odenecek > 0 ? odenecek : devreden;
 
+  const detay = "KDV beyannamesinde: Hesaplanan KDV − İndirilecek KDV = Ödenecek (ya da Devreden) KDV olmalıdır. %1'den fazla sapma, satırlar arası transfer hatası veya birbirleriyle tutarsız verilerden kaynaklanır. Bu açık bir beyanname tutarsızlığıdır ve vergi dairesi denetimlerinde mutlaka sorgulanır.";
   if (hesaplanan > 0 && indirilecek > 0 && sonuc > 0) {
     const expected = hesaplanan - indirilecek;
     const diff     = Math.abs(expected - sonuc);
@@ -298,6 +317,7 @@ function checkKdvToplam(ext: BeyanneExtraction): SkorKontrol[] {
       return [{
         ad: "KDV Toplamlar Tutarlılığı",
         aciklama: `Hesaplanan(${hesaplanan.toLocaleString("tr-TR")}) − İndirilecek(${indirilecek.toLocaleString("tr-TR")}) = ${expected.toLocaleString("tr-TR")} ₺, beyannamede ${sonuc.toLocaleString("tr-TR")} ₺ — %${diffPct.toFixed(1)} fark`,
+        aciklamaDetay: detay,
         durum: "BASARISIZ", etki: -10, agirlik: "orta",
         deger1: expected, deger1Etiket: "Hesap. − İndir.",
         deger2: sonuc,    deger2Etiket: odenecek > 0 ? "Ödenecek KDV" : "Devreden KDV",
@@ -307,6 +327,7 @@ function checkKdvToplam(ext: BeyanneExtraction): SkorKontrol[] {
     return [{
       ad: "KDV Toplamlar Tutarlılığı",
       aciklama: `Hesaplanan − İndirilecek ≈ ${odenecek > 0 ? "Ödenecek" : "Devreden"} KDV — uyumlu (%${diffPct.toFixed(1)} fark)`,
+      aciklamaDetay: detay,
       durum: "GECTI", etki: 0, agirlik: "orta",
     }];
   }
@@ -317,6 +338,7 @@ function checkKdvToplam(ext: BeyanneExtraction): SkorKontrol[] {
 function checkToplamlar(ext: BeyanneExtraction): SkorKontrol[] {
   if (!ext.bolumler || ext.bolumler.length === 0) return [];
 
+  const toplamDetay = "Beyannamedeki her bölümde yer alan toplam satırı, aynı bölümdeki kalem değerlerinin toplamına eşit olmalıdır. %5'ten fazla fark, kayıp satır, yanlış transfer rakamı veya PDF'den eksik çıkarılan veri anlamına gelebilir. Bu tutarsızlık, çapraz kontrollerdeki diğer değerlerin de güvenilirliğini düşürür.";
   const failed: SkorKontrol[] = [];
   let checkedAny = false;
 
@@ -341,11 +363,11 @@ function checkToplamlar(ext: BeyanneExtraction): SkorKontrol[] {
       const diff    = Math.abs(totVal - sumDetails);
       const diffPct = (diff / totVal) * 100;
       const bolumAdi = safeStr(bolum.ad ?? bolum.baslik ?? (bolum as any).name ?? "Bölüm");
-
       if (diffPct > 5) {
         failed.push({
           ad: "Toplamlar Tutarlılığı",
           aciklama: `"${bolumAdi}" — "${safeStr((totRow as any).alan)}" (${totVal.toLocaleString("tr-TR")}) ₺ ≠ satır toplamı ${sumDetails.toLocaleString("tr-TR")} ₺ (%${diffPct.toFixed(1)} fark)`,
+          aciklamaDetay: toplamDetay,
           durum: "BASARISIZ", etki: 0, agirlik: "orta",
           deger1: totVal,    deger1Etiket: "Beyanname Toplamı",
           deger2: sumDetails, deger2Etiket: "Satırların Toplamı",
@@ -363,6 +385,7 @@ function checkToplamlar(ext: BeyanneExtraction): SkorKontrol[] {
     return [{
       ad: "Toplamlar Tutarlılığı",
       aciklama: "Bölüm toplamları satır değerleriyle uyumlu",
+      aciklamaDetay: toplamDetay,
       durum: "GECTI", etki: 0, agirlik: "orta",
     }];
   }
@@ -378,6 +401,7 @@ function checkAnormalTutar(ext: BeyanneExtraction): SkorKontrol[] {
     return WATCH_KEYWORDS.some(kw => alan.includes(kw));
   });
 
+  const anormalDetay = "Finansal alanlarda beklenmedik negatif değer veya 10 milyon TL üzerinde tutar olağandışı kabul edilir. Negatif değer, iade durumunu ya da PDF okuma hatasını işaret edebilir. Çok yüksek değerler ise olağandışı bir işlemi, OCR okuma yanlışlığını veya para birimi karışıklığını (kuruş/TL) gösterebilir.";
   let hasNeg = false, hasHuge = false;
   const results: SkorKontrol[] = [];
 
@@ -389,6 +413,7 @@ function checkAnormalTutar(ext: BeyanneExtraction): SkorKontrol[] {
       results.push({
         ad: "Anormal Tutar Kontrolü",
         aciklama: `"${alan}" alanında negatif değer: ${n.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — iade durumu veya veri hatası olabilir`,
+        aciklamaDetay: anormalDetay,
         durum: "BASARISIZ", etki: -5, agirlik: "hafif",
         deger1: n, deger1Etiket: alan,
       });
@@ -398,6 +423,7 @@ function checkAnormalTutar(ext: BeyanneExtraction): SkorKontrol[] {
       results.push({
         ad: "Anormal Tutar Kontrolü",
         aciklama: `"${alan}" alanında olağandışı yüksek değer: ${n.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — 10M ₺ üzeri`,
+        aciklamaDetay: anormalDetay,
         durum: "BASARISIZ", etki: hasNeg ? 0 : -5, agirlik: "hafif",
         deger1: n, deger1Etiket: alan,
       });
@@ -408,6 +434,7 @@ function checkAnormalTutar(ext: BeyanneExtraction): SkorKontrol[] {
     results.push({
       ad: "Anormal Tutar Kontrolü",
       aciklama: "Anormal negatif veya aşırı yüksek tutar tespit edilmedi",
+      aciklamaDetay: anormalDetay,
       durum: "GECTI", etki: 0, agirlik: "hafif",
     });
   }
@@ -432,16 +459,19 @@ function checkVergiNoTutarliligi(exts: BeyanneExtraction[]): SkorKontrol[] {
   const nos = exts.map(getVergiNo).filter(Boolean);
   if (nos.length < 2) return [];
   const unique = [...new Set(nos)];
+  const detay = "Aynı dosya setindeki tüm beyannamelerin aynı mükellefe ait olması gerekir. Farklı vergi numaraları, yanlış dosya karışımını veya yanlış mükellefe ait belge dahil edildiğini gösterir. Bu durum çapraz kontrollerin anlamsız hale gelmesine yol açar.";
   if (unique.length > 1) {
     return [{
       ad: "Mükellef Vergi No Tutarlılığı",
       aciklama: `Farklı vergi numaraları: ${unique.join(", ")} — karışık mükellef riski`,
+      aciklamaDetay: detay,
       durum: "BASARISIZ", etki: -10, agirlik: "orta",
     }];
   }
   return [{
     ad: "Mükellef Vergi No Tutarlılığı",
     aciklama: `Tüm beyannamelerde aynı VKN/TCKN: ${unique[0]}`,
+    aciklamaDetay: detay,
     durum: "GECTI", etki: 0, agirlik: "orta",
   }];
 }
@@ -457,6 +487,7 @@ function checkDonemCakismasi(exts: BeyanneExtraction[]): SkorKontrol[] {
     .map(([tur, n]) => ({
       ad: `Dönem Çakışması — ${tur.toUpperCase()}`,
       aciklama: `Aynı türden ${n} beyanname yüklendi — dönem çakışması olabilir`,
+      aciklamaDetay: "Aynı türden birden fazla beyanname yüklendiğinde, farklı dönemlere ait belgeler aynı sete karışmış olabilir. Bu durumda çapraz kontrol sonuçları yanıltıcı olabilir; her setde bir tür beyanname bulunmalıdır.",
       durum: "BASARISIZ" as const, etki: -5, agirlik: "hafif" as const,
     }));
 }
@@ -475,11 +506,13 @@ function checkMuhtasarSgk(exts: BeyanneExtraction[]): SkorKontrol[] {
     const diff    = Math.abs(muhtasarMatrah - sgkPrime);
     const diffPct = (diff / Math.max(muhtasarMatrah, sgkPrime)) * 100;
     const failed  = diffPct > 10;
+    const muhtasarDetay = "Muhtasar beyannamesindeki ücret matrahı ile SGK'ya bildirilen prime esas kazanç aynı çalışan maliyetini iki farklı kuruma bildirir; dolayısıyla birbirine yakın olmalıdır. %10'dan fazla fark, GİB ve SGK'nın kendi aralarında yaptığı çapraz kontrolde tespit edilir ve izaha davet ya da ceza riskine yol açabilir.";
     return [{
       ad: "Muhtasar Ücret Matrahı ↔ SGK Prime Esas Kazanç",
       aciklama: failed
         ? `%${diffPct.toFixed(1)} fark — eşik %10, kontrol gerekli`
         : `%${diffPct.toFixed(1)} fark — kabul edilebilir`,
+      aciklamaDetay: muhtasarDetay,
       durum: failed ? "BASARISIZ" : "GECTI", etki: failed ? -10 : 0, agirlik: "orta",
       deger1: muhtasarMatrah, deger1Etiket: "Muhtasar Ücret Matrahı",
       deger2: sgkPrime,       deger2Etiket: "SGK Prime Esas Kazanç",
@@ -489,6 +522,7 @@ function checkMuhtasarSgk(exts: BeyanneExtraction[]): SkorKontrol[] {
   return [{
     ad: "Muhtasar ↔ SGK Karşılaştırması",
     aciklama: "Karşılaştırılabilir alanlar çıkarılamadı (manuel kontrol önerilir)",
+    aciklamaDetay: "Muhtasar ve SGK belgelerinden karşılaştırılabilir tutarlar çıkarılamadı. İki beyanname yüklenmişse bu bir PDF okuma sorununa işaret eder; manuel olarak kontrol edilmesi önerilir.",
     durum: "BILGI", etki: 0, agirlik: "orta",
   }];
 }
@@ -507,11 +541,13 @@ function checkKdvGecici(exts: BeyanneExtraction[]): SkorKontrol[] {
     const diff    = Math.abs(kdvTeslim - geciciHasilat);
     const diffPct = (diff / Math.max(kdvTeslim, geciciHasilat)) * 100;
     const failed  = diffPct > 20;
+    const kdvGeciciDetay = "KDV beyannamesindeki teslim bedeli (hasılat) ile geçici vergi beyannamesindeki net satışlar aynı ticari faaliyeti iki farklı perspektiften gösterir. %20'den fazla fark, dönemsel uyumsuzluk (KDV aylık, geçici vergi 3 aylık olduğundan kümülatif karşılaştırma gerekir), KDV'de beyan edilmemiş satış veya geçici vergide eksik hasılat bildirimi riskine işaret eder.";
     return [{
       ad: "KDV Teslim Bedeli ↔ Geçici Vergi Hasılatı",
       aciklama: failed
         ? `%${diffPct.toFixed(1)} fark — dönemsel uyumsuzluk olabilir`
         : `%${diffPct.toFixed(1)} fark — uyumlu`,
+      aciklamaDetay: kdvGeciciDetay,
       durum: failed ? "BASARISIZ" : "GECTI", etki: failed ? -10 : 0, agirlik: "orta",
       deger1: kdvTeslim,      deger1Etiket: "KDV Teslim Bedeli",
       deger2: geciciHasilat,  deger2Etiket: "Geçici Vergi Hasılatı",
@@ -532,6 +568,7 @@ function checkEksikBeyanname(exts: BeyanneExtraction[]): SkorKontrol[] {
   return missing.map(m => ({
     ad: "Eksik Beyanname Tespiti",
     aciklama: m,
+    aciklamaDetay: "Bağlı beyanname türleri birlikte incelenmelidir. Eksik belge, çapraz kontrollerin tamamlanamaması anlamına gelir ve gerçek risk daha yüksek olabilir. Örneğin Muhtasar olmadan SGK'yı doğrulamak, KDV olmadan geçici vergiyle karşılaştırmak mümkün değildir.",
     durum: "BILGI" as const, etki: 0, agirlik: "hafif" as const,
   }));
 }
