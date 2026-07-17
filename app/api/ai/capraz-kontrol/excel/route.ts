@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { tutarlilikSayfasiEkle } from "@/lib/tutarlilik-skoru";
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +82,7 @@ const C = {
 
 // ── Excel builder ──────────────────────────────────────────────────────────
 
-async function buildExcel(extractions: Extraction[], checks: CheckResult[], failedCount: number, successCount: number): Promise<Uint8Array> {
+async function buildExcel(extractions: Extraction[], checks: CheckResult[], failedCount: number, successCount: number, tutarlilik?: any): Promise<Uint8Array> {
   const ExcelJS = require("exceljs");
   const wb = new ExcelJS.Workbook();
 
@@ -444,6 +445,8 @@ async function buildExcel(extractions: Extraction[], checks: CheckResult[], fail
     r3++; // spacer between groups
   }
 
+  if (tutarlilik) tutarlilikSayfasiEkle(wb, tutarlilik);
+
   const raw = await wb.xlsx.writeBuffer();
   return new Uint8Array(Buffer.from(raw));
 }
@@ -461,12 +464,13 @@ export async function POST(req: NextRequest) {
   const checks: CheckResult[]     = body.checks       ?? [];
   const failedCount: number       = body.failedCount  ?? extractions.filter((e: Extraction) => e.failed).length;
   const successCount: number      = body.successCount ?? extractions.filter((e: Extraction) => !e.failed).length;
+  const tutarlilik                = body.tutarlilik   ?? null;
 
   if (extractions.length === 0)
     return NextResponse.json({ error: "Veri bulunamadı" }, { status: 400 });
 
   try {
-    const buf      = await buildExcel(extractions, checks, failedCount, successCount);
+    const buf      = await buildExcel(extractions, checks, failedCount, successCount, tutarlilik);
     const filename = `capraz-kontrol-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     return new NextResponse(buf as unknown as BodyInit, {

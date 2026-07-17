@@ -276,6 +276,25 @@ interface KontrolResult {
   checks: CheckItem[];
   failedCount?: number;
   successCount?: number;
+  tutarlilik?: TutarlilikSonuc;
+}
+
+// ── Tutarlılık Skoru types ─────────────────────────────────────────────────
+interface SkorKontrol {
+  ad: string; aciklama: string;
+  durum: "GECTI" | "BASARISIZ" | "BILGI";
+  etki: number;
+  agirlik: "kritik" | "orta" | "hafif";
+  deger1?: number; deger1Etiket?: string;
+  deger2?: number; deger2Etiket?: string;
+  fark?: number; farkYuzde?: number;
+}
+interface TutarlilikSonuc {
+  skor: number;
+  risk: "DUSUK_RISK" | "GOZDEN_GECIRILMELI" | "YUKSEK_RISK";
+  riskEtiketi: string;
+  kontroller: SkorKontrol[];
+  hesaplanamadi: boolean;
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -302,11 +321,11 @@ function getMukellefStr(m: Mukellef | string | undefined) {
   };
 }
 
-async function downloadExcel(result: BeyannameResult) {
+async function downloadExcel(result: BeyannameResult, tutarlilik?: TutarlilikSonuc | null) {
   const res = await fetch("/api/ai/beyanname/excel", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ result }),
+    body: JSON.stringify({ result, tutarlilik }),
   });
   if (!res.ok) {
     const json = await res.json().catch(() => ({}));
@@ -371,6 +390,88 @@ function ErrorBox({ message }: { message: string }) {
   );
 }
 
+// ── Tutarlılık Kartı ───────────────────────────────────────────────────────
+
+function TutarlilikKarti({ tutarlilik }: { tutarlilik: TutarlilikSonuc }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const riskColor =
+    tutarlilik.risk === "DUSUK_RISK"       ? { bg: "bg-emerald-50 dark:bg-emerald-900/20", border: "border-emerald-200 dark:border-emerald-700/40", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300", bar: "bg-emerald-500" } :
+    tutarlilik.risk === "GOZDEN_GECIRILMELI" ? { bg: "bg-amber-50 dark:bg-amber-900/20",   border: "border-amber-200 dark:border-amber-700/40",   badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",   bar: "bg-amber-500"   } :
+                                               { bg: "bg-red-50 dark:bg-red-900/20",       border: "border-red-200 dark:border-red-700/40",       badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",         bar: "bg-red-500"     };
+
+  const basarisizlar = tutarlilik.kontroller.filter(k => k.durum === "BASARISIZ");
+  const gectiler    = tutarlilik.kontroller.filter(k => k.durum === "GECTI");
+  const bilgiler    = tutarlilik.kontroller.filter(k => k.durum === "BILGI");
+
+  return (
+    <div className={clsx("rounded-2xl border p-5 space-y-4", riskColor.bg, riskColor.border)}>
+      {/* Başlık satırı */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="flex-shrink-0">
+            <div className="w-14 h-14 rounded-full border-4 border-current flex items-center justify-center" style={{ borderColor: tutarlilik.risk === "DUSUK_RISK" ? "#10b981" : tutarlilik.risk === "GOZDEN_GECIRILMELI" ? "#f59e0b" : "#ef4444" }}>
+              <span className="text-lg font-bold" style={{ color: tutarlilik.risk === "DUSUK_RISK" ? "#10b981" : tutarlilik.risk === "GOZDEN_GECIRILMELI" ? "#f59e0b" : "#ef4444" }}>{tutarlilik.skor}</span>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-bold text-gray-800 dark:text-white">Vezin Tutarlılık Skoru</p>
+              <span className={clsx("inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold", riskColor.badge)}>
+                {tutarlilik.riskEtiketi}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-white/40 mt-0.5">
+              {gectiler.length} geçti · {basarisizlar.length} uyarı · {bilgiler.length} bilgi
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="flex-shrink-0 text-xs text-gray-400 hover:text-gray-600 dark:text-white/30 dark:hover:text-white/60 underline"
+        >
+          {expanded ? "Gizle" : "Detay"}
+        </button>
+      </div>
+
+      {/* İlerleme çubuğu */}
+      <div className="w-full h-1.5 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden">
+        <div className={clsx("h-full rounded-full transition-all", riskColor.bar)} style={{ width: `${tutarlilik.skor}%` }} />
+      </div>
+
+      {/* Kontrol listesi */}
+      {expanded && (
+        <div className="space-y-1.5 pt-1">
+          {tutarlilik.kontroller.map((k, i) => {
+            const icon = k.durum === "GECTI" ? "✓" : k.durum === "BASARISIZ" ? "✕" : "ℹ";
+            const iconColor =
+              k.durum === "GECTI"      ? "text-emerald-600 dark:text-emerald-400" :
+              k.durum === "BASARISIZ"  ? (k.agirlik === "kritik" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400") :
+                                         "text-blue-500 dark:text-blue-400";
+            return (
+              <div key={i} className="flex items-start gap-2 py-1.5 border-b border-black/5 dark:border-white/5 last:border-0">
+                <span className={clsx("text-xs font-bold flex-shrink-0 w-4 text-center mt-0.5", iconColor)}>{icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-700 dark:text-white/80">{k.ad}</p>
+                  <p className="text-xs text-gray-500 dark:text-white/40 leading-relaxed">{k.aciklama}</p>
+                </div>
+                {k.etki < 0 && (
+                  <span className="flex-shrink-0 text-xs font-bold text-red-500">{k.etki}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Dipnot */}
+      <p className="text-[10px] text-gray-400 dark:text-white/25 italic border-t border-black/5 dark:border-white/5 pt-2">
+        Vezin Tutarlılık Skoru resmî bir GİB değerlendirmesi değildir; iç kontrol amaçlıdır.
+      </p>
+    </div>
+  );
+}
+
 // ── Drop zone (reusable) ───────────────────────────────────────────────────
 
 function DropZone({
@@ -429,16 +530,17 @@ function DropZone({
 // ── Tekli Dönüştürme ───────────────────────────────────────────────────────
 
 function TekliPanel() {
-  const [file, setFile]     = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult]  = useState<BeyannameResult | null>(null);
-  const [error, setError]    = useState<string | null>(null);
+  const [file, setFile]         = useState<File | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [result, setResult]     = useState<BeyannameResult | null>(null);
+  const [tutarlilik, setTutarlilik] = useState<TutarlilikSonuc | null>(null);
+  const [error, setError]       = useState<string | null>(null);
 
-  function handleFile(f: File) { setFile(f); setResult(null); setError(null); }
+  function handleFile(f: File) { setFile(f); setResult(null); setTutarlilik(null); setError(null); }
 
   async function convert() {
     if (!file) return;
-    setLoading(true); setError(null); setResult(null);
+    setLoading(true); setError(null); setResult(null); setTutarlilik(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -446,6 +548,7 @@ function TekliPanel() {
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? "Bilinmeyen hata"); return; }
       setResult(json.data);
+      if (json.tutarlilik) setTutarlilik(json.tutarlilik);
     } catch { setError("Sunucuya bağlanılamadı."); }
     finally   { setLoading(false); }
   }
@@ -533,7 +636,7 @@ function TekliPanel() {
                 })()}
               </div>
               <button
-                onClick={() => downloadExcel(result)}
+                onClick={() => downloadExcel(result, tutarlilik)}
                 className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold transition-colors"
               >
                 <IconDownload />
@@ -546,6 +649,10 @@ function TekliPanel() {
               </p>
             )}
           </div>
+
+          {tutarlilik && !tutarlilik.hesaplanamadi && (
+            <TutarlilikKarti tutarlilik={tutarlilik} />
+          )}
 
           {result.veriler?.length > 0 && (
             <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
@@ -924,6 +1031,11 @@ function CaprazKontrolPanel() {
               </div>
             ))}
           </div>
+
+          {/* Tutarlılık skoru kartı */}
+          {result.tutarlilik && !result.tutarlilik.hesaplanamadi && (
+            <TutarlilikKarti tutarlilik={result.tutarlilik} />
+          )}
 
           {/* Kontrol sonuç sayaçları */}
           <div className="grid grid-cols-3 gap-2">

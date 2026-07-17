@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
 import { pdfToBase64Images, imageContent } from "@/lib/pdf-vision-extractor";
+import { hesaplaTutarlilik } from "@/lib/tutarlilik-skoru";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,8 @@ export async function POST(req: NextRequest) {
       });
 
       const parsed = parseJsonContent(response.choices[0].message.content ?? "{}");
-      return NextResponse.json({ data: parsed });
+      const tutarlilik = hesaplaTutarlilik(parsed);
+      return NextResponse.json({ data: parsed, tutarlilik });
     }
 
     // ── 3+ sayfa: sayfa sayfa işle ───────────────────────────────────────────
@@ -166,7 +168,8 @@ export async function POST(req: NextRequest) {
       ...(ozet !== null ? { ozet } : {}),
     };
 
-    return NextResponse.json({ data: merged });
+    const tutarlilik = hesaplaTutarlilik(merged);
+    return NextResponse.json({ data: merged, tutarlilik });
   } catch (err: any) {
     console.error(
       "[beyanname] Hata:",

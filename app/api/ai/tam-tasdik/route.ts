@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
+import { hesaplaTutarlilik, tutarlilikSayfasiEkle } from "@/lib/tutarlilik-skoru";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -176,7 +177,7 @@ async function extractFromFile(
 
 // ── Excel builder ──────────────────────────────────────────────────────────
 
-async function buildTamTasdikExcel(results: any[]): Promise<Uint8Array> {
+async function buildTamTasdikExcel(results: any[], fileNames: string[]): Promise<Uint8Array> {
   const ExcelJS = require("exceljs");
   const wb = new ExcelJS.Workbook();
 
@@ -190,6 +191,7 @@ async function buildTamTasdikExcel(results: any[]): Promise<Uint8Array> {
   const NUM_FMT    = "#,##0.00";
 
   const valid = results.filter(Boolean);
+  const validWithNames = valid.map((r, i) => ({ ...r, dosya_adi: fileNames[i] ?? `dosya-${i + 1}` }));
 
   // Mükellef bilgileri — ilk geçerli sonuçtan
   const first = valid[0] ?? {};
@@ -551,6 +553,10 @@ async function buildTamTasdikExcel(results: any[]): Promise<Uint8Array> {
     r4++;
   }
 
+  // ── SHEET 5 — V. TUTARLILIK ──────────────────────────────────────────────
+  const tutarlilik = hesaplaTutarlilik(validWithNames.length === 1 ? validWithNames[0] : validWithNames);
+  tutarlilikSayfasiEkle(wb, tutarlilik);
+
   const raw = await wb.xlsx.writeBuffer();
   return new Uint8Array(Buffer.from(raw));
 }
@@ -594,7 +600,7 @@ export async function POST(req: NextRequest) {
       results.push(extracted);
     }
 
-    const excelBuffer = await buildTamTasdikExcel(results);
+    const excelBuffer = await buildTamTasdikExcel(results, files.map(f => f.name));
     const filename = `tam-tasdik-ozet-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     return new NextResponse(excelBuffer as unknown as BodyInit, {

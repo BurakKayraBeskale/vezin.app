@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
 import { pdfToBase64Images, imageContent, parseJsonContent } from "@/lib/pdf-vision-extractor";
+import { hesaplaTutarlilik, skorKontrolToCheckResult } from "@/lib/tutarlilik-skoru";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -47,186 +48,6 @@ function safeStr(val: any): string {
     return JSON.stringify(val);
   }
   return String(val);
-}
-
-function toNum(val: any): number {
-  const s = safeStr(val).replace(/[^0-9.,-]/g, "").replace(",", ".");
-  return parseFloat(s) || 0;
-}
-
-/** Find highest-value field matching any keyword in veriler */
-function findField(veriler: any[], keywords: string[]): number {
-  const candidates: number[] = [];
-  for (const v of veriler ?? []) {
-    const alan = safeStr(v.alan ?? v.ad ?? "").toLowerCase();
-    for (const kw of keywords) {
-      if (alan.includes(kw)) {
-        const n = toNum(v.deger ?? v.tutar ?? v.value ?? 0);
-        if (n > 0) candidates.push(n);
-        break;
-      }
-    }
-  }
-  // Return max candidate (avoids picking a partial subtotal)
-  return candidates.length > 0 ? Math.max(...candidates) : 0;
-}
-
-function getVergiNo(ext: Extraction): string {
-  const mk = ext.mukellef;
-  if (!mk) return "";
-  if (typeof mk === "string") return "";
-  return safeStr(mk.vergi_kimlik_no ?? "");
-}
-
-function hasType(extractions: Extraction[], ...keywords: string[]): boolean {
-  return extractions.some(e =>
-    keywords.some(kw => (e.belge_turu ?? "").toLowerCase().includes(kw))
-  );
-}
-
-function findByType(extractions: Extraction[], ...keywords: string[]): Extraction | undefined {
-  return extractions.find(e =>
-    keywords.some(kw => (e.belge_turu ?? "").toLowerCase().includes(kw))
-  );
-}
-
-// ── Cross-check engine ────────────────────────────────────────────────────
-
-function runChecks(extractions: Extraction[]): CheckResult[] {
-  const results: CheckResult[] = [];
-
-  // 1. Vergi no tutarlılığı
-  const vergiNos = extractions.map(getVergiNo).filter(Boolean);
-  if (vergiNos.length > 1) {
-    const unique = [...new Set(vergiNos)];
-    if (unique.length > 1) {
-      results.push({
-        name: "Mükellef Vergi No Tutarlılığı",
-        detail: `Farklı vergi numaraları tespit edildi: ${unique.join(", ")} — karışık mükellef riski`,
-        status: "UYARI",
-      });
-    } else {
-      results.push({
-        name: "Mükellef Vergi No Tutarlılığı",
-        detail: `Tüm beyannamelerde aynı: ${unique[0]}`,
-        status: "UYGUN",
-      });
-    }
-  }
-
-  // 2. Aynı tür beyanname çakışması
-  const typeCounts: Record<string, number> = {};
-  for (const e of extractions) {
-    const tur = (e.belge_turu ?? "").trim().toLowerCase();
-    if (tur) typeCounts[tur] = (typeCounts[tur] ?? 0) + 1;
-  }
-  for (const [tur, count] of Object.entries(typeCounts)) {
-    if (count > 1) {
-      results.push({
-        name: `Dönem Çakışması: ${tur.toUpperCase()}`,
-        detail: `Aynı türden ${count} beyanname yüklendi — dönem çakışması olabilir`,
-        status: "UYARI",
-      });
-    }
-  }
-
-  // 3. Muhtasar ücret matrahı ↔ SGK prime esas kazanç
-  const muhtasar = findByType(extractions, "muhtasar", "stopaj");
-  const sgk      = findByType(extractions, "sgk", "sosyal güvenlik", "bildirge");
-  if (muhtasar && sgk) {
-    const muhtasarMatrah = findField(muhtasar.veriler, [
-      "ücret ödemeleri", "ücret stopaj", "ücret matrah", "brüt ücret", "maaş", "ücret",
-    ]);
-    const sgkPrime = findField(sgk.veriler, [
-      "prime esas kazanç", "prime esas", "sigorta primine esas", "brüt kazanç", "kazanç",
-    ]);
-    if (muhtasarMatrah > 0 && sgkPrime > 0) {
-      const diff       = Math.abs(muhtasarMatrah - sgkPrime);
-      const diffPct    = (diff / Math.max(muhtasarMatrah, sgkPrime)) * 100;
-      const status     = diffPct > 10 ? "UYARI" : "UYGUN";
-      results.push({
-        name: "Muhtasar Ücret Matrahı ↔ SGK Prime Esas Kazanç",
-        detail: diffPct > 10
-          ? `%${diffPct.toFixed(1)} fark tespit edildi — eşik %10, kontrol gerekli`
-          : `%${diffPct.toFixed(1)} fark — kabul edilebilir`,
-        value1: muhtasarMatrah, value1Label: "Muhtasar Ücret Matrahı",
-        value2: sgkPrime,       value2Label: "SGK Prime Esas Kazanç",
-        diff, diffPercent: diffPct,
-        status,
-      });
-    } else {
-      results.push({
-        name: "Muhtasar Ücret Matrahı ↔ SGK Prime Esas Kazanç",
-        detail: "Karşılaştırılabilir alanlar çıkarılamadı (manuel kontrol önerilir)",
-        status: "BİLGİ",
-      });
-    }
-  }
-
-  // 4. KDV teslim bedeli ↔ Geçici vergi hasılatı
-  const kdv    = findByType(extractions, "kdv", "katma değer");
-  const gecici = findByType(extractions, "geçici", "gecici");
-  if (kdv && gecici) {
-    const kdvTeslim = findField(kdv.veriler, [
-      "teslim ve hizmet", "teslim bedeli", "matrah", "vergilendirilecek teslim", "toplam matrah",
-    ]);
-    const geciciHasilat = findField(gecici.veriler, [
-      "hasılat", "brüt satış", "net satış", "toplam gelir", "matrah",
-    ]);
-    if (kdvTeslim > 0 && geciciHasilat > 0) {
-      const diff    = Math.abs(kdvTeslim - geciciHasilat);
-      const diffPct = (diff / Math.max(kdvTeslim, geciciHasilat)) * 100;
-      const status  = diffPct > 20 ? "UYARI" : "UYGUN";
-      results.push({
-        name: "KDV Teslim Bedeli ↔ Geçici Vergi Hasılatı",
-        detail: diffPct > 20
-          ? `%${diffPct.toFixed(1)} fark — dönemsel uyumsuzluk olabilir`
-          : `%${diffPct.toFixed(1)} fark — uyumlu`,
-        value1: kdvTeslim,      value1Label: "KDV Teslim Bedeli",
-        value2: geciciHasilat,  value2Label: "Geçici Vergi Hasılatı",
-        diff, diffPercent: diffPct,
-        status,
-      });
-    }
-  }
-
-  // 5. Ödenecek vergi kontrolleri (negatif / anormal büyük)
-  for (const ext of extractions) {
-    const odenmesi = findField(ext.veriler, ["ödenecek", "tahakkuk eden", "ödeme"]);
-    const tur = safeStr(ext.belge_turu);
-    if (odenmesi < 0) {
-      results.push({
-        name: `Negatif Ödenecek: ${tur}`,
-        detail: `${odenmesi.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — iade durumu olabilir`,
-        value1: odenmesi, value1Label: "Ödenecek / İade Tutarı",
-        status: "UYARI",
-      });
-    } else if (odenmesi > 10_000_000) {
-      results.push({
-        name: `Olağandışı Yüksek Ödenecek: ${tur}`,
-        detail: `${odenmesi.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — 10M ₺ üzeri`,
-        value1: odenmesi, value1Label: "Ödenecek Tutarı",
-        status: "UYARI",
-      });
-    }
-  }
-
-  // 6. Eksik beyanname tespiti
-  const missing: string[] = [];
-  if (hasType(extractions, "kdv") && !hasType(extractions, "muhtasar", "stopaj")) {
-    missing.push("KDV mevcut ancak Muhtasar yüklenmedi");
-  }
-  if (hasType(extractions, "muhtasar", "stopaj") && !hasType(extractions, "sgk")) {
-    missing.push("Muhtasar mevcut ancak SGK bildirimi yüklenmedi");
-  }
-  if (hasType(extractions, "kurumlar", "gelir") && !hasType(extractions, "geçici", "gecici")) {
-    missing.push("Kurumlar/Gelir Vergisi mevcut ancak Geçici Vergi yüklenmedi");
-  }
-  for (const m of missing) {
-    results.push({ name: "Eksik Beyanname Tespiti", detail: m, status: "BİLGİ" });
-  }
-
-  return results;
 }
 
 // ── AI extraction per file ─────────────────────────────────────────────────
@@ -358,87 +179,6 @@ async function extractFromFile(
   }
 }
 
-// ── Single-document internal consistency checks ────────────────────────────
-
-function runSingleChecks(ext: Extraction): CheckResult[] {
-  if (ext.failed) return [];
-  const results: CheckResult[] = [];
-  const tur   = (ext.belge_turu ?? "").toLowerCase();
-  const label = safeStr(ext.belge_turu) || ext.dosya_adi;
-
-  // 1. VKN (10 hane) / TCKN (11 hane) doğrulama
-  const mk      = ext.mukellef;
-  const vergiNo = typeof mk === "object" ? safeStr((mk as any).vergi_kimlik_no ?? "") : "";
-  const cleanNo = vergiNo.replace(/\D/g, "");
-  if (cleanNo.length > 0) {
-    if (cleanNo.length !== 10 && cleanNo.length !== 11) {
-      results.push({
-        name: `VKN/TCKN Doğrulama — ${label}`,
-        detail: `Kimlik no "${vergiNo}" geçersiz uzunluk (${cleanNo.length} hane) — VKN 10, TCKN 11 hane olmalı`,
-        status: "UYARI",
-      });
-    } else {
-      results.push({
-        name: `VKN/TCKN Doğrulama — ${label}`,
-        detail: `${cleanNo.length === 10 ? "VKN" : "TCKN"} format geçerli (${cleanNo.length} hane): ${vergiNo}`,
-        status: "UYGUN",
-      });
-    }
-  }
-
-  // KDV beyannamesi iç tutarlılık kontrolleri
-  if (tur.includes("kdv") || tur.includes("katma")) {
-    const odenecek   = findField(ext.veriler, ["ödenecek kdv", "ödenmesi gereken kdv", "ödenecek"]);
-    const devreden   = findField(ext.veriler, ["devreden kdv", "sonraki döneme devreden", "devreden"]);
-    const hesaplanan = findField(ext.veriler, ["hesaplanan kdv", "hesaplanan katma değer vergisi"]);
-    const indirilecek = findField(ext.veriler, ["indirilecek kdv", "toplam indirim", "indirilecek katma"]);
-
-    // 2. Ödenecek/Devreden KDV mantık: ikisi aynı anda pozitif olamaz
-    if (odenecek > 0 && devreden > 0) {
-      results.push({
-        name: `KDV Ödenecek/Devreden Mantık — ${label}`,
-        detail: "Ödenecek KDV ve Devreden KDV aynı anda pozitif olamaz — çelişki var",
-        value1: odenecek,  value1Label: "Ödenecek KDV",
-        value2: devreden,  value2Label: "Devreden KDV",
-        status: "UYARI",
-      });
-    } else if (odenecek > 0 || devreden > 0) {
-      results.push({
-        name: `KDV Ödenecek/Devreden Mantık — ${label}`,
-        detail: odenecek > 0
-          ? `Ödenecek KDV: ${odenecek.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — tutarlı`
-          : `Devreden KDV: ${devreden.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — tutarlı`,
-        status: "UYGUN",
-      });
-    }
-
-    // 3. Hesaplanan KDV − İndirilecek KDV ≈ Ödenecek/Devreden (%1 tolerans)
-    const sonuc = odenecek > 0 ? odenecek : devreden;
-    if (hesaplanan > 0 && indirilecek > 0 && sonuc > 0) {
-      const expected = hesaplanan - indirilecek;
-      const diff     = Math.abs(expected - sonuc);
-      const diffPct  = hesaplanan > 0 ? (diff / hesaplanan) * 100 : 0;
-      if (diffPct > 1) {
-        results.push({
-          name: `KDV Matrah Tutarlılığı — ${label}`,
-          detail: `Hesaplanan(${hesaplanan.toLocaleString("tr-TR")}) − İndirilecek(${indirilecek.toLocaleString("tr-TR")}) = ${expected.toLocaleString("tr-TR")} ₺ ≠ ${sonuc.toLocaleString("tr-TR")} ₺ (%${diffPct.toFixed(1)} fark — eşik %1)`,
-          value1: expected, value1Label: "Hesap.−İndir.",
-          value2: sonuc,    value2Label: odenecek > 0 ? "Ödenecek KDV" : "Devreden KDV",
-          diff, diffPercent: diffPct,
-          status: "UYARI",
-        });
-      } else {
-        results.push({
-          name: `KDV Matrah Tutarlılığı — ${label}`,
-          detail: `Hesaplanan − İndirilecek ≈ Ödenecek/Devreden KDV — uyumlu (%${diffPct.toFixed(1)} fark)`,
-          status: "UYGUN",
-        });
-      }
-    }
-  }
-
-  return results;
-}
 
 // ── Route handler ──────────────────────────────────────────────────────────
 
@@ -482,15 +222,11 @@ export async function POST(req: NextRequest) {
       if (ext.failed) failedCount++; else successCount++;
     }
 
-    // Tek-belge iç tutarlılık kontrolleri
-    const singleChecks: CheckResult[] = [];
-    for (const ext of extractions) singleChecks.push(...runSingleChecks(ext));
+    // Tutarlılık skoru (tek-belge + çapraz; başarısızlar filtre edilir)
+    const tutarlilik = hesaplaTutarlilik(extractions as any[]);
+    const checks: CheckResult[] = tutarlilik.kontroller.map(skorKontrolToCheckResult);
 
-    // Çapraz kontroller yalnızca başarılı çıkarımlar üzerinde çalışır
-    const crossChecks = runChecks(extractions.filter(e => !e.failed));
-    const checks = [...singleChecks, ...crossChecks];
-
-    return NextResponse.json({ extractions, checks, failedCount, successCount });
+    return NextResponse.json({ extractions, checks, failedCount, successCount, tutarlilik });
   } catch (err: any) {
     console.error("[capraz-kontrol] Hata:", err?.status, err?.code, err?.message);
     return NextResponse.json(

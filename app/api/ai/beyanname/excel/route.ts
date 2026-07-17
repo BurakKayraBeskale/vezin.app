@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { tutarlilikSayfasiEkle } from "@/lib/tutarlilik-skoru";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const result = body.result ?? {};
+  const tutarlilik = body.tutarlilik ?? null;
 
   try {
     const ExcelJS = require("exceljs");
@@ -213,6 +215,9 @@ export async function POST(req: NextRequest) {
         tevRow++;
       }
     }
+
+    // ── Sheet 4: Tutarlılık (varsa) ───────────────────────────────────────────
+    if (tutarlilik) tutarlilikSayfasiEkle(wb, tutarlilik);
 
     // ── Çıktı ─────────────────────────────────────────────────────────────────
     const buf  = await wb.xlsx.writeBuffer();
