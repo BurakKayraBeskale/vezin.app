@@ -30,6 +30,7 @@ const COLUMNS = [
   { header: "Satılan Mal ve/veya Hizmetin KDV Hariç Tutarı",            width: 22 },
   { header: "KDV'si",                                                     width: 16 },
   { header: "Tür",                                                        width: 18 },
+  { header: "Kaynak",                                                      width: 12 },
 ];
 
 async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
@@ -46,7 +47,7 @@ async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
   ws.columns = COLUMNS.map(c => ({ width: c.width }));
 
   // ── Row 1: Main title ──
-  ws.mergeCells("A1:K1");
+  ws.mergeCells("A1:L1");
   const titleCell = ws.getCell("A1");
   titleCell.value     = "GİB SATIŞ FATURA LİSTESİ";
   titleCell.fill      = solidFill(ORANGE);
@@ -56,7 +57,7 @@ async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
 
   // ── Row 2: Subtitle ──
   const today = new Date().toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" });
-  ws.mergeCells("A2:K2");
+  ws.mergeCells("A2:L2");
   const subCell = ws.getCell("A2");
   subCell.value     = `Oluşturulma tarihi: ${today}   |   Toplam fatura: ${invoices.length}`;
   subCell.fill      = solidFill(DARK_BLUE);
@@ -65,7 +66,7 @@ async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
   ws.getRow(2).height = 18;
 
   // ── Row 3: Legend ──
-  ws.mergeCells("A3:K3");
+  ws.mergeCells("A3:L3");
   const legendCell = ws.getCell("A3");
   legendCell.value     = "Renk kodu:  Normal (beyaz/gri)   |   İhraç Kayıtlı (mavi)   |   KDV İstisnası (sarı)";
   legendCell.fill      = solidFill("FFF0F0F0");
@@ -106,9 +107,12 @@ async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
     tur: string,
     isEven: boolean,
     turEnum: SatisInvoice["tur"],
+    sourceFile: string,
   ) {
     const row = ws.getRow(dataRow);
     const bg  = rowBg(turEnum, isEven);
+
+    const kaynak = sourceFile === "pdf-ai" ? "PDF (AI)" : sourceFile === "excel-import" ? "Excel" : "XML";
 
     const vals = [
       sira, tarih, seri, siraNoInv,
@@ -116,6 +120,7 @@ async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
       cins, miktar,
       kdvHaric, kdv,
       tur,
+      kaynak,
     ];
 
     vals.forEach((v, i) => {
@@ -132,6 +137,11 @@ async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
         c.alignment = { horizontal: "right", vertical: "middle" };
       } else if (i === 0) {
         c.alignment = { horizontal: "center", vertical: "middle" };
+      } else if (i === 11) { // Kaynak
+        c.alignment = { horizontal: "center", vertical: "middle" };
+        if (vals[11] === "PDF (AI)") {
+          c.font = { size: 9, color: { argb: "FF7C3AED" } };
+        }
       } else {
         c.alignment = { horizontal: "left", vertical: "middle", wrapText: false };
       }
@@ -158,6 +168,7 @@ async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
       inv.kdvHaricTutar, inv.kdvTutari,
       inv.tur,
       isEven, inv.tur,
+      inv.sourceFile,
     );
     totalKdvHaric += inv.kdvHaricTutar;
     totalKdv      += inv.kdvTutari;
@@ -189,9 +200,11 @@ async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
   totKdv.alignment = { horizontal: "right", vertical: "middle" };
   totKdv.border    = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
 
-  const totTur = totRow.getCell(11);
-  totTur.fill   = solidFill(ORANGE);
-  totTur.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "medium" } };
+  [11, 12].forEach(col => {
+    const c = totRow.getCell(col);
+    c.fill   = solidFill(ORANGE);
+    c.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: col === 12 ? { style: "medium" } : { style: "thin" } };
+  });
 
   ws.getRow(dataRow).height = 20;
 

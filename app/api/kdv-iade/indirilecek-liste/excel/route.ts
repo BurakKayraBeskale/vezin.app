@@ -32,6 +32,7 @@ const GIB_COLUMNS = [
   { header: "KDV'si",                                                     width: 16 },
   { header: "GGB Tescil No'su",                                           width: 16 },
   { header: "Belgenin İndirim Hakkının\nKullanıldığı KDV Dönemi",        width: 20 },
+  { header: "Kaynak",                                                      width: 12 },
 ];
 
 // ── Excel builder ──────────────────────────────────────────────────────────
@@ -51,7 +52,7 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
   ws.columns = GIB_COLUMNS.map(c => ({ width: c.width }));
 
   // ── Row 1: Main title ──
-  ws.mergeCells("A1:L1");
+  ws.mergeCells("A1:M1");
   const titleCell = ws.getCell("A1");
   titleCell.value     = "GİB İNDİRİLECEK KDV LİSTESİ";
   titleCell.fill      = solidFill(ORANGE);
@@ -61,7 +62,7 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
 
   // ── Row 2: Subtitle ──
   const today = new Date().toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" });
-  ws.mergeCells("A2:L2");
+  ws.mergeCells("A2:M2");
   const subCell = ws.getCell("A2");
   subCell.value     = `Oluşturulma tarihi: ${today}   |   Toplam fatura: ${invoices.length}   |   ${merge ? "Birleştirilmiş görünüm" : "Kalem bazında görünüm"}`;
   subCell.fill      = solidFill(DARK_BLUE);
@@ -96,9 +97,12 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
     kdvHaric: number, kdv: number,
     donemi: string,
     isEven: boolean,
+    sourceFile: string,
   ) {
     const row = ws.getRow(dataRow);
     const bg  = isEven ? GRAY_LT : WHITE;
+
+    const kaynak = sourceFile === "pdf-ai" ? "PDF (AI)" : sourceFile === "excel-import" ? "Excel" : "XML";
 
     const vals = [
       sira, tarih, seri, siraNoInv,
@@ -107,6 +111,7 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
       kdvHaric, kdv,
       "",         // GGB Tescil No — boş
       donemi,
+      kaynak,
     ];
 
     vals.forEach((v, i) => {
@@ -124,6 +129,11 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
         c.alignment = { horizontal: "right", vertical: "middle" };
       } else if (i === 0) {
         c.alignment = { horizontal: "center", vertical: "middle" };
+      } else if (i === 12) { // Kaynak
+        c.alignment = { horizontal: "center", vertical: "middle" };
+        if (vals[12] === "PDF (AI)") {
+          c.font = { size: 9, color: { argb: "FF7C3AED" } };
+        }
       } else {
         c.alignment = { horizontal: "left", vertical: "middle", wrapText: false };
       }
@@ -151,6 +161,7 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
         inv.kdvHaricTutar, inv.kdvTutari,
         inv.donemi,
         isEven,
+        inv.sourceFile,
       );
       totalKdvHaric += inv.kdvHaricTutar;
       totalKdv      += inv.kdvTutari;
@@ -172,6 +183,7 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
           line.kdvHaricTutar, line.kdvTutari,
           inv.donemi,
           isEven,
+          inv.sourceFile,
         );
         totalKdvHaric += line.kdvHaricTutar;
         totalKdv      += line.kdvTutari;
@@ -205,10 +217,10 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
   totKdv.alignment = { horizontal: "right", vertical: "middle" };
   totKdv.border    = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
 
-  [11, 12].forEach(col => {
+  [11, 12, 13].forEach(col => {
     const c = totRow.getCell(col);
     c.fill   = solidFill(ORANGE);
-    c.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: col === 12 ? { style: "medium" } : { style: "thin" } };
+    c.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: col === 13 ? { style: "medium" } : { style: "thin" } };
   });
   ws.getRow(dataRow).height = 20;
 

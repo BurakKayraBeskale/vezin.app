@@ -78,6 +78,18 @@ interface DashboardRecord {
 interface ExcelFieldDef { key: string; label: string; required: boolean; hints: string[]; }
 interface ExcelImportData { headers: string[]; rows: string[][]; filename: string; }
 
+// ── PDF AI import types ──────────────────────────────────────────────────────
+interface AiInvoice {
+  filename: string;
+  faturaTarihi: string; faturaNo: string; seri: string; siraNo: string;
+  saticiUnvan: string; saticiVkn: string;
+  aliciUnvan: string;  aliciVkn: string;
+  malHizmetCinsi: string; miktar: number;
+  kdvHaricTutar: number; kdvOrani: number; kdvTutari: number;
+}
+interface PdfFailedItem { filename: string; reason: string; }
+interface PdfImportResult { invoices: AiInvoice[]; failed: PdfFailedItem[]; }
+
 const ALIM_EXCEL_FIELDS: ExcelFieldDef[] = [
   { key: "tarih",    label: "Fatura Tarihi",   required: true,  hints: ["tarih", "date", "düzenleme"] },
   { key: "unvan",    label: "Satıcı Unvanı",   required: true,  hints: ["unvan", "satıcı", "firma", "tedarikçi", "ad"] },
@@ -183,6 +195,39 @@ function normalizeExcelToSatisInvoice(
       } as SatisInvoice;
     })
     .filter(inv => inv.aliciUnvan || inv.kdvTutari > 0);
+}
+
+function aiInvoiceToKdvInvoice(ai: AiInvoice): KdvInvoice {
+  const tarih = parseExcelDate(ai.faturaTarihi) ?? { iso: "", fmt: ai.faturaTarihi };
+  const donemi = tarih.iso.slice(0, 7).replace("-", "/") || "";
+  const seri   = ai.seri || ai.faturaNo.match(/^([A-Za-zÇĞİÖŞÜçğışöşü]{1,5})/)?.[1]?.toUpperCase() || "";
+  const siraNo = ai.siraNo || ai.faturaNo.replace(/^[A-Za-zÇĞİÖŞÜçğışöşü]{1,5}/, "") || ai.faturaNo;
+  return {
+    id: ai.faturaNo || `PDF-${Date.now()}`,
+    seri, siraNo,
+    tarihIso: tarih.iso, tarihFmt: tarih.fmt, donemi,
+    saticiUnvan: ai.saticiUnvan, saticiVergiNo: ai.saticiVkn,
+    kdvHaricTutar: ai.kdvHaricTutar, kdvTutari: ai.kdvTutari, kdvOrani: ai.kdvOrani,
+    satirlar: [{ cins: ai.malHizmetCinsi || "—", miktar: ai.miktar || 1, birim: "", kdvHaricTutar: ai.kdvHaricTutar, kdvOrani: ai.kdvOrani, kdvTutari: ai.kdvTutari }],
+    sourceFile: "pdf-ai",
+  } as KdvInvoice;
+}
+
+function aiInvoiceToSatisInvoice(ai: AiInvoice): SatisInvoice {
+  const tarih = parseExcelDate(ai.faturaTarihi) ?? { iso: "", fmt: ai.faturaTarihi };
+  const donemi = tarih.iso.slice(0, 7).replace("-", "/") || "";
+  const seri   = ai.seri || ai.faturaNo.match(/^([A-Za-zÇĞİÖŞÜçğışöşü]{1,5})/)?.[1]?.toUpperCase() || "";
+  const siraNo = ai.siraNo || ai.faturaNo.replace(/^[A-Za-zÇĞİÖŞÜçğışöşü]{1,5}/, "") || ai.faturaNo;
+  return {
+    id: ai.faturaNo || `PDF-${Date.now()}`,
+    seri, siraNo,
+    tarihIso: tarih.iso, tarihFmt: tarih.fmt, donemi,
+    aliciUnvan: ai.aliciUnvan, aliciVergiNo: ai.aliciVkn,
+    kdvHaricTutar: ai.kdvHaricTutar, kdvTutari: ai.kdvTutari, kdvOrani: ai.kdvOrani,
+    tur: "Normal" as const,
+    satirlar: [{ cins: ai.malHizmetCinsi || "—", miktar: ai.miktar || 1, birim: "", kdvHaricTutar: ai.kdvHaricTutar, kdvOrani: ai.kdvOrani, kdvTutari: ai.kdvTutari }],
+    sourceFile: "pdf-ai",
+  } as SatisInvoice;
 }
 
 async function saveDashboardRecord(
@@ -1005,7 +1050,7 @@ function IndirilenKdvPanel() {
   const [result, setResult]             = useState<KdvParseResult | null>(null);
   const [xlLoading, setXlLoading]       = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
-  const [inputMethod, setInputMethod]   = useState<"xml" | "excel">("xml");
+  const [inputMethod, setInputMethod]   = useState<"xml" | "excel" | "pdf">("xml");
 
   function addFiles(incoming: File[]) {
     const valid = incoming.filter(f => {
@@ -1038,6 +1083,17 @@ function IndirilenKdvPanel() {
       saveDashboardRecord("indirilen", json.stats);
     } catch { setError("Sunucuya bağlanılamadı."); }
     finally   { setLoading(false); }
+  }
+
+  function handlePdfImport(aiInvoices: AiInvoice[]) {
+    const invoices = aiInvoices.map(aiInvoiceToKdvInvoice);
+    const stats = {
+      invoiceCount: invoices.length, excludedCount: 0,
+      totalKdvHaric: invoices.reduce((s, i) => s + i.kdvHaricTutar, 0),
+      totalKdv: invoices.reduce((s, i) => s + i.kdvTutari, 0),
+    };
+    setResult({ invoices, excluded: [], stats });
+    saveDashboardRecord("indirilen", stats);
   }
 
   async function downloadExcel() {
@@ -1085,15 +1141,23 @@ function IndirilenKdvPanel() {
       {/* Giriş yöntemi */}
       {!result && (
         <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
-          {([ { id: "xml", label: "XML Yükle" }, { id: "excel", label: "Excel'den Aktar" } ] as const).map(({ id, label }) => (
+          {([ { id: "xml", label: "XML Yükle" }, { id: "excel", label: "Excel'den Aktar" }, { id: "pdf", label: "PDF Yükle" } ] as const).map(({ id, label }) => (
             <button key={id} onClick={() => setInputMethod(id)}
-              className={clsx("flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
+              className={clsx("flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all",
                 inputMethod === id ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm" : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60"
               )}>
               {label}
             </button>
           ))}
         </div>
+      )}
+
+      {/* PDF: Import Widget */}
+      {inputMethod === "pdf" && !result && (
+        <PdfImportWidget
+          onImport={(invoices, _failed) => handlePdfImport(invoices)}
+          onClose={() => setInputMethod("xml")}
+        />
       )}
 
       {/* XML: Upload area */}
@@ -1240,6 +1304,17 @@ function IndirilenKdvPanel() {
       {/* Sonuçlar */}
       {result && (
         <div className="space-y-4">
+          {/* PDF (AI) uyarı banner */}
+          {result.invoices.some(i => i.sourceFile === "pdf-ai") && (
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20">
+              <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                Bu listede <strong>{result.invoices.filter(i => i.sourceFile === "pdf-ai").length}</strong> fatura yapay zeka (PDF·AI) ile okundu — Excel indirmeden önce tutarları kontrol edin.
+              </p>
+            </div>
+          )}
           {/* Özet kartları */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
@@ -1353,7 +1428,7 @@ function YuklenilenKdvPanel() {
   const [yuklenimTuru, setYuklenimTuru] = useState("Doğrudan yüklenim");
   const [toplamHasilat, setToplamHasilat]     = useState("");
   const [iadeIslemTutari, setIadeIslemTutari] = useState("");
-  const [inputMethod, setInputMethod]   = useState<"xml" | "excel">("xml");
+  const [inputMethod, setInputMethod]   = useState<"xml" | "excel" | "pdf">("xml");
 
   const ratio = (() => {
     const h = parseFloat(toplamHasilat.replace(",", "."));
@@ -1398,6 +1473,18 @@ function YuklenilenKdvPanel() {
       saveDashboardRecord("yuklenilen", json.stats);
     } catch { setError("Sunucuya bağlanılamadı."); }
     finally   { setLoading(false); }
+  }
+
+  function handlePdfImport(aiInvoices: AiInvoice[]) {
+    const invoices = aiInvoices.map(aiInvoiceToKdvInvoice);
+    const stats = {
+      invoiceCount: invoices.length, excludedCount: 0,
+      totalKdvHaric: invoices.reduce((s, i) => s + i.kdvHaricTutar, 0),
+      totalKdv: invoices.reduce((s, i) => s + i.kdvTutari, 0),
+    };
+    setResult({ invoices, excluded: [], stats });
+    if (method === "manuel") setSelected(new Set(invoices.map(i => i.id)));
+    saveDashboardRecord("yuklenilen", stats);
   }
 
   function toggleSelect(id: string) {
@@ -1474,9 +1561,9 @@ function YuklenilenKdvPanel() {
       {/* Giriş yöntemi */}
       {!result && (
         <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
-          {([ { id: "xml", label: "XML Yükle" }, { id: "excel", label: "Excel'den Aktar" } ] as const).map(({ id, label }) => (
+          {([ { id: "xml", label: "XML Yükle" }, { id: "excel", label: "Excel'den Aktar" }, { id: "pdf", label: "PDF Yükle" } ] as const).map(({ id, label }) => (
             <button key={id} onClick={() => setInputMethod(id)}
-              className={clsx("flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
+              className={clsx("flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all",
                 inputMethod === id ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm" : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60"
               )}>
               {label}
@@ -1623,9 +1710,28 @@ function YuklenilenKdvPanel() {
         />
       )}
 
+      {/* PDF: Import Widget */}
+      {inputMethod === "pdf" && !result && (
+        <PdfImportWidget
+          onImport={(aiInvoices) => handlePdfImport(aiInvoices)}
+          onClose={() => setInputMethod("xml")}
+        />
+      )}
+
       {/* Sonuçlar */}
       {result && (
         <div className="space-y-4">
+          {/* PDF (AI) uyarı banner */}
+          {result.invoices.some(i => i.sourceFile === "pdf-ai") && (
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20">
+              <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                Bu listede <strong>{result.invoices.filter(i => i.sourceFile === "pdf-ai").length}</strong> fatura yapay zeka (PDF·AI) ile okundu — Excel indirmeden önce tutarları kontrol edin.
+              </p>
+            </div>
+          )}
           {/* Özet */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
@@ -1779,6 +1885,211 @@ function YuklenilenKdvPanel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Excel Import Widget ────────────────────────────────────────────────────
+
+// ── PDF AI Import Widget ───────────────────────────────────────────────────
+
+function PdfImportWidget({
+  onImport, onClose,
+}: {
+  onImport: (invoices: AiInvoice[], failed: PdfFailedItem[]) => void;
+  onClose: () => void;
+}) {
+  const pdfInputRef                                     = useRef<HTMLInputElement>(null);
+  const [files, setFiles]                               = useState<File[]>([]);
+  const [dragging, setDragging]                         = useState(false);
+  const [loading, setLoading]                           = useState(false);
+  const [error, setError]                               = useState<string | null>(null);
+  const [data, setData]                                 = useState<PdfImportResult | null>(null);
+
+  function addFiles(incoming: File[]) {
+    const valid = incoming.filter(f => {
+      const lc = f.name.toLowerCase();
+      return lc.endsWith(".pdf") || lc.endsWith(".zip");
+    });
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.name + f.size));
+      return [...prev, ...valid.filter(f => !existing.has(f.name + f.size))];
+    });
+    setError(null); setData(null);
+  }
+
+  async function run() {
+    if (files.length === 0) return;
+    setLoading(true); setError(null); setData(null);
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append("files[]", f);
+      const res  = await fetch("/api/kdv-iade/pdf-import", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? "İşlem başarısız"); return; }
+      setData(json as PdfImportResult);
+    } catch { setError("Sunucuya bağlanılamadı."); }
+    finally   { setLoading(false); }
+  }
+
+  // Sonuç ekranı
+  if (data) {
+    return (
+      <div className="space-y-4">
+        {/* Özet */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/20 p-3 bg-emerald-50 dark:bg-emerald-500/10 text-center">
+            <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">{data.invoices.length}</p>
+            <p className="text-xs font-semibold text-emerald-600/70 dark:text-emerald-400/60 mt-0.5">Fatura okundu</p>
+          </div>
+          <div className={clsx("rounded-xl border p-3 text-center",
+            data.failed.length > 0
+              ? "border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/10"
+              : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03]"
+          )}>
+            <p className={clsx("text-2xl font-bold", data.failed.length > 0 ? "text-red-600 dark:text-red-400" : "text-gray-400 dark:text-white/30")}>{data.failed.length}</p>
+            <p className={clsx("text-xs font-semibold mt-0.5", data.failed.length > 0 ? "text-red-500/80 dark:text-red-400/60" : "text-gray-400 dark:text-white/30")}>Okunamadı</p>
+          </div>
+        </div>
+
+        {/* Okunamayan dosyalar */}
+        {data.failed.length > 0 && (
+          <div className="rounded-xl border border-red-200 dark:border-red-500/20 overflow-hidden">
+            <div className="px-4 py-2.5 bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/20">
+              <span className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase tracking-wider">Okunamayan Dosyalar</span>
+            </div>
+            <ul className="divide-y divide-red-100 dark:divide-red-500/10 max-h-36 overflow-y-auto">
+              {data.failed.map((f, i) => (
+                <li key={i} className="px-4 py-2 flex items-start gap-2">
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 flex-shrink-0 mt-0.5">HATA</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-700 dark:text-white/70 truncate">{f.filename}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-white/30">{f.reason}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Okunan fatura önizleme */}
+        {data.invoices.length > 0 && (
+          <div className="rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10">
+              <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">Önizleme — ilk 5</span>
+            </div>
+            <ul className="divide-y divide-gray-100 dark:divide-white/5 max-h-40 overflow-y-auto">
+              {data.invoices.slice(0, 5).map((inv, i) => (
+                <li key={i} className="px-4 py-2 flex items-center gap-3">
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-500/20 text-violet-700 dark:text-violet-400 flex-shrink-0">PDF·AI</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-800 dark:text-white truncate">{inv.saticiUnvan || inv.aliciUnvan || "—"}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-white/30">{inv.faturaTarihi} · {inv.faturaNo}</p>
+                  </div>
+                  <p className="text-xs font-semibold text-[#F57C28] tabular-nums flex-shrink-0">
+                    {inv.kdvTutari.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺
+                  </p>
+                </li>
+              ))}
+              {data.invoices.length > 5 && (
+                <li className="px-4 py-2 text-xs text-gray-400 dark:text-white/30 text-center">… ve {data.invoices.length - 5} fatura daha</li>
+              )}
+            </ul>
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+            İptal
+          </button>
+          <button
+            onClick={() => onImport(data.invoices, data.failed)}
+            disabled={data.invoices.length === 0}
+            className="flex-1 py-2.5 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+          >
+            {data.invoices.length} Faturayı Aktar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* AI uyarı notu */}
+      <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20">
+        <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+        </svg>
+        <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+          PDF'ler yapay zeka ile okunur — tutarları kontrol edin.
+        </p>
+      </div>
+
+      {/* Drop zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(Array.from(e.dataTransfer.files)); }}
+        onClick={() => pdfInputRef.current?.click()}
+        className={clsx(
+          "rounded-2xl border-2 border-dashed p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
+          dragging ? "border-violet-400 bg-violet-50 dark:bg-violet-500/5" : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] hover:border-violet-400/60 hover:bg-violet-50/50 dark:hover:bg-violet-500/[0.04]"
+        )}
+      >
+        <input ref={pdfInputRef} type="file" accept=".pdf,.zip" multiple className="hidden"
+          onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+        <div className="w-12 h-12 rounded-xl bg-violet-500/10 flex items-center justify-center mb-3">
+          <svg className="w-6 h-6 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+          </svg>
+        </div>
+        <p className="text-sm font-medium text-gray-600 dark:text-white/60">PDF veya ZIP sürükleyin ya da tıklayın</p>
+        <p className="text-xs text-gray-400 dark:text-white/30 mt-1">.pdf · .zip (içindeki PDF'ler) · Çoklu seçim</p>
+      </div>
+
+      {/* Dosya listesi */}
+      {files.length > 0 && (
+        <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
+          <div className="px-4 py-2.5 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">{files.length} Dosya</span>
+            <button onClick={() => setFiles([])} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-white/60 transition-colors">Temizle</button>
+          </div>
+          <ul className="divide-y divide-gray-100 dark:divide-white/5 max-h-40 overflow-y-auto">
+            {files.map((f, i) => (
+              <li key={i} className="flex items-center gap-3 px-4 py-2">
+                <span className={clsx("text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 uppercase",
+                  f.name.toLowerCase().endsWith(".zip") ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400" : "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-400"
+                )}>{f.name.toLowerCase().endsWith(".zip") ? "ZIP" : "PDF"}</span>
+                <span className="text-xs text-gray-700 dark:text-white/70 flex-1 truncate">{f.name}</span>
+                <span className="text-xs text-gray-400 dark:text-white/30 flex-shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                <button onClick={() => setFiles(p => p.filter((_, j) => j !== i))} className="flex-shrink-0 p-1 rounded text-gray-300 hover:text-gray-500 transition-colors"><IconX /></button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {error && <ErrorBox message={error} />}
+
+      {loading && (
+        <div className="flex flex-col items-center gap-3 py-6">
+          <Spinner />
+          <p className="text-sm text-gray-500 dark:text-white/40">Faturalar AI ile okunuyor…</p>
+          <p className="text-xs text-gray-400 dark:text-white/30">{files.length} dosya · her PDF için 1 AI çağrısı · gpt-5.4-nano</p>
+        </div>
+      )}
+
+      {!loading && files.length > 0 && (
+        <button onClick={run} className="w-full py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold text-sm transition-colors">
+          Faturaları Oku ({files.length} dosya)
+        </button>
+      )}
+
+      <button onClick={onClose} className="w-full py-2 rounded-lg border border-gray-200 dark:border-white/10 text-sm text-gray-500 dark:text-white/40 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+        ← Geri Dön
+      </button>
     </div>
   );
 }
@@ -2000,7 +2311,7 @@ function SatisFaturaPanel() {
   const [error, setError]             = useState<string | null>(null);
   const [result, setResult]           = useState<SatisParseResult | null>(null);
   const [xlLoading, setXlLoading]     = useState(false);
-  const [inputMethod, setInputMethod] = useState<"xml" | "excel">("xml");
+  const [inputMethod, setInputMethod] = useState<"xml" | "excel" | "pdf">("xml");
 
   function addFiles(incoming: File[]) {
     const valid = incoming.filter(f => {
@@ -2032,6 +2343,19 @@ function SatisFaturaPanel() {
       saveDashboardRecord("satis", json.stats);
     } catch { setError("Sunucuya bağlanılamadı."); }
     finally   { setLoading(false); }
+  }
+
+  function handlePdfImport(aiInvoices: AiInvoice[]) {
+    const invoices = aiInvoices.map(aiInvoiceToSatisInvoice);
+    const stats = {
+      invoiceCount: invoices.length, skippedCount: 0,
+      ihracCount: invoices.filter(i => i.tur === "İhraç Kayıtlı").length,
+      istisnaCount: invoices.filter(i => i.tur === "KDV İstisnası").length,
+      totalKdvHaric: invoices.reduce((s, i) => s + i.kdvHaricTutar, 0),
+      totalKdv: invoices.reduce((s, i) => s + i.kdvTutari, 0),
+    };
+    setResult({ invoices, skipped: [], stats });
+    saveDashboardRecord("satis", stats);
   }
 
   async function downloadExcel() {
@@ -2078,9 +2402,9 @@ function SatisFaturaPanel() {
       {/* Giriş yöntemi */}
       {!result && (
         <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
-          {([ { id: "xml", label: "XML Yükle" }, { id: "excel", label: "Excel'den Aktar" } ] as const).map(({ id, label }) => (
+          {([ { id: "xml", label: "XML Yükle" }, { id: "excel", label: "Excel'den Aktar" }, { id: "pdf", label: "PDF Yükle" } ] as const).map(({ id, label }) => (
             <button key={id} onClick={() => setInputMethod(id)}
-              className={clsx("flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
+              className={clsx("flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all",
                 inputMethod === id ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm" : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60"
               )}>{label}</button>
           ))}
@@ -2171,9 +2495,28 @@ function SatisFaturaPanel() {
         />
       )}
 
+      {/* PDF: Import Widget */}
+      {inputMethod === "pdf" && !result && (
+        <PdfImportWidget
+          onImport={(aiInvoices) => handlePdfImport(aiInvoices)}
+          onClose={() => setInputMethod("xml")}
+        />
+      )}
+
       {/* Sonuçlar */}
       {result && (
         <div className="space-y-4">
+          {/* PDF (AI) uyarı banner */}
+          {result.invoices.some(i => i.sourceFile === "pdf-ai") && (
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20">
+              <svg className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                Bu listede <strong>{result.invoices.filter(i => i.sourceFile === "pdf-ai").length}</strong> fatura yapay zeka (PDF·AI) ile okundu — Excel indirmeden önce tutarları kontrol edin.
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-gray-200 dark:border-white/10 p-4 bg-white dark:bg-white/[0.02]">
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{result.stats.invoiceCount}</p>

@@ -31,6 +31,7 @@ const COLUMNS_MANUEL = [
   { header: "KDV'si",                                                     width: 16 },
   { header: "Yüklenim Türü",                                              width: 20 },
   { header: "GGB Tescil No'su",                                           width: 16 },
+  { header: "Kaynak",                                                      width: 12 },
 ];
 
 const COLUMNS_ORAN = [
@@ -47,6 +48,7 @@ const COLUMNS_ORAN = [
   { header: "Yüklenilen KDV\n(Orana Göre)",                              width: 18 },
   { header: "Yüklenim Türü",                                              width: 20 },
   { header: "GGB Tescil No'su",                                           width: 16 },
+  { header: "Kaynak",                                                      width: 12 },
 ];
 
 // ── Excel builder ──────────────────────────────────────────────────────────
@@ -125,9 +127,12 @@ async function buildExcel(
     yuklenilen: number | null,   // null for "manuel" (no separate column)
     tur: string,
     isEven: boolean,
+    sourceFile: string,
   ) {
     const row = ws.getRow(dataRow);
     const bg  = isEven ? GRAY_LT : WHITE;
+
+    const kaynak = sourceFile === "pdf-ai" ? "PDF (AI)" : sourceFile === "excel-import" ? "Excel" : "XML";
 
     const vals: any[] = [
       sira, tarih, seri, siraNoInv,
@@ -140,7 +145,7 @@ async function buildExcel(
       vals.push(yuklenilen ?? 0);
     }
 
-    vals.push(tur, ""); // Yüklenim Türü, GGB Tescil No
+    vals.push(tur, "", kaynak); // Yüklenim Türü, GGB Tescil No, Kaynak
 
     vals.forEach((v, i) => {
       const c = row.getCell(i + 1);
@@ -154,11 +159,17 @@ async function buildExcel(
       const isKdvHaricCol    = i === 8;
       const isKdvCol         = i === 9;
       const isYuklenilenCol  = method === "oran" && i === 10;
+      const isKaynakCol      = i === vals.length - 1;
       if (isKdvHaricCol || isKdvCol || isYuklenilenCol) {
         c.numFmt    = NUM_FMT;
         c.alignment = { horizontal: "right", vertical: "middle" };
       } else if (i === 0) {
         c.alignment = { horizontal: "center", vertical: "middle" };
+      } else if (isKaynakCol) {
+        c.alignment = { horizontal: "center", vertical: "middle" };
+        if (kaynak === "PDF (AI)") {
+          c.font = { size: 9, color: { argb: "FF7C3AED" } };
+        }
       } else {
         c.alignment = { horizontal: "left", vertical: "middle", wrapText: false };
       }
@@ -189,6 +200,7 @@ async function buildExcel(
       yuklenilen,
       tur,
       isEven,
+      inv.sourceFile,
     );
 
     totalKdvHaric   += inv.kdvHaricTutar;
@@ -232,16 +244,16 @@ async function buildExcel(
     totYuk.alignment = { horizontal: "right", vertical: "middle" };
     totYuk.border    = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
     // remaining cols
-    [12, 13].forEach(col => {
+    [12, 13, 14].forEach(col => {
+      const c = totRow.getCell(col);
+      c.fill   = solidFill(ORANGE);
+      c.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: col === 14 ? { style: "medium" } : { style: "thin" } };
+    });
+  } else {
+    [11, 12, 13].forEach(col => {
       const c = totRow.getCell(col);
       c.fill   = solidFill(ORANGE);
       c.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: col === 13 ? { style: "medium" } : { style: "thin" } };
-    });
-  } else {
-    [11, 12].forEach(col => {
-      const c = totRow.getCell(col);
-      c.fill   = solidFill(ORANGE);
-      c.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: col === 12 ? { style: "medium" } : { style: "thin" } };
     });
   }
   ws.getRow(dataRow).height = 20;
