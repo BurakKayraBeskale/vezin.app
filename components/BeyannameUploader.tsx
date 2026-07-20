@@ -19,7 +19,7 @@ interface BeyannameResult {
   ozet?: string;
 }
 
-type Tab = "tekli" | "tam-tasdik" | "capraz-kontrol" | "kdv-iade" | "tutarlilik-analizi";
+type Tab = "tekli" | "tam-tasdik" | "capraz-kontrol" | "kdv-iade";
 
 // ── KDV İade types ─────────────────────────────────────────────────────────
 
@@ -529,7 +529,7 @@ function DropZone({
 
 // ── Tekli Dönüştürme ───────────────────────────────────────────────────────
 
-function TekliPanel({ onDetayliAnaliz }: { onDetayliAnaliz?: (t: TutarlilikSonuc) => void }) {
+function TekliPanel() {
   const [file, setFile]         = useState<File | null>(null);
   const [loading, setLoading]   = useState(false);
   const [result, setResult]     = useState<BeyannameResult | null>(null);
@@ -651,17 +651,7 @@ function TekliPanel({ onDetayliAnaliz }: { onDetayliAnaliz?: (t: TutarlilikSonuc
           </div>
 
           {tutarlilik && !tutarlilik.hesaplanamadi && (
-            <div className="space-y-2">
-              <TutarlilikKarti tutarlilik={tutarlilik} />
-              {onDetayliAnaliz && (
-                <button
-                  onClick={() => onDetayliAnaliz(tutarlilik)}
-                  className="w-full py-2 rounded-xl border border-[#F57C28]/40 text-[#F57C28] text-xs font-semibold hover:bg-[#F57C28]/5 transition-colors"
-                >
-                  Detaylı Analiz Gör →
-                </button>
-              )}
-            </div>
+            <TutarlilikKarti tutarlilik={tutarlilik} />
           )}
 
           {result.veriler?.length > 0 && (
@@ -2712,374 +2702,6 @@ function SatisFaturaPanel() {
 
 // ── KDV İade Listeleri wrapper (inner sub-tabs) ───────────────────────────
 
-// ── Tutarlılık Analizi sayfası ─────────────────────────────────────────────
-
-function TutarlilikAnaliziPanel({
-  preloaded,
-  onClearPreload,
-}: {
-  preloaded?: TutarlilikSonuc | null;
-  onClearPreload?: () => void;
-}) {
-  const [files, setFiles]         = useState<File[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState<string | null>(null);
-  const [tutarlilik, setTutarlilik] = useState<TutarlilikSonuc | null>(preloaded ?? null);
-  const [xlLoading, setXlLoading] = useState(false);
-  const [expanded, setExpanded]   = useState<Record<number, boolean>>({});
-
-  // Sync when parent passes new preloaded data (e.g. "Detaylı analiz gör" clicked)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (preloaded) { setTutarlilik(preloaded); setFiles([]); setError(null); }
-  }, [preloaded]);
-
-  function reset() {
-    setTutarlilik(null); setFiles([]); setError(null); setExpanded({});
-    onClearPreload?.();
-  }
-
-  async function analiz() {
-    if (files.length === 0) return;
-    setLoading(true); setError(null); setTutarlilik(null); setExpanded({});
-    try {
-      if (files.length === 1) {
-        const fd = new FormData();
-        fd.append("file", files[0]);
-        const res  = await fetch("/api/ai/beyanname", { method: "POST", body: fd });
-        const json = await res.json();
-        if (!res.ok) { setError(json.error ?? "Analiz başarısız"); return; }
-        if (json.tutarlilik) setTutarlilik(json.tutarlilik);
-        else setError("Tutarlılık skoru hesaplanamadı.");
-      } else {
-        const fd = new FormData();
-        for (const f of files) fd.append("files[]", f);
-        const res  = await fetch("/api/ai/capraz-kontrol", { method: "POST", body: fd });
-        const json = await res.json();
-        if (!res.ok) { setError(json.error ?? "Analiz başarısız"); return; }
-        if (json.tutarlilik) setTutarlilik(json.tutarlilik);
-        else setError("Tutarlılık skoru hesaplanamadı.");
-      }
-    } catch { setError("Sunucuya bağlanılamadı."); }
-    finally   { setLoading(false); }
-  }
-
-  async function xlIndir() {
-    if (!tutarlilik) return;
-    setXlLoading(true);
-    try {
-      const res = await fetch("/api/ai/tutarlilik/excel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tutarlilik }),
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setError(json.error ?? "Excel oluşturulamadı"); return;
-      }
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href     = url;
-      a.download = `tutarlilik-analiz-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch { setError("Excel indirilemedi."); }
-    finally   { setXlLoading(false); }
-  }
-
-  // Renk yardımcıları
-  const riskColors = tutarlilik ? (
-    tutarlilik.risk === "DUSUK_RISK"         ? { ring: "#10b981", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300", bar: "bg-emerald-500", glow: "ring-emerald-300 dark:ring-emerald-700" } :
-    tutarlilik.risk === "GOZDEN_GECIRILMELI" ? { ring: "#f59e0b", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",         bar: "bg-amber-500",   glow: "ring-amber-300 dark:ring-amber-700"   } :
-                                               { ring: "#ef4444", badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",                 bar: "bg-red-500",     glow: "ring-red-300 dark:ring-red-700"       }
-  ) : null;
-
-  return (
-    <div className="space-y-6">
-
-      {/* ── Açıklama (sadece sonuç yoksa) ── */}
-      {!tutarlilik && !loading && (
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-[#F57C28]/5 border border-[#F57C28]/20">
-          <svg className="w-5 h-5 text-[#F57C28] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p className="text-xs text-gray-600 dark:text-white/60 leading-relaxed">
-            Tek PDF yüklerseniz iç tutarlılık kontrolleri (VKN, KDV matrah, toplamlar…) yapılır.
-            Birden fazla PDF yüklerseniz çapraz kontroller de (Muhtasar↔SGK, KDV↔Geçici Vergi…) devreye girer.
-            Yapay zeka kullanılmaz — tüm kontroller kod tarafında hesaplanır.
-          </p>
-        </div>
-      )}
-
-      {/* ── Dosya yükleme alanı (sonuç yoksa) ── */}
-      {!tutarlilik && !loading && (
-        <>
-          <DropZone
-            onFiles={fs => { setFiles(fs); setError(null); }}
-            multiple
-            label="PDF sürükleyin ya da tıklayın (tek veya çoklu)"
-            hint="Beyanname PDF'leri · Maks 10MB/dosya"
-          />
-          {files.length > 0 && (
-            <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
-              <div className="px-4 py-2 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10 flex items-center justify-between">
-                <span className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">
-                  {files.length} Dosya
-                </span>
-                <button onClick={() => setFiles([])} className="text-xs text-gray-400 hover:text-gray-600">Temizle</button>
-              </div>
-              <ul className="divide-y divide-gray-100 dark:divide-white/5">
-                {files.map((f, i) => (
-                  <li key={i} className="flex items-center gap-3 px-4 py-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-[#F57C28]/10 flex items-center justify-center flex-shrink-0">
-                      <IconUpload />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-700 dark:text-white/80 truncate">{f.name}</p>
-                      <p className="text-[10px] text-gray-400 dark:text-white/30">{(f.size / 1024).toFixed(0)} KB</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {files.length > 0 && (
-            <button
-              onClick={analiz}
-              className="w-full py-3 rounded-xl bg-[#F57C28] hover:bg-[#e06e20] text-white font-semibold text-sm transition-colors"
-            >
-              Analiz Et {files.length > 1 ? `(${files.length} dosya — çapraz kontrol)` : "(iç tutarlılık)"}
-            </button>
-          )}
-        </>
-      )}
-
-      {loading && (
-        <div className="flex flex-col items-center gap-3 py-12">
-          <Spinner size={10} />
-          <p className="text-sm text-gray-500 dark:text-white/40">
-            {files.length > 1 ? "Beyannameler analiz ediliyor..." : "Beyanname analiz ediliyor..."}
-          </p>
-          <p className="text-xs text-gray-400 dark:text-white/30">Bu işlem 10-30 saniye sürebilir</p>
-        </div>
-      )}
-
-      {error && <ErrorBox message={error} />}
-
-      {/* ── Sonuç ── */}
-      {tutarlilik && !tutarlilik.hesaplanamadi && riskColors && (
-        <div className="space-y-5">
-
-          {/* Büyük skor dairesi */}
-          <div className="flex flex-col items-center gap-4 py-6">
-            <div
-              className={clsx("w-28 h-28 rounded-full border-8 flex items-center justify-center ring-4", riskColors.glow)}
-              style={{ borderColor: riskColors.ring }}
-            >
-              <div className="text-center">
-                <p className="text-4xl font-bold tabular-nums" style={{ color: riskColors.ring }}>{tutarlilik.skor}</p>
-                <p className="text-[10px] text-gray-400 dark:text-white/30 font-medium">/ 100</p>
-              </div>
-            </div>
-            <div className="text-center space-y-1">
-              <span className={clsx("inline-flex items-center px-3 py-1 rounded-full text-sm font-bold", riskColors.badge)}>
-                {tutarlilik.riskEtiketi}
-              </span>
-              <p className="text-xs text-gray-400 dark:text-white/30">
-                {tutarlilik.kontroller.filter(k => k.durum === "GECTI").length} geçti ·{" "}
-                {tutarlilik.kontroller.filter(k => k.durum === "BASARISIZ").length} uyarı ·{" "}
-                {tutarlilik.kontroller.filter(k => k.durum === "BILGI").length} bilgi
-              </p>
-            </div>
-            {/* İlerleme çubuğu */}
-            <div className="w-full max-w-xs h-2 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden">
-              <div
-                className={clsx("h-full rounded-full transition-all", riskColors.bar)}
-                style={{ width: `${tutarlilik.skor}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Kontrol listesi — her birinde neden önemli */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-bold text-gray-800 dark:text-white">Kontrol Detayları</h3>
-            {tutarlilik.kontroller.map((k, i) => {
-              const isOpen = !!expanded[i];
-              const bgCls =
-                k.durum === "GECTI"     ? "bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-700/30" :
-                k.durum === "BASARISIZ" ? (k.agirlik === "kritik" ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-700/30" : "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-700/30") :
-                                          "bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-700/30";
-              const iconCls =
-                k.durum === "GECTI"     ? "text-emerald-600 dark:text-emerald-400" :
-                k.durum === "BASARISIZ" ? (k.agirlik === "kritik" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400") :
-                                          "text-blue-500 dark:text-blue-400";
-              const icon = k.durum === "GECTI" ? "✓" : k.durum === "BASARISIZ" ? "✕" : "ℹ";
-
-              return (
-                <div key={i} className={clsx("rounded-xl border p-4 space-y-2", bgCls)}>
-                  <div className="flex items-start gap-3">
-                    <span className={clsx("text-sm font-bold flex-shrink-0 w-5 text-center mt-0.5", iconCls)}>{icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-gray-800 dark:text-white leading-tight">{k.ad}</p>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {k.etki < 0 && (
-                            <span className="text-xs font-bold text-red-600 dark:text-red-400 tabular-nums">{k.etki} puan</span>
-                          )}
-                          <span className={clsx(
-                            "text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase",
-                            k.agirlik === "kritik" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
-                            k.agirlik === "orta"   ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
-                                                     "bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-white/50"
-                          )}>
-                            {k.agirlik}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-600 dark:text-white/60 mt-1 leading-relaxed">{k.aciklama}</p>
-                    </div>
-                  </div>
-
-                  {/* Sayısal değerler (varsa) */}
-                  {(k.deger1 != null || k.deger2 != null) && (
-                    <div className="ml-8 flex flex-wrap gap-3">
-                      {k.deger1 != null && (
-                        <div className="bg-white/60 dark:bg-white/5 rounded-lg px-3 py-1.5">
-                          <p className="text-[10px] text-gray-400 dark:text-white/30">{k.deger1Etiket ?? "Değer 1"}</p>
-                          <p className="text-sm font-bold tabular-nums text-gray-800 dark:text-white">{k.deger1.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺</p>
-                        </div>
-                      )}
-                      {k.deger2 != null && (
-                        <div className="bg-white/60 dark:bg-white/5 rounded-lg px-3 py-1.5">
-                          <p className="text-[10px] text-gray-400 dark:text-white/30">{k.deger2Etiket ?? "Değer 2"}</p>
-                          <p className="text-sm font-bold tabular-nums text-gray-800 dark:text-white">{k.deger2.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺</p>
-                        </div>
-                      )}
-                      {k.farkYuzde != null && (
-                        <div className="bg-white/60 dark:bg-white/5 rounded-lg px-3 py-1.5">
-                          <p className="text-[10px] text-gray-400 dark:text-white/30">Fark</p>
-                          <p className="text-sm font-bold tabular-nums text-gray-800 dark:text-white">%{k.farkYuzde.toFixed(1)}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Neden önemli — expandable */}
-                  {k.aciklamaDetay && (
-                    <div className="ml-8">
-                      <button
-                        onClick={() => setExpanded(prev => ({ ...prev, [i]: !isOpen }))}
-                        className="text-[10px] text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60 underline underline-offset-2 transition-colors"
-                      >
-                        {isOpen ? "Açıklamayı gizle" : "Neden önemli?"}
-                      </button>
-                      {isOpen && (
-                        <p className="mt-1.5 text-xs text-gray-500 dark:text-white/40 leading-relaxed bg-white/50 dark:bg-white/5 rounded-lg p-3">
-                          {k.aciklamaDetay}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Eylemler */}
-          <div className="flex gap-3">
-            <button
-              onClick={xlIndir}
-              disabled={xlLoading}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold text-sm transition-colors"
-            >
-              {xlLoading ? <Spinner size={4} /> : <IconDownload />}
-              Excel İndir
-            </button>
-            <button
-              onClick={reset}
-              className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/60 font-semibold text-sm hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors"
-            >
-              Yeni Analiz
-            </button>
-          </div>
-
-          {/* Dipnot */}
-          <p className="text-[10px] text-gray-400 dark:text-white/25 italic text-center">
-            Vezin Tutarlılık Skoru resmî bir GİB değerlendirmesi değildir; iç kontrol amaçlıdır.
-          </p>
-        </div>
-      )}
-
-      {tutarlilik?.hesaplanamadi && (
-        <div className="rounded-2xl border border-red-200 dark:border-red-700/30 p-5 text-center space-y-2">
-          <p className="text-sm font-bold text-red-600 dark:text-red-400">Skor Hesaplanamadı</p>
-          <p className="text-xs text-gray-500 dark:text-white/40">Belgeden yeterli veri çıkarılamadı. Farklı bir PDF deneyin.</p>
-          <button onClick={reset} className="mt-2 text-xs text-[#F57C28] underline">Yeni Analiz</button>
-        </div>
-      )}
-
-      {/* ── Sabit bilgi bölümü ── */}
-      <div className="rounded-2xl border border-gray-200 dark:border-white/10 overflow-hidden">
-        <div className="px-5 py-3 bg-gray-50 dark:bg-white/[0.04] border-b border-gray-200 dark:border-white/10">
-          <h3 className="text-sm font-bold text-gray-800 dark:text-white">Skor Nasıl Hesaplanır?</h3>
-        </div>
-        <div className="p-5 space-y-4">
-          {/* Puan tablosu */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-gray-100 dark:border-white/5">
-                  <th className="text-left py-2 text-gray-400 dark:text-white/30 font-semibold uppercase tracking-wider">Ağırlık</th>
-                  <th className="text-center py-2 text-gray-400 dark:text-white/30 font-semibold uppercase tracking-wider">Puan Etkisi</th>
-                  <th className="text-left py-2 text-gray-400 dark:text-white/30 font-semibold uppercase tracking-wider">Kontrol Örnekleri</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-white/5">
-                {[
-                  { agirlik: "Kritik", etki: "−15", ornekler: "Matrah × KDV oranı tutarsızlığı, Ödenecek/Devreden çelişkisi", cls: "text-red-600 dark:text-red-400" },
-                  { agirlik: "Orta",   etki: "−10", ornekler: "KDV toplamlar farkı, Muhtasar ↔ SGK farkı, Vergi no tutarsızlığı", cls: "text-amber-600 dark:text-amber-400" },
-                  { agirlik: "Hafif",  etki: "−5",  ornekler: "VKN/TCKN format hatası, Dönem formatı, Anormal tutar", cls: "text-gray-500 dark:text-white/40" },
-                ].map(row => (
-                  <tr key={row.agirlik} className="py-1">
-                    <td className={clsx("py-2 font-semibold", row.cls)}>{row.agirlik}</td>
-                    <td className="py-2 text-center font-bold tabular-nums text-red-500">{row.etki}</td>
-                    <td className="py-2 text-gray-500 dark:text-white/50">{row.ornekler}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Renk aralıkları */}
-          <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wider">Risk Seviyeleri</p>
-            {[
-              { label: "Düşük Risk",           range: "85 – 100", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300", desc: "Beyanname tutarlı görünüyor, büyük sapma tespit edilmedi." },
-              { label: "Gözden Geçirilmeli",   range: "60 – 84",  cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",     desc: "Bazı uyarılar var; beyanname gönderilmeden önce kontrol edin." },
-              { label: "Yüksek Risk",           range: "0 – 59",   cls: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",             desc: "Kritik tutarsızlıklar mevcut; mutlaka düzeltme yapın." },
-            ].map(r => (
-              <div key={r.label} className="flex items-center gap-3">
-                <span className={clsx("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold min-w-[160px]", r.cls)}>
-                  {r.label} ({r.range})
-                </span>
-                <span className="text-xs text-gray-500 dark:text-white/40">{r.desc}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Dipnot */}
-          <p className="text-[10px] text-gray-400 dark:text-white/25 italic border-t border-gray-100 dark:border-white/5 pt-3">
-            Vezin Tutarlılık Skoru resmî bir GİB değerlendirmesi değildir; iç kontrol amaçlıdır.
-            Skor 100'den başlar, tespit edilen her sorun için ağırlığına göre puan düşürülür.
-          </p>
-        </div>
-      </div>
-
-    </div>
-  );
-}
-
 // ── KDV İade Listeleri wrapper (inner sub-tabs) ───────────────────────────
 
 type KdvSubTab = "indirilen" | "yuklenilen" | "satis";
@@ -3126,31 +2748,24 @@ function KdvIadePanel() {
 
 export default function BeyannameUploader() {
   const [tab, setTab] = useState<Tab>("tekli");
-  const [preloadedTutarlilik, setPreloadedTutarlilik] = useState<TutarlilikSonuc | null>(null);
-
-  function goToDetayliAnaliz(t: TutarlilikSonuc) {
-    setPreloadedTutarlilik(t);
-    setTab("tutarlilik-analizi");
-  }
 
   return (
     <div className="space-y-6">
       {/* Tab bar */}
-      <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
+      <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
         {(
           [
-            { id: "tekli",               label: "Tekli Dönüştürme" },
-            { id: "tam-tasdik",          label: "Tam Tasdik"       },
-            { id: "capraz-kontrol",      label: "Çapraz Kontrol"   },
-            { id: "tutarlilik-analizi",  label: "Tutarlılık"       },
-            { id: "kdv-iade",            label: "KDV İade"         },
+            { id: "tekli",          label: "Tekli Dönüştürme" },
+            { id: "tam-tasdik",     label: "Tam Tasdik Özeti" },
+            { id: "capraz-kontrol", label: "Çapraz Kontrol"   },
+            { id: "kdv-iade",       label: "KDV İade Listesi" },
           ] as const
         ).map(({ id, label }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             className={clsx(
-              "flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap",
+              "flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
               tab === id
                 ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm"
                 : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60",
@@ -3161,16 +2776,10 @@ export default function BeyannameUploader() {
         ))}
       </div>
 
-      {tab === "tekli"              && <TekliPanel onDetayliAnaliz={goToDetayliAnaliz} />}
-      {tab === "tam-tasdik"         && <TamTasdikPanel />}
-      {tab === "capraz-kontrol"     && <CaprazKontrolPanel />}
-      {tab === "tutarlilik-analizi" && (
-        <TutarlilikAnaliziPanel
-          preloaded={preloadedTutarlilik}
-          onClearPreload={() => setPreloadedTutarlilik(null)}
-        />
-      )}
-      {tab === "kdv-iade"           && <KdvIadePanel />}
+      {tab === "tekli"          && <TekliPanel />}
+      {tab === "tam-tasdik"     && <TamTasdikPanel />}
+      {tab === "capraz-kontrol" && <CaprazKontrolPanel />}
+      {tab === "kdv-iade"       && <KdvIadePanel />}
     </div>
   );
 }

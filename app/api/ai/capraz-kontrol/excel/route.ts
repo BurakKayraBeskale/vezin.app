@@ -284,9 +284,65 @@ async function buildExcel(extractions: Extraction[], checks: CheckResult[], fail
     r1++;
   }
 
+  // ── Tutarlılık Skoru bloğu (ÖZET sayfasında) ─────────────────────────────
+  if (tutarlilik && !tutarlilik.hesaplanamadi) {
+    r1 += 2;
+    secHeader(ws1, r1, "Tutarlılık Skoru", 2);
+    r1++;
+
+    const { skor, riskEtiketi, risk, kontroller: tk } = tutarlilik;
+    const [scoreBg, scoreFg] =
+      risk === "DUSUK_RISK"         ? [C.GREEN,  C.GREEN_DRK]  :
+      risk === "GOZDEN_GECIRILMELI" ? [C.YELLOW, C.YELLOW_DRK] :
+                                      [C.RED,    C.RED_DARK];
+
+    const scoreRow = ws1.getRow(r1);
+    const sc1 = scoreRow.getCell(1);
+    sc1.value = skor;
+    sc1.fill  = solidFill(scoreBg);
+    sc1.font  = { bold: true, size: 22, color: { argb: scoreFg } };
+    sc1.alignment = { horizontal: "center", vertical: "middle" };
+    const sc2 = scoreRow.getCell(2);
+    sc2.value = `${riskEtiketi} — 100 üzerinden ${skor} puan`;
+    sc2.fill  = solidFill(scoreBg);
+    sc2.font  = { bold: true, size: 12, color: { argb: scoreFg } };
+    sc2.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    applyBorders(scoreRow, 2);
+    ws1.getRow(r1).height = 36;
+    r1++;
+
+    const gectiS     = tk.filter((k: any) => k.durum === "GECTI").length;
+    const basarisizS = tk.filter((k: any) => k.durum === "BASARISIZ").length;
+    const bilgiS     = tk.filter((k: any) => k.durum === "BILGI").length;
+
+    for (const [label, value, bg] of [
+      ["Geçen Kontrol", String(gectiS),     C.GREEN]  as const,
+      ["Sorun Tespit",  String(basarisizS), C.RED]    as const,
+      ["Bilgi Notu",    String(bilgiS),     C.YELLOW] as const,
+    ]) {
+      const row = ws1.getRow(r1);
+      const lc  = row.getCell(1);
+      lc.value = label; lc.fill = solidFill(bg);
+      lc.font  = { bold: true, size: 10 };
+      lc.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+      const vc  = row.getCell(2);
+      vc.value = value; vc.fill = solidFill(bg);
+      vc.font  = { bold: true, size: 11 };
+      vc.alignment = { horizontal: "center", vertical: "middle" };
+      applyBorders(row, 2);
+      row.height = 18;
+      r1++;
+    }
+  }
+
   // ── SHEET 2 — KONTROL DETAYI ──────────────────────────────────────────────
   const ws2 = wb.addWorksheet("KONTROL DETAYI");
   ws2.pageSetup = { paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, orientation: "landscape" };
+  const hasTutarlilik = tutarlilik && !tutarlilik.hesaplanamadi;
+  const tutarlilikMap: Map<string, any> = hasTutarlilik
+    ? new Map(tutarlilik.kontroller.map((k: any) => [k.ad, k]))
+    : new Map();
+  const colCount2 = hasTutarlilik ? 9 : 7;
   ws2.columns = [
     { width: 36 }, // Kontrol Adı
     { width: 36 }, // Açıklama
@@ -295,10 +351,14 @@ async function buildExcel(extractions: Extraction[], checks: CheckResult[], fail
     { width: 14 }, // Fark
     { width: 10 }, // Fark %
     { width: 10 }, // Sonuç
+    ...(hasTutarlilik ? [{ width: 10 }, { width: 52 }] : []),
   ];
-  mainHeader(ws2, "KONTROL DETAYI", 7);
+  mainHeader(ws2, "KONTROL DETAYI", colCount2);
 
-  const colHeaders2 = ["Kontrol Adı", "Açıklama", "Değer 1", "Değer 2", "Fark (₺)", "Fark %", "Sonuç"];
+  const colHeaders2 = [
+    "Kontrol Adı", "Açıklama", "Değer 1", "Değer 2", "Fark (₺)", "Fark %", "Sonuç",
+    ...(hasTutarlilik ? ["Puan Etkisi", "Neden Önemli"] : []),
+  ];
   const chRow2 = ws2.getRow(4);
   colHeaders2.forEach((h, i) => {
     const c = chRow2.getCell(i + 1);
@@ -320,12 +380,12 @@ async function buildExcel(extractions: Extraction[], checks: CheckResult[], fail
     row.getCell(1).value = "ÇIKARIM BAŞARISIZ";
     row.getCell(2).value = `${fe.dosya_adi}: ${fe.failedReason ?? "Veri çıkarılamadı"}`;
     row.getCell(7).value = "HATA";
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 1; i <= colCount2; i++) {
       row.getCell(i).fill = solidFill(C.RED);
       row.getCell(i).font = { size: 10, color: { argb: C.RED_DARK }, bold: i === 1 || i === 7 };
       row.getCell(i).alignment = {
         horizontal: i >= 3 && i <= 6 ? "right" : (i === 7 ? "center" : "left"),
-        vertical: "middle", wrapText: i <= 2, indent: i <= 2 ? 1 : 0,
+        vertical: "middle", wrapText: i <= 2 || i === 9, indent: i <= 2 ? 1 : 0,
       };
       row.getCell(i).border = {
         top: { style: "hair" }, left: { style: "thin" },
@@ -340,6 +400,7 @@ async function buildExcel(extractions: Extraction[], checks: CheckResult[], fail
     const bg = statusFill(check.status);
     const fc = statusFontColor(check.status);
     const row = ws2.getRow(r2);
+    const skorKontrol = tutarlilikMap.get(check.name);
 
     row.getCell(1).value = check.name;
     row.getCell(2).value = check.detail;
@@ -348,25 +409,29 @@ async function buildExcel(extractions: Extraction[], checks: CheckResult[], fail
     row.getCell(5).value = check.diff   ?? null;
     row.getCell(6).value = check.diffPercent != null ? (check.diffPercent / 100) : null;
     row.getCell(7).value = check.status;
+    if (hasTutarlilik) {
+      row.getCell(8).value = skorKontrol?.etki !== 0 ? (skorKontrol?.etki ?? null) : null;
+      row.getCell(9).value = skorKontrol?.aciklamaDetay ?? skorKontrol?.aciklama ?? null;
+    }
 
     [3, 4, 5].forEach(i => { if (row.getCell(i).value != null) row.getCell(i).numFmt = C.NUM_FMT; });
     if (row.getCell(6).value != null) row.getCell(6).numFmt = "0.0%";
 
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 1; i <= colCount2; i++) {
       row.getCell(i).fill = bg;
       row.getCell(i).font = { size: 10, color: { argb: i === 7 ? fc : "FF000000" }, bold: i === 7 };
       row.getCell(i).alignment = {
-        horizontal: i >= 3 && i <= 6 ? "right" : (i === 7 ? "center" : "left"),
+        horizontal: i >= 3 && i <= 6 ? "right" : (i === 7 || i === 8 ? "center" : "left"),
         vertical: "middle",
-        wrapText: i <= 2,
-        indent: i <= 2 ? 1 : 0,
+        wrapText: i <= 2 || i === 9,
+        indent: i <= 2 || i === 9 ? 1 : 0,
       };
       row.getCell(i).border = {
         top: { style: "hair" }, left: { style: "thin" },
         bottom: { style: "hair" }, right: { style: "thin" },
       };
     }
-    row.height = 22;
+    row.height = hasTutarlilik && skorKontrol?.aciklamaDetay ? 40 : 22;
     r2++;
   }
 

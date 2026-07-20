@@ -746,7 +746,7 @@ export function tutarlilikSayfasiEkle(wb: any, tutarlilik: TutarlilikSonuc): voi
     row.getCell(1).value = k.ad;
     row.getCell(2).value = k.durum === "GECTI" ? "UYGUN" : k.durum === "BASARISIZ" ? "BAŞARISIZ" : "BİLGİ";
     row.getCell(3).value = k.etki !== 0 ? k.etki : "";
-    row.getCell(4).value = k.aciklama;
+    row.getCell(4).value = k.aciklamaDetay ?? k.aciklama;
 
     for (let i = 1; i <= 4; i++) {
       const c = row.getCell(i);
