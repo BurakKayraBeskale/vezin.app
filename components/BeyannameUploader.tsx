@@ -2752,7 +2752,7 @@ export default function BeyannameUploader() {
   return (
     <div className="space-y-6">
       {/* Tab bar */}
-      <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
+      <div className="flex gap-1 p-1 rounded-xl bg-[#071225] dark:bg-white/[0.06]">
         {(
           [
             { id: "tekli",          label: "Tekli Dönüştürme" },
@@ -2768,7 +2768,7 @@ export default function BeyannameUploader() {
               "flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all",
               tab === id
                 ? "bg-white dark:bg-white/10 text-[#F57C28] shadow-sm"
-                : "text-gray-500 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/60",
+                : "text-blue-200 dark:text-white/40 hover:text-white dark:hover:text-white/60",
             )}
           >
             {label}
