@@ -5,6 +5,7 @@ import clsx from "clsx";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
+import KarsitIncelemePanel from "./KarsitIncelemePanel";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,7 @@ interface BeyannameResult {
   ozet?: string;
 }
 
-type Tab = "tekli" | "tam-tasdik" | "capraz-kontrol" | "kdv-iade";
+type Tab = "tekli" | "tam-tasdik" | "capraz-kontrol" | "kdv-iade" | "karsit-inceleme";
 
 // ── KDV İade types ─────────────────────────────────────────────────────────
 
@@ -2746,19 +2747,26 @@ function KdvIadePanel() {
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export default function BeyannameUploader() {
+export default function BeyannameUploader({
+  userRole,
+  userDepartment,
+}: {
+  userRole?: string;
+  userDepartment?: string;
+}) {
   const [tab, setTab] = useState<Tab>("tekli");
 
   return (
     <div className="space-y-6">
       {/* Tab bar */}
-      <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
+      <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-gray-100 dark:bg-white/[0.06]">
         {(
           [
-            { id: "tekli",          label: "Tekli Dönüştürme" },
-            { id: "tam-tasdik",     label: "Tam Tasdik Özeti" },
-            { id: "capraz-kontrol", label: "Çapraz Kontrol"   },
-            { id: "kdv-iade",       label: "KDV İade Listesi" },
+            { id: "tekli",              label: "Tekli Dönüştürme"  },
+            { id: "tam-tasdik",         label: "Tam Tasdik Özeti"  },
+            { id: "capraz-kontrol",     label: "Çapraz Kontrol"    },
+            { id: "kdv-iade",           label: "KDV İade Listesi"  },
+            { id: "karsit-inceleme",    label: "Karşıt İnceleme"   },
           ] as const
         ).map(({ id, label }) => (
           <button
@@ -2776,10 +2784,11 @@ export default function BeyannameUploader() {
         ))}
       </div>
 
-      {tab === "tekli"          && <TekliPanel />}
-      {tab === "tam-tasdik"     && <TamTasdikPanel />}
-      {tab === "capraz-kontrol" && <CaprazKontrolPanel />}
-      {tab === "kdv-iade"       && <KdvIadePanel />}
+      {tab === "tekli"           && <TekliPanel />}
+      {tab === "tam-tasdik"      && <TamTasdikPanel />}
+      {tab === "capraz-kontrol"  && <CaprazKontrolPanel />}
+      {tab === "kdv-iade"        && <KdvIadePanel />}
+      {tab === "karsit-inceleme" && <KarsitIncelemePanel />}
     </div>
   );
 }

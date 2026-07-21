@@ -39,6 +39,7 @@ model User {
   taskComments       TaskComment[]
   loginLogs          LoginLog[]
   companyAssignments CompanyAssignment[]
+  karsitIncelemeler  KarsitInceleme[]
 }
 
 model Notification {
@@ -282,4 +283,26 @@ model AiPrompt {
   prompt    String
   updatedAt DateTime @updatedAt
   updatedBy String?
+}
+
+// durum: "HAZIRLANDI" | "DIJITAL_VD_GIRILDI" | "MUKELLEF_CEVAPLADI" | "ONAYLANDI" | "PASIF_TALEP"
+model KarsitInceleme {
+  id             String    @id @default(cuid())
+  mukellefUnvan  String
+  mukellefVkn    String
+  mukellefVD     String
+  konu           String    // "KDV_IADE" | "TAM_TASDIK"
+  donemBas       String    // "YYYY/MM"
+  donemBit       String    // "YYYY/MM"
+  durum          String    @default("HAZIRLANDI")
+  gonderimTarihi DateTime?
+  ymmAdi         String    @default("")
+  ymmSicilNo     String    @default("")
+  ymmVergiNo     String    @default("")
+  faturalar      String    @default("[]")  // JSON array of KarsitFatura
+  notlar         String    @default("")
+  olusturanId    String
+  olusturan      User      @relation(fields: [olusturanId], references: [id])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
