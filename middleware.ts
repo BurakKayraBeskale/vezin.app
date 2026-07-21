@@ -22,6 +22,16 @@ export default withAuth(
     ) {
       return NextResponse.redirect(new URL("/", req.url));
     }
+
+    // Karşıt İnceleme — sadece Admin, YMM, Muhasebe
+    if (
+      pathname.startsWith("/karsit-inceleme") &&
+      token?.role !== "ADMIN" &&
+      (token as any)?.department !== "YEMINLI_MALI_MUSAVIR" &&
+      (token as any)?.department !== "MUHASEBE"
+    ) {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
   },
   {
     callbacks: {

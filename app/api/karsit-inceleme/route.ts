@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 function isAllowed(role: string, department: string) {
-  return role === "ADMIN" || department === "YEMINLI_MALI_MUSAVIR";
+  return role === "ADMIN" || department === "YEMINLI_MALI_MUSAVIR" || department === "MUHASEBE";
 }
 
 export async function GET(req: NextRequest) {
