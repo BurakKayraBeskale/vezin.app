@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 const VALID_DEPARTMENTS = ["OUTSOURCE", "BAGIMSIZ_DENETIM", "MUHASEBE", "YEMINLI_MALI_MUSAVIR", "ADMIN"];
 

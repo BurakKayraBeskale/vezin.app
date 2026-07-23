@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import KarsitIncelemePanel from "@/components/KarsitIncelemePanel";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export default async function KarsitIncelemePage() {
   const session = await getServerSession(authOptions);

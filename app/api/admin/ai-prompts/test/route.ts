@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;

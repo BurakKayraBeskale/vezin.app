@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_PROMPTS, AiModule } from "@/lib/ai-prompts";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 const VALID_MODULES: AiModule[] = ["BEYANNAME", "TXT_EXCEL", "KARSILASTIRMA", "TARAYICI", "METIN_DUZENLEME", "MAIL_TASLAGI", "BELGE_OZETI"];
 

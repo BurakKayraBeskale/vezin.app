@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
 import { extractText } from "unpdf";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export const dynamic = "force-dynamic";
 

@@ -4,6 +4,7 @@ import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
 import { pdfToBase64Images, imageContent, parseJsonContent } from "@/lib/pdf-vision-extractor";
 import { hesaplaTutarlilik, skorKontrolToCheckResult } from "@/lib/tutarlilik-skoru";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;

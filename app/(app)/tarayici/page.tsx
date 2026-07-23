@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import GorselToExcel from "@/components/GorselToExcel";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export default async function TarayiciPage() {
   const session = await getServerSession(authOptions);

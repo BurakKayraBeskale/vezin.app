@@ -1,5 +1,6 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export default withAuth(
   function middleware(req) {
@@ -17,24 +18,27 @@ export default withAuth(
 
     // Admin-only routes
     if (
+      !BYPASS_AUTH_ROLES &&
       pathname.startsWith("/admin") &&
       token?.role !== "ADMIN"
     ) {
       return NextResponse.redirect(new URL("/", req.url));
     }
 
-    // Beyanname — GEÇİCİ: tüm giriş yapmış kullanıcılara açık
-    // TODO: Aşağıdaki bloğu uncomment ederek Admin+YMM kısıtına geri dön
-    // if (
-    //   pathname.startsWith("/beyanname") &&
-    //   token?.role !== "ADMIN" &&
-    //   (token as any)?.department !== "YEMINLI_MALI_MUSAVIR"
-    // ) {
-    //   return NextResponse.redirect(new URL("/", req.url));
-    // }
+    // Beyanname — Admin ve YMM
+    // TODO: BYPASS_AUTH_ROLES = false yapıldığında bu blok devreye girer
+    if (
+      !BYPASS_AUTH_ROLES &&
+      pathname.startsWith("/beyanname") &&
+      token?.role !== "ADMIN" &&
+      (token as any)?.department !== "YEMINLI_MALI_MUSAVIR"
+    ) {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
 
     // Karşıt İnceleme — sadece Admin, YMM, Muhasebe
     if (
+      !BYPASS_AUTH_ROLES &&
       pathname.startsWith("/karsit-inceleme") &&
       token?.role !== "ADMIN" &&
       (token as any)?.department !== "YEMINLI_MALI_MUSAVIR" &&

@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import MetricCard from "@/components/MetricCard";
 import PerformanceChart from "@/components/PerformanceChart";
 import DashboardCalendar from "@/components/DashboardCalendar";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 interface TasksByStatus { todo: number; inProgress: number; review: number; done: number; }
 

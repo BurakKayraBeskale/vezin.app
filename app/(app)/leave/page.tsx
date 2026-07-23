@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import clsx from "clsx";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 type LeaveType = "ANNUAL" | "EXCUSE" | "UNPAID";
 type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import JSZip from "jszip";
 import path from "path";
 import fs from "fs";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export const dynamic = "force-dynamic";
 

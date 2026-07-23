@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 interface SidebarProps {
   userName: string;
@@ -253,7 +254,7 @@ export default function Sidebar({
           }
           active={pathname === "/meetings"}
         />
-        {(userRole === "ADMIN" || userDepartment === "BAGIMSIZ_DENETIM") && (
+        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "BAGIMSIZ_DENETIM") && (
           <NavLink
             href="/companies"
             label="Firmalar"
@@ -266,7 +267,7 @@ export default function Sidebar({
           />
         )}
 
-        {(userRole === "EMPLOYEE" || userRole === "MANAGER") && employeeExtraNavItems.map((item) => (
+        {(BYPASS_AUTH_ROLES || userRole === "EMPLOYEE" || userRole === "MANAGER") && employeeExtraNavItems.map((item) => (
           <NavLink
             key={item.href}
             href={item.href}
@@ -306,7 +307,7 @@ export default function Sidebar({
           active={pathname === "/mail-taslagi"}
         />
 
-        {(userRole === "ADMIN" || userDepartment === "BAGIMSIZ_DENETIM") && (
+        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "BAGIMSIZ_DENETIM") && (
           <NavLink
             href="/tarayici"
             label="Tarayıcı"
@@ -319,8 +320,7 @@ export default function Sidebar({
           />
         )}
 
-        {/* GEÇİCİ: tüm kullanıcılara açık — TODO: (userRole === "ADMIN" || userDepartment === "YEMINLI_MALI_MUSAVIR") koşuluna geri dön */}
-        {true && (
+        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
           <NavLink
             href="/beyanname"
             label="Beyanname"
@@ -333,7 +333,7 @@ export default function Sidebar({
           />
         )}
 
-        {(userRole === "ADMIN" || userDepartment === "YEMINLI_MALI_MUSAVIR" || userDepartment === "MUHASEBE") && (
+        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "YEMINLI_MALI_MUSAVIR" || userDepartment === "MUHASEBE") && (
           <NavLink
             href="/karsit-inceleme"
             label="Karşıt İnceleme"
@@ -346,7 +346,7 @@ export default function Sidebar({
           />
         )}
 
-        {(userRole === "ADMIN" || userDepartment === "MUHASEBE" || userDepartment === "BAGIMSIZ_DENETIM" || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
+        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "MUHASEBE" || userDepartment === "BAGIMSIZ_DENETIM" || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
           <NavLink
             href="/karsilastirma"
             label="Karşılaştırma"
@@ -359,7 +359,7 @@ export default function Sidebar({
           />
         )}
 
-        {userRole === "ADMIN" && (
+        {(BYPASS_AUTH_ROLES || userRole === "ADMIN") && (
           <>
             <div className="pt-3 pb-1">
               <p className="px-3 text-[9px] font-semibold text-white/25 uppercase tracking-widest">

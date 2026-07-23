@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useSession } from "next-auth/react";
 import clsx from "clsx";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 interface Template {
   id: string;

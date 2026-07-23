@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import KanbanBoard from "@/components/KanbanBoard";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export const dynamic = "force-dynamic";
 

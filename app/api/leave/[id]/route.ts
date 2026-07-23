@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export async function DELETE(
   _req: NextRequest,
