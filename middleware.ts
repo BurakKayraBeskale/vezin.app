@@ -17,8 +17,17 @@ export default withAuth(
 
     // Admin-only routes
     if (
-      (pathname.startsWith("/admin") || pathname.startsWith("/beyanname")) &&
+      pathname.startsWith("/admin") &&
       token?.role !== "ADMIN"
+    ) {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
+
+    // Beyanname — Admin ve YMM
+    if (
+      pathname.startsWith("/beyanname") &&
+      token?.role !== "ADMIN" &&
+      (token as any)?.department !== "YEMINLI_MALI_MUSAVIR"
     ) {
       return NextResponse.redirect(new URL("/", req.url));
     }

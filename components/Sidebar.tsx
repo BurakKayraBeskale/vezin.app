@@ -319,7 +319,7 @@ export default function Sidebar({
           />
         )}
 
-        {userRole === "ADMIN" && (
+        {(userRole === "ADMIN" || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
           <NavLink
             href="/beyanname"
             label="Beyanname"
