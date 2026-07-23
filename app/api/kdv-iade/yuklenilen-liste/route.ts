@@ -11,145 +11,150 @@ function solidFill(argb: string) {
   return { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb } };
 }
 
-const ORANGE    = "FFF57C28";
-const DARK_BLUE = "FF1F3864";
-const WHITE     = "FFFFFFFF";
-const GRAY_LT   = "FFF5F5F5";
-const NUM_FMT   = "#,##0.00";
+const C = {
+  ORANGE:    "FFF57C28",
+  ORANGE_LT: "FFFFF3E8",
+  NAVY:      "FF1E2235",
+  GRAY_LT:   "FFF0F0F0",
+  WHITE:     "FFFFFFFF",
+  NUM_FMT:   '#,##0.00',
+};
 
-// ── GİB column definitions ─────────────────────────────────────────────────
+// ── Sütun tanımları ────────────────────────────────────────────────────────
 
-const COLUMNS_MANUEL = [
-  { header: "Sıra No",                                                    width: 8  },
-  { header: "Alış Faturasının Tarihi",                                    width: 16 },
-  { header: "Alış Faturasının Serisi",                                    width: 12 },
-  { header: "Alış Faturasının Sıra No'su",                               width: 18 },
-  { header: "Satıcının Adı Soyadı / Unvanı",                             width: 40 },
-  { header: "Satıcının Vergi Kimlik / TC Kimlik Numarası",               width: 25 },
-  { header: "Alınan Mal ve/veya Hizmetin Cinsi",                         width: 35 },
-  { header: "Alınan Mal ve/veya Hizmetin Miktarı",                       width: 14 },
-  { header: "Alınan Mal ve/veya Hizmetin KDV Hariç Tutarı",             width: 22 },
-  { header: "KDV'si",                                                     width: 16 },
-  { header: "Yüklenim Türü",                                              width: 20 },
-  { header: "GGB Tescil No'su",                                           width: 16 },
-  { header: "Kaynak",                                                      width: 12 },
+const SPACER_WIDTH = 3;
+
+const COLS_MANUEL = [
+  { header: "Sıra No",                                                   width: 7  },
+  { header: "Alış Faturasının Tarihi",                                   width: 14 },
+  { header: "Alış Faturasının Serisi",                                   width: 12 },
+  { header: "Alış Faturasının Sıra No'su",                              width: 16 },
+  { header: "Satıcının Adı-Soyadı / Ünvanı",                            width: 36 },
+  { header: "Satıcının Vergi Kimlik Numarası / TC Kimlik Numarası",      width: 22 },
+  { header: "Alınan Mal ve/veya Hizmetin Cinsi",                        width: 30 },
+  { header: "Alınan Mal ve/veya Hizmetin Miktarı",                      width: 14 },
+  { header: "Alınan Mal ve/veya Hizmetin KDV Hariç Tutarı",             width: 20 },
+  { header: "KDV'si",                                                    width: 16 },
+  { header: "Yüklenim Türü",                                             width: 20 },
+  { header: "GGB Tescil No'su",                                          width: 16 },
+  { header: "Kaynak",                                                    width: 12 },
 ];
 
-const COLUMNS_ORAN = [
-  { header: "Sıra No",                                                    width: 8  },
-  { header: "Alış Faturasının Tarihi",                                    width: 16 },
-  { header: "Alış Faturasının Serisi",                                    width: 12 },
-  { header: "Alış Faturasının Sıra No'su",                               width: 18 },
-  { header: "Satıcının Adı Soyadı / Unvanı",                             width: 40 },
-  { header: "Satıcının Vergi Kimlik / TC Kimlik Numarası",               width: 25 },
-  { header: "Alınan Mal ve/veya Hizmetin Cinsi",                         width: 35 },
-  { header: "Alınan Mal ve/veya Hizmetin Miktarı",                       width: 14 },
-  { header: "Alınan Mal ve/veya Hizmetin KDV Hariç Tutarı",             width: 22 },
-  { header: "KDV'si",                                                     width: 16 },
-  { header: "Yüklenilen KDV\n(Orana Göre)",                              width: 18 },
-  { header: "Yüklenim Türü",                                              width: 20 },
-  { header: "GGB Tescil No'su",                                           width: 16 },
-  { header: "Kaynak",                                                      width: 12 },
+const COLS_ORAN = [
+  { header: "Sıra No",                                                   width: 7  },
+  { header: "Alış Faturasının Tarihi",                                   width: 14 },
+  { header: "Alış Faturasının Serisi",                                   width: 12 },
+  { header: "Alış Faturasının Sıra No'su",                              width: 16 },
+  { header: "Satıcının Adı-Soyadı / Ünvanı",                            width: 36 },
+  { header: "Satıcının Vergi Kimlik Numarası / TC Kimlik Numarası",      width: 22 },
+  { header: "Alınan Mal ve/veya Hizmetin Cinsi",                        width: 30 },
+  { header: "Alınan Mal ve/veya Hizmetin Miktarı",                      width: 14 },
+  { header: "Alınan Mal ve/veya Hizmetin KDV Hariç Tutarı",             width: 20 },
+  { header: "KDV'si",                                                    width: 16 },
+  { header: "Yüklenilen KDV\n(Orana Göre)",                             width: 18 },
+  { header: "Yüklenim Türü",                                             width: 20 },
+  { header: "GGB Tescil No'su",                                          width: 16 },
+  { header: "Kaynak",                                                    width: 12 },
 ];
 
-// ── Excel builder ──────────────────────────────────────────────────────────
+// ── Excel oluşturucu ───────────────────────────────────────────────────────
 
 async function buildExcel(
   invoices: ParsedInvoice[],
   method: "manuel" | "oran",
   yuklenimTuru: string,
-  ratio?: number,           // 0–1, only for "oran"
+  ratio?: number,
   toplamHasilat?: number,
   iadeIslemTutari?: number,
 ): Promise<Uint8Array> {
   const ExcelJS = require("exceljs");
-  const wb      = new ExcelJS.Workbook();
-  wb.creator    = "Vezin";
-  wb.lastModifiedBy = "Vezin";
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Vezin";
 
-  const COLS     = method === "oran" ? COLUMNS_ORAN : COLUMNS_MANUEL;
+  const COLS     = method === "oran" ? COLS_ORAN : COLS_MANUEL;
   const colCount = COLS.length;
-  const lastCol  = String.fromCharCode(64 + colCount); // A=65
+  const lastColIdx  = 1 + colCount; // A=1 spacer, son sütun indexi
+  const lastColLtr  = String.fromCharCode(64 + lastColIdx);
 
   const ws = wb.addWorksheet("Yüklenilen KDV Listesi");
   ws.pageSetup = {
     paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, orientation: "landscape",
   };
 
-  ws.columns = COLS.map(c => ({ width: c.width }));
+  // A: spacer, B…son: veri
+  ws.columns = [
+    { width: SPACER_WIDTH },
+    ...COLS.map(col => ({ width: col.width })),
+  ];
 
-  // ── Row 1: Main title ──
-  ws.mergeCells(`A1:${lastCol}1`);
-  const titleCell = ws.getCell("A1");
-  titleCell.value     = "GİB YÜKLENİLEN KDV LİSTESİ";
-  titleCell.fill      = solidFill(ORANGE);
-  titleCell.font      = { bold: true, size: 14, color: { argb: WHITE } };
-  titleCell.alignment = { horizontal: "center", vertical: "middle" };
-  ws.getRow(1).height = 30;
+  // ── Satır 1: boş ─────────────────────────────────────────────────────────
+  ws.getRow(1).height = 6;
 
-  // ── Row 2: Subtitle ──
-  const today   = new Date().toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" });
+  // ── Satır 2: Belge başlığı ────────────────────────────────────────────────
   const methStr = method === "oran"
-    ? `Oranla Dağıtım (Oran: %${((ratio ?? 0) * 100).toFixed(4)})`
-    : "Manuel Seçim";
-  ws.mergeCells(`A2:${lastCol}2`);
-  const subCell = ws.getCell("A2");
-  subCell.value     = `Oluşturulma tarihi: ${today}   |   Toplam fatura: ${invoices.length}   |   ${methStr}`;
-  subCell.fill      = solidFill(DARK_BLUE);
-  subCell.font      = { size: 10, color: { argb: WHITE } };
-  subCell.alignment = { horizontal: "center", vertical: "middle" };
-  ws.getRow(2).height = 18;
+    ? `YÜKLENİLEN KDV LİSTESİ — Oranla Dağıtım (%${((ratio ?? 0) * 100).toFixed(4)})`
+    : "YÜKLENİLEN KDV LİSTESİ";
 
-  // ── Row 3: Column headers ──
-  const hRow = ws.getRow(3);
-  hRow.height = 36;
+  ws.mergeCells(`B2:${lastColLtr}2`);
+  const titleCell = ws.getCell("B2");
+  titleCell.value     = methStr;
+  titleCell.fill      = solidFill(C.NAVY);
+  titleCell.font      = { bold: true, size: 14, color: { argb: C.WHITE } };
+  titleCell.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(2).height = 32;
+
+  // ── Satır 3: boş ayraç ───────────────────────────────────────────────────
+  ws.getRow(3).height = 6;
+
+  // ── Satır 4: Başlık satırı ────────────────────────────────────────────────
+  const hRow = ws.getRow(4);
+  hRow.height = 52;
+
   COLS.forEach((col, i) => {
-    const c = hRow.getCell(i + 1);
+    const c = hRow.getCell(i + 2); // B=2 den başlar
     c.value     = col.header;
-    c.fill      = solidFill(ORANGE);
-    c.font      = { bold: true, size: 9, color: { argb: WHITE } };
+    c.fill      = solidFill(C.ORANGE);
+    c.font      = { bold: true, size: 9, color: { argb: C.WHITE } };
     c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    c.border    = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
+    c.border    = {
+      top: { style: "thin" }, left: { style: "thin" },
+      bottom: { style: "medium" }, right: { style: "thin" },
+    };
   });
 
-  // ── Data rows ──────────────────────────────────────────────────────────────
-  let dataRow = 4;
-  let siraNo  = 0;
+  // ── Satır 5+: veri ────────────────────────────────────────────────────────
+  let dataRowNum   = 5;
+  let siraNo       = 0;
   let totalKdvHaric    = 0;
   let totalKdv         = 0;
   let totalYuklenilen  = 0;
 
-  function addRow(
+  function addDataRow(
     sira: number,
-    tarih: string, seri: string, siraNoInv: string,
+    tarih: string, seri: string, invSiraNo: string,
     saticiUnvan: string, vergiNo: string,
     cins: string, miktar: string,
     kdvHaric: number, kdv: number,
-    yuklenilen: number | null,   // null for "manuel" (no separate column)
+    yuklenilen: number | null,
     tur: string,
     isEven: boolean,
     sourceFile: string,
   ) {
-    const row = ws.getRow(dataRow);
-    const bg  = isEven ? GRAY_LT : WHITE;
-
+    const row = ws.getRow(dataRowNum);
+    const bg  = isEven ? C.ORANGE_LT : C.WHITE;
     const kaynak = sourceFile === "pdf-ai" ? "PDF (AI)" : sourceFile === "excel-import" ? "Excel" : "XML";
 
     const vals: any[] = [
-      sira, tarih, seri, siraNoInv,
+      sira, tarih, seri, invSiraNo,
       saticiUnvan, vergiNo,
       cins, miktar,
       kdvHaric, kdv,
     ];
-
-    if (method === "oran") {
-      vals.push(yuklenilen ?? 0);
-    }
-
-    vals.push(tur, "", kaynak); // Yüklenim Türü, GGB Tescil No, Kaynak
+    if (method === "oran") vals.push(yuklenilen ?? 0);
+    vals.push(tur, "", kaynak);
 
     vals.forEach((v, i) => {
-      const c = row.getCell(i + 1);
+      const c = row.getCell(i + 2); // B=2
       c.value  = v;
       c.fill   = solidFill(bg);
       c.font   = { size: 9 };
@@ -157,113 +162,94 @@ async function buildExcel(
         top: { style: "hair" }, left: { style: "thin" },
         bottom: { style: "hair" }, right: { style: "thin" },
       };
-      const isKdvHaricCol    = i === 8;
-      const isKdvCol         = i === 9;
-      const isYuklenilenCol  = method === "oran" && i === 10;
-      const isKaynakCol      = i === vals.length - 1;
-      if (isKdvHaricCol || isKdvCol || isYuklenilenCol) {
-        c.numFmt    = NUM_FMT;
+      const isKdvHaric   = i === 8;
+      const isKdv        = i === 9;
+      const isYuklCol    = method === "oran" && i === 10;
+      if (isKdvHaric || isKdv || isYuklCol) {
+        c.numFmt    = C.NUM_FMT;
         c.alignment = { horizontal: "right", vertical: "middle" };
       } else if (i === 0) {
         c.alignment = { horizontal: "center", vertical: "middle" };
-      } else if (isKaynakCol) {
+      } else if (i === vals.length - 1) { // Kaynak
         c.alignment = { horizontal: "center", vertical: "middle" };
-        if (kaynak === "PDF (AI)") {
-          c.font = { size: 9, color: { argb: "FF7C3AED" } };
-        }
+        if (kaynak === "PDF (AI)") c.font = { size: 9, color: { argb: "FF7C3AED" } };
       } else {
-        c.alignment = { horizontal: "left", vertical: "middle", wrapText: false };
+        c.alignment = { horizontal: "left", vertical: "middle" };
       }
     });
 
-    row.height = 15;
-    dataRow++;
+    row.height = 16;
+    dataRowNum++;
   }
 
   for (const inv of invoices) {
     siraNo++;
-    const isEven = siraNo % 2 === 0;
-    const tur    = yuklenimTuru || "Doğrudan yüklenim";
-
-    // Always merge (one row per invoice) for yüklenilen list
-    const cinsAll = [...new Set(inv.satirlar.map(l => l.cins).filter(Boolean))].join(", ") || "—";
+    const isEven    = siraNo % 2 === 0;
+    const tur       = yuklenimTuru || "Doğrudan yüklenim";
+    const cinsAll   = [...new Set(inv.satirlar.map(l => l.cins).filter(Boolean))].join(", ") || "—";
     const miktarAll = inv.satirlar.length === 1
       ? `${inv.satirlar[0].miktar}${inv.satirlar[0].birim ? " " + inv.satirlar[0].birim : ""}`
       : `${inv.satirlar.length} kalem`;
-
     const yuklenilen = method === "oran" ? inv.kdvTutari * (ratio ?? 0) : null;
 
-    addRow(
+    addDataRow(
       siraNo, inv.tarihFmt, inv.seri, inv.siraNo,
       inv.saticiUnvan, inv.saticiVergiNo,
       cinsAll, miktarAll,
       inv.kdvHaricTutar, inv.kdvTutari,
-      yuklenilen,
-      tur,
-      isEven,
-      inv.sourceFile,
+      yuklenilen, tur, isEven, inv.sourceFile,
     );
 
-    totalKdvHaric   += inv.kdvHaricTutar;
-    totalKdv        += inv.kdvTutari;
+    totalKdvHaric  += inv.kdvHaricTutar;
+    totalKdv       += inv.kdvTutari;
     if (yuklenilen !== null) totalYuklenilen += yuklenilen;
   }
 
-  // ── Totals row ────────────────────────────────────────────────────────────
-  const summaryColCount = method === "oran" ? 8 : 8; // A–H merged
-  const totRow = ws.getRow(dataRow);
-  ws.mergeCells(`A${dataRow}:H${dataRow}`);
-  const totLabel = totRow.getCell(1);
-  totLabel.value     = "TOPLAM";
-  totLabel.fill      = solidFill(ORANGE);
-  totLabel.font      = { bold: true, size: 10, color: { argb: WHITE } };
-  totLabel.alignment = { horizontal: "right", vertical: "middle", indent: 1 };
-  totLabel.border    = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "thin" } };
+  // ── TOPLAM satırı ─────────────────────────────────────────────────────────
+  dataRowNum++; // boş ara satır
+  const totRow = ws.getRow(dataRowNum);
 
-  const totKdvHaric = totRow.getCell(9);
-  totKdvHaric.value     = totalKdvHaric;
-  totKdvHaric.numFmt    = NUM_FMT;
-  totKdvHaric.fill      = solidFill(ORANGE);
-  totKdvHaric.font      = { bold: true, size: 10, color: { argb: WHITE } };
-  totKdvHaric.alignment = { horizontal: "right", vertical: "middle" };
-  totKdvHaric.border    = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
+  // TOPLAM etiketi: B - Miktar sütunu arası birleştir (8 sütun = B..I, yani col 2..9)
+  ws.mergeCells(`B${dataRowNum}:I${dataRowNum}`);
 
-  const totKdv = totRow.getCell(10);
-  totKdv.value     = totalKdv;
-  totKdv.numFmt    = NUM_FMT;
-  totKdv.fill      = solidFill(ORANGE);
-  totKdv.font      = { bold: true, size: 10, color: { argb: WHITE } };
-  totKdv.alignment = { horizontal: "right", vertical: "middle" };
-  totKdv.border    = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
-
-  if (method === "oran") {
-    const totYuk = totRow.getCell(11);
-    totYuk.value     = totalYuklenilen;
-    totYuk.numFmt    = NUM_FMT;
-    totYuk.fill      = solidFill(ORANGE);
-    totYuk.font      = { bold: true, size: 10, color: { argb: WHITE } };
-    totYuk.alignment = { horizontal: "right", vertical: "middle" };
-    totYuk.border    = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
-    // remaining cols
-    [12, 13, 14].forEach(col => {
-      const c = totRow.getCell(col);
-      c.fill   = solidFill(ORANGE);
-      c.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: col === 14 ? { style: "medium" } : { style: "thin" } };
-    });
-  } else {
-    [11, 12, 13].forEach(col => {
-      const c = totRow.getCell(col);
-      c.fill   = solidFill(ORANGE);
-      c.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: col === 13 ? { style: "medium" } : { style: "thin" } };
-    });
+  function totCell(absColIdx: number, val: any, isNum = false, isLabel = false) {
+    const c = totRow.getCell(absColIdx);
+    c.value  = val;
+    c.fill   = solidFill(C.GRAY_LT);
+    c.font   = { bold: true, size: 10 };
+    c.border = {
+      top:    { style: "double" },
+      left:   { style: "thin" },
+      bottom: { style: "medium" },
+      right:  { style: "thin" },
+    };
+    if (isNum) {
+      c.numFmt    = C.NUM_FMT;
+      c.alignment = { horizontal: "right", vertical: "middle" };
+    } else if (isLabel) {
+      c.alignment = { horizontal: "right", vertical: "middle", indent: 1 };
+    } else {
+      c.alignment = { horizontal: "left", vertical: "middle" };
+    }
   }
-  ws.getRow(dataRow).height = 20;
-  dataRow++;
 
-  // ── Oran summary section (method=oran only) ────────────────────────────
+  // B(2)..I(9) birleşik → "TOPLAM"
+  totCell(2, "TOPLAM", false, true);
+  totCell(10, totalKdvHaric, true); // J = KDV Hariç
+  totCell(11, totalKdv, true);       // K = KDV
+  if (method === "oran") {
+    totCell(12, totalYuklenilen, true); // L = Yüklenilen
+    for (let col = 13; col <= lastColIdx; col++) totCell(col, "");
+  } else {
+    for (let col = 12; col <= lastColIdx; col++) totCell(col, "");
+  }
+
+  totRow.height = 22;
+
+  // ── Oran özet bloğu ────────────────────────────────────────────────────────
   if (method === "oran" && ratio !== undefined) {
-    dataRow++; // blank row
-    const summaryData = [
+    dataRowNum += 2;
+    const summaryData: [string, any][] = [
       ["Toplam Hasılat",        toplamHasilat ?? 0],
       ["İade İşlem Tutarı",     iadeIslemTutari ?? 0],
       ["Kullanılan Oran",       `%${((ratio) * 100).toFixed(4)}`],
@@ -271,46 +257,40 @@ async function buildExcel(
     ];
 
     for (const [label, val] of summaryData) {
-      const r = ws.getRow(dataRow);
-      ws.mergeCells(`A${dataRow}:H${dataRow}`);
-      const lc = r.getCell(1);
+      const r = ws.getRow(dataRowNum);
+      ws.mergeCells(`B${dataRowNum}:I${dataRowNum}`);
+      const lc = r.getCell(2);
       lc.value     = label;
       lc.font      = { bold: true, size: 9 };
       lc.alignment = { horizontal: "right", vertical: "middle", indent: 1 };
       lc.fill      = solidFill("FFF5F5F5");
       lc.border    = { top: { style: "hair" }, left: { style: "thin" }, bottom: { style: "hair" }, right: { style: "thin" } };
 
-      const vc = r.getCell(9);
-      if (typeof val === "number") {
-        vc.value  = val;
-        vc.numFmt = NUM_FMT;
-      } else {
-        vc.value = val;
-      }
+      const vc = r.getCell(10);
+      if (typeof val === "number") { vc.value = val; vc.numFmt = C.NUM_FMT; }
+      else vc.value = val;
       vc.font      = { size: 9 };
       vc.alignment = { horizontal: "right", vertical: "middle" };
       vc.fill      = solidFill("FFF5F5F5");
       vc.border    = { top: { style: "hair" }, left: { style: "thin" }, bottom: { style: "hair" }, right: { style: "thin" } };
 
-      // Fill remaining cells in summary row
-      for (let col = 10; col <= colCount; col++) {
+      for (let col = 11; col <= lastColIdx; col++) {
         const c = r.getCell(col);
         c.fill   = solidFill("FFF5F5F5");
-        c.border = { top: { style: "hair" }, left: { style: "thin" }, bottom: { style: "hair" }, right: col === colCount ? { style: "thin" } : { style: "hair" } };
+        c.border = { top: { style: "hair" }, left: { style: "thin" }, bottom: { style: "hair" }, right: { style: "thin" } };
       }
-      r.height = 15;
-      dataRow++;
+      r.height = 16;
+      dataRowNum++;
     }
   }
 
-  // ── Freeze header rows ──
-  ws.views = [{ state: "frozen", ySplit: 3 }];
+  ws.views = [{ state: "frozen", ySplit: 4 }];
 
   const raw = await wb.xlsx.writeBuffer();
   return new Uint8Array(Buffer.from(raw));
 }
 
-// ── Route ─────────────────────────────────────────────────────────────────
+// ── Route ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });

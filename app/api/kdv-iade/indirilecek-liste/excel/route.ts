@@ -11,180 +11,214 @@ function solidFill(argb: string) {
   return { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb } };
 }
 
-const ORANGE    = "FFF57C28";
-const DARK_BLUE = "FF1F3864";
-const WHITE     = "FFFFFFFF";
-const GRAY_LT   = "FFF5F5F5";
-const GRAY_MED  = "FFE8E8E8";
-const NUM_FMT   = "#,##0.00";
+const C = {
+  ORANGE:     "FFF57C28",  // Vezin turuncu — başlık satırı dolgusu
+  ORANGE_LT:  "FFFFF3E8",  // Açık turuncu — çift satır zebra
+  NAVY:       "FF1E2235",  // Koyu lacivert — belge başlığı
+  YELLOW_LT:  "FFFFFDE7",  // Açık sarı — tevkifatlı satır vurgusu
+  GRAY_LT:    "FFF0F0F0",  // Açık gri — TOPLAM satırı dolgusu
+  WHITE:      "FFFFFFFF",
+  NUM_FMT:    '#,##0.00',
+  DATE_FMT:   'DD.MM.YYYY',
+};
 
-// ── GİB column definitions ─────────────────────────────────────────────────
+// ── GİB 15 sütun tanımı (birebir resmi şablon sırası) ─────────────────────
+// A sütunu boş bırakıldığından ws.columns[0] dar bir spacer, veriler B'den başlar.
 
-const GIB_COLUMNS = [
-  { header: "Sıra No",                                                    width: 8  },
-  { header: "Alış Faturasının Tarihi",                                    width: 16 },
-  { header: "Alış Faturasının Serisi",                                    width: 12 },
-  { header: "Alış Faturasının Sıra No'su",                               width: 18 },
-  { header: "Satıcının Adı Soyadı / Unvanı",                             width: 40 },
-  { header: "Satıcının Vergi Kimlik / TC Kimlik Numarası",               width: 25 },
-  { header: "Alınan Mal ve/veya Hizmetin Cinsi",                         width: 35 },
-  { header: "Alınan Mal ve/veya Hizmetin Miktarı",                       width: 14 },
-  { header: "Alınan Mal ve/veya Hizmetin KDV Hariç Tutarı",             width: 22 },
-  { header: "KDV'si",                                                     width: 16 },
-  { header: "GGB Tescil No'su",                                           width: 16 },
-  { header: "Belgenin İndirim Hakkının\nKullanıldığı KDV Dönemi",        width: 20 },
-  { header: "Kaynak",                                                      width: 12 },
+const SPACER_WIDTH = 3;
+const GIB_COLS = [
+  { header: "Sıra No",                                                                                          width: 7  },
+  { header: "Alış Faturasının Tarihi",                                                                          width: 14 },
+  { header: "Alış Faturasının Serisi",                                                                          width: 12 },
+  { header: "Alış Faturasının Sıra No'su",                                                                      width: 16 },
+  { header: "Satıcının Adı-Soyadı / Ünvanı",                                                                    width: 36 },
+  { header: "Satıcının Vergi Kimlik Numarası / TC Kimlik Numarası",                                             width: 22 },
+  { header: "Alınan Mal ve/veya Hizmetin Cinsi",                                                               width: 30 },
+  { header: "Alınan Mal ve/veya Hizmetin Miktarı",                                                             width: 14 },
+  { header: "Alınan Mal ve/veya Hizmetin KDV Hariç Tutarı",                                                    width: 20 },
+  { header: "KDV'si",                                                                                           width: 16 },
+  { header: "Tevkifatlı Faturanın Tevkifata Tabi Olmayan Ve Bu Dönemde İndirilen Kdv Tutarı",                   width: 26 },
+  { header: "2 Nolu Beyannamede Ödenen Kdv Tutarı",                                                             width: 22 },
+  { header: "Toplam İndirilen KDV Tutarı",                                                                      width: 20 },
+  { header: "GGB Tescil No'su (Alış İthalat İse)",                                                              width: 18 },
+  { header: "Belgenin İndirim Hakkının Kullanıldığı KDV Dönemi",                                               width: 20 },
 ];
 
-// ── Excel builder ──────────────────────────────────────────────────────────
+// Toplam sütun sayısı: 1 (spacer A) + 15 (GİB) = 16 → A..P
+const TOTAL_COLS = 1 + GIB_COLS.length; // 16
+function colLetter(idx: number) { return String.fromCharCode(64 + idx); } // 1→A, 2→B…
+const LAST_COL = colLetter(TOTAL_COLS); // P
+
+// GİB sütun indeksleri (1-tabanlı, A=1)
+const IDX = {
+  SIRA:      2,   // B
+  TARIH:     3,   // C
+  SERI:      4,   // D
+  SIRA_NO:   5,   // E
+  UNVAN:     6,   // F
+  VERGI_NO:  7,   // G
+  CINS:      8,   // H
+  MIKTAR:    9,   // I  ← TOPLAM etiketi buraya
+  KDV_HARIC: 10,  // J
+  KDV:       11,  // K
+  TEV1:      12,  // L  Tevkifata tabi olmayan
+  TEV2:      13,  // M  2 Nolu Beyanname
+  TOPLAM_KDV:14,  // N  Toplam İndirilen
+  GGB:       15,  // O
+  DONEM:     16,  // P
+};
+
+// ── Excel oluşturucu ───────────────────────────────────────────────────────
 
 async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Uint8Array> {
-  const ExcelJS  = require("exceljs");
-  const wb       = new ExcelJS.Workbook();
-  wb.creator     = "Vezin";
-  wb.lastModifiedBy = "Vezin";
+  const ExcelJS = require("exceljs");
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Vezin";
 
   const ws = wb.addWorksheet("İndirilecek KDV Listesi");
   ws.pageSetup = {
     paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, orientation: "landscape",
   };
 
-  // Column widths
-  ws.columns = GIB_COLUMNS.map(c => ({ width: c.width }));
+  // Sütun genişlikleri: A (spacer) + 15 GİB sütun
+  ws.columns = [
+    { width: SPACER_WIDTH },               // A — boş
+    ...GIB_COLS.map(col => ({ width: col.width })),
+  ];
 
-  // ── Row 1: Main title ──
-  ws.mergeCells("A1:M1");
-  const titleCell = ws.getCell("A1");
-  titleCell.value     = "GİB İNDİRİLECEK KDV LİSTESİ";
-  titleCell.fill      = solidFill(ORANGE);
-  titleCell.font      = { bold: true, size: 14, color: { argb: WHITE } };
+  // ── Satır 1: boş (GİB şablonunda da boş) ─────────────────────────────────
+  ws.getRow(1).height = 6;
+
+  // ── Satır 2: "İNDİRİLECEK KDV LİSTESİ" başlığı ──────────────────────────
+  ws.mergeCells(`B2:${LAST_COL}2`);
+  const titleCell = ws.getCell("B2");
+  titleCell.value     = "İNDİRİLECEK KDV LİSTESİ";
+  titleCell.fill      = solidFill(C.NAVY);
+  titleCell.font      = { bold: true, size: 14, color: { argb: C.WHITE } };
   titleCell.alignment = { horizontal: "center", vertical: "middle" };
-  ws.getRow(1).height = 30;
+  ws.getRow(2).height = 32;
 
-  // ── Row 2: Subtitle ──
-  const today = new Date().toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" });
-  ws.mergeCells("A2:M2");
-  const subCell = ws.getCell("A2");
-  subCell.value     = `Oluşturulma tarihi: ${today}   |   Toplam fatura: ${invoices.length}   |   ${merge ? "Birleştirilmiş görünüm" : "Kalem bazında görünüm"}`;
-  subCell.fill      = solidFill(DARK_BLUE);
-  subCell.font      = { size: 10, color: { argb: WHITE } };
-  subCell.alignment = { horizontal: "center", vertical: "middle" };
-  ws.getRow(2).height = 18;
+  // ── Satır 3: boş ayraç ────────────────────────────────────────────────────
+  ws.getRow(3).height = 6;
 
-  // ── Row 3: Column headers ──
-  const hRow = ws.getRow(3);
-  hRow.height = 36;
-  GIB_COLUMNS.forEach((col, i) => {
-    const c = hRow.getCell(i + 1);
+  // ── Satır 4: GİB başlık satırı ────────────────────────────────────────────
+  const hRow = ws.getRow(4);
+  hRow.height = 52; // Uzun başlıklar için yeterli yükseklik
+
+  GIB_COLS.forEach((col, i) => {
+    const colIdx = i + 2; // B=2 den başlar
+    const c = hRow.getCell(colIdx);
     c.value     = col.header;
-    c.fill      = solidFill(ORANGE);
-    c.font      = { bold: true, size: 9, color: { argb: WHITE } };
+    c.fill      = solidFill(C.ORANGE);
+    c.font      = { bold: true, size: 9, color: { argb: C.WHITE } };
     c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    c.border    = { top: { style: "thin" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
+    c.border    = {
+      top:    { style: "thin" },
+      left:   { style: "thin" },
+      bottom: { style: "medium" },
+      right:  { style: "thin" },
+    };
   });
 
-  // ── Data rows ──────────────────────────────────────────────────────────────
-  let dataRow = 4;
-  let siraNo  = 0;
-
+  // ── Satır 5+: veri satırları ───────────────────────────────────────────────
+  let dataRowNum = 5;
+  let siraNo     = 0;
   let totalKdvHaric = 0;
   let totalKdv      = 0;
 
-  function addRow(
+  function addDataRow(
     sira: number,
-    tarih: string, seri: string, siraNoInv: string,
+    tarih: string, seri: string, invSiraNo: string,
     saticiUnvan: string, vergiNo: string,
     cins: string, miktar: string,
     kdvHaric: number, kdv: number,
     donemi: string,
+    isTevkifatli: boolean,
     isEven: boolean,
-    sourceFile: string,
   ) {
-    const row = ws.getRow(dataRow);
-    const bg  = isEven ? GRAY_LT : WHITE;
+    const row = ws.getRow(dataRowNum);
 
-    const kaynak = sourceFile === "pdf-ai" ? "PDF (AI)" : sourceFile === "excel-import" ? "Excel" : "XML";
+    // Zebradeseni: tevkifatlı ise sarı, yoksa beyaz/açık turuncu
+    const bg = isTevkifatli ? C.YELLOW_LT : (isEven ? C.ORANGE_LT : C.WHITE);
 
-    const vals = [
-      sira, tarih, seri, siraNoInv,
-      saticiUnvan, vergiNo,
-      cins, miktar,
-      kdvHaric, kdv,
-      "",         // GGB Tescil No — boş
-      donemi,
-      kaynak,
+    const vals: { col: number; val: any; num?: boolean; center?: boolean }[] = [
+      { col: IDX.SIRA,       val: sira,       center: true },
+      { col: IDX.TARIH,      val: tarih },
+      { col: IDX.SERI,       val: seri },
+      { col: IDX.SIRA_NO,    val: invSiraNo },
+      { col: IDX.UNVAN,      val: saticiUnvan },
+      { col: IDX.VERGI_NO,   val: vergiNo },
+      { col: IDX.CINS,       val: cins },
+      { col: IDX.MIKTAR,     val: miktar },
+      { col: IDX.KDV_HARIC,  val: kdvHaric,   num: true },
+      { col: IDX.KDV,        val: kdv,         num: true },
+      { col: IDX.TEV1,       val: 0,            num: true },
+      { col: IDX.TEV2,       val: 0,            num: true },
+      { col: IDX.TOPLAM_KDV, val: kdv,          num: true }, // Toplam İndirilen = KDV (basit durumda)
+      { col: IDX.GGB,        val: "" },
+      { col: IDX.DONEM,      val: donemi },
     ];
 
-    vals.forEach((v, i) => {
-      const c = row.getCell(i + 1);
-      c.value     = v;
-      c.fill      = solidFill(bg);
-      c.font      = { size: 9 };
-      c.border    = {
-        top: { style: "hair" }, left: { style: "thin" },
-        bottom: { style: "hair" }, right: { style: "thin" },
+    for (const { col, val, num, center } of vals) {
+      const c = row.getCell(col);
+      c.value  = val === 0 && num ? 0 : val;
+      c.fill   = solidFill(bg);
+      c.font   = { size: 9 };
+      c.border = {
+        top:    { style: "hair" },
+        left:   { style: "thin" },
+        bottom: { style: "hair" },
+        right:  { style: "thin" },
       };
-      // Number formatting
-      if (i === 8 || i === 9) { // KDV Hariç Tutar, KDV
-        c.numFmt    = NUM_FMT;
+      if (num) {
+        c.numFmt    = C.NUM_FMT;
         c.alignment = { horizontal: "right", vertical: "middle" };
-      } else if (i === 0) {
+      } else if (center) {
         c.alignment = { horizontal: "center", vertical: "middle" };
-      } else if (i === 12) { // Kaynak
-        c.alignment = { horizontal: "center", vertical: "middle" };
-        if (vals[12] === "PDF (AI)") {
-          c.font = { size: 9, color: { argb: "FF7C3AED" } };
-        }
       } else {
-        c.alignment = { horizontal: "left", vertical: "middle", wrapText: false };
+        c.alignment = { horizontal: "left", vertical: "middle" };
       }
-    });
+    }
 
-    row.height = 15;
-    dataRow++;
+    row.height = 16;
+    dataRowNum++;
   }
 
   for (const inv of invoices) {
     siraNo++;
     const isEven = siraNo % 2 === 0;
+    const isTevkifatli = false; // ParsedInvoice'ta tevkifat bayrağı olmadığından varsayılan false
 
     if (merge) {
-      // ── Birleştir: one row per invoice ──
       const cinsAll = [...new Set(inv.satirlar.map(l => l.cins).filter(Boolean))].join(", ") || "—";
       const miktarAll = inv.satirlar.length === 1
         ? `${inv.satirlar[0].miktar}${inv.satirlar[0].birim ? " " + inv.satirlar[0].birim : ""}`
         : `${inv.satirlar.length} kalem`;
 
-      addRow(
+      addDataRow(
         siraNo, inv.tarihFmt, inv.seri, inv.siraNo,
         inv.saticiUnvan, inv.saticiVergiNo,
         cinsAll, miktarAll,
         inv.kdvHaricTutar, inv.kdvTutari,
-        inv.donemi,
-        isEven,
-        inv.sourceFile,
+        inv.donemi, isTevkifatli, isEven,
       );
       totalKdvHaric += inv.kdvHaricTutar;
       totalKdv      += inv.kdvTutari;
-
     } else {
-      // ── Kalem bazında: one row per line ──
       const lines = inv.satirlar.length > 0 ? inv.satirlar : [{
-        cins: "—", miktar: 1, birim: "", kdvHaricTutar: inv.kdvHaricTutar,
-        kdvOrani: inv.kdvOrani, kdvTutari: inv.kdvTutari,
+        cins: "—", miktar: 1, birim: "",
+        kdvHaricTutar: inv.kdvHaricTutar, kdvOrani: inv.kdvOrani, kdvTutari: inv.kdvTutari,
       }];
 
       lines.forEach((line, li) => {
         const miktarStr = `${line.miktar}${line.birim ? " " + line.birim : ""}`;
-        addRow(
-          li === 0 ? siraNo : 0,  // Only show sıra no on first line of invoice
+        addDataRow(
+          li === 0 ? siraNo : 0,
           inv.tarihFmt, inv.seri, inv.siraNo,
           inv.saticiUnvan, inv.saticiVergiNo,
           line.cins || "—", miktarStr,
           line.kdvHaricTutar, line.kdvTutari,
-          inv.donemi,
-          isEven,
-          inv.sourceFile,
+          inv.donemi, isTevkifatli, isEven,
         );
         totalKdvHaric += line.kdvHaricTutar;
         totalKdv      += line.kdvTutari;
@@ -192,47 +226,55 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
     }
   }
 
-  // ── Totals row ────────────────────────────────────────────────────────────
-  const totRow = ws.getRow(dataRow);
-  ws.mergeCells(`A${dataRow}:H${dataRow}`);
-  const totLabel = totRow.getCell(1);
-  totLabel.value     = "TOPLAM";
-  totLabel.fill      = solidFill(ORANGE);
-  totLabel.font      = { bold: true, size: 10, color: { argb: WHITE } };
-  totLabel.alignment = { horizontal: "right", vertical: "middle", indent: 1 };
-  totLabel.border    = { top: { style: "medium" }, left: { style: "medium" }, bottom: { style: "medium" }, right: { style: "thin" } };
+  // ── TOPLAM satırı ─────────────────────────────────────────────────────────
+  // GİB şablonuna göre: "TOPLAM" etiketi Miktar sütununun altında,
+  // B:I arası birleştirilmiş hücre (sağa hizalı); toplamlar J, K, L, M, N sütunlarında.
+  dataRowNum++; // bir boş satır ara
+  const totRow = ws.getRow(dataRowNum);
 
-  const totKdvHaric = totRow.getCell(9);
-  totKdvHaric.value     = totalKdvHaric;
-  totKdvHaric.numFmt    = NUM_FMT;
-  totKdvHaric.fill      = solidFill(ORANGE);
-  totKdvHaric.font      = { bold: true, size: 10, color: { argb: WHITE } };
-  totKdvHaric.alignment = { horizontal: "right", vertical: "middle" };
-  totKdvHaric.border    = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
-
-  const totKdv = totRow.getCell(10);
-  totKdv.value     = totalKdv;
-  totKdv.numFmt    = NUM_FMT;
-  totKdv.fill      = solidFill(ORANGE);
-  totKdv.font      = { bold: true, size: 10, color: { argb: WHITE } };
-  totKdv.alignment = { horizontal: "right", vertical: "middle" };
-  totKdv.border    = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: { style: "thin" } };
-
-  [11, 12, 13].forEach(col => {
+  function totCell(col: number, val: any, isNum = false, isLabel = false) {
     const c = totRow.getCell(col);
-    c.fill   = solidFill(ORANGE);
-    c.border = { top: { style: "medium" }, left: { style: "thin" }, bottom: { style: "medium" }, right: col === 13 ? { style: "medium" } : { style: "thin" } };
-  });
-  ws.getRow(dataRow).height = 20;
+    c.value  = val;
+    c.fill   = solidFill(C.GRAY_LT);
+    c.font   = { bold: true, size: 10 };
+    c.border = {
+      top:    { style: "double" },
+      left:   { style: "thin" },
+      bottom: { style: "medium" },
+      right:  { style: "thin" },
+    };
+    if (isNum) {
+      c.numFmt    = C.NUM_FMT;
+      c.alignment = { horizontal: "right", vertical: "middle" };
+    } else if (isLabel) {
+      c.alignment = { horizontal: "right", vertical: "middle", indent: 1 };
+    } else {
+      c.alignment = { horizontal: "left", vertical: "middle" };
+    }
+  }
 
-  // ── Freeze header rows ──
-  ws.views = [{ state: "frozen", ySplit: 3 }];
+  // B:I birleştir → "TOPLAM"
+  ws.mergeCells(`B${dataRowNum}:I${dataRowNum}`);
+  totCell(IDX.SIRA, "TOPLAM", false, true); // IDX.SIRA = B = merged başlangıcı
+
+  totCell(IDX.KDV_HARIC,  totalKdvHaric, true);
+  totCell(IDX.KDV,        totalKdv,      true);
+  totCell(IDX.TEV1,       0,             true);
+  totCell(IDX.TEV2,       0,             true);
+  totCell(IDX.TOPLAM_KDV, totalKdv,      true);
+  totCell(IDX.GGB,        "");
+  totCell(IDX.DONEM,      "");
+
+  totRow.height = 22;
+
+  // ── Dondur: satır 4 (başlık) donuk ────────────────────────────────────────
+  ws.views = [{ state: "frozen", ySplit: 4 }];
 
   const raw = await wb.xlsx.writeBuffer();
   return new Uint8Array(Buffer.from(raw));
 }
 
-// ── Route ─────────────────────────────────────────────────────────────────
+// ── Route ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -259,7 +301,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: any) {
-    console.error("[kdv-iade/excel]", err);
+    console.error("[indirilecek-kdv/excel]", err);
     return NextResponse.json({ error: "Excel oluşturulamadı: " + (err?.message ?? "") }, { status: 500 });
   }
 }
