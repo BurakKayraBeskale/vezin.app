@@ -43,8 +43,8 @@ function labelStyle(cell: any, value: string) {
 export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
-  const { role } = token as any;
-  if (role !== "ADMIN") return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
+  const { role, department } = token as any;
+  if (role !== "ADMIN" && department !== "YEMINLI_MALI_MUSAVIR") return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   const result = body.result ?? {};
