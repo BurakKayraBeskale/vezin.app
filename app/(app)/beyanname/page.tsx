@@ -7,8 +7,10 @@ export default async function BeyannamePage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  const { role, department } = session.user as any;
-  if (role !== "ADMIN" && department !== "YEMINLI_MALI_MUSAVIR") redirect("/");
+  // GEÇİCİ: tüm giriş yapmış kullanıcılara açık
+  // TODO: Aşağıdaki satırı uncomment ederek Admin+YMM kısıtına geri dön
+  // const { role, department } = session.user as any;
+  // if (role !== "ADMIN" && department !== "YEMINLI_MALI_MUSAVIR") redirect("/");
 
   return (
     <div className="p-6 lg:p-8 max-w-3xl mx-auto">

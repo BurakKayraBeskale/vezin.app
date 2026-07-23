@@ -33,10 +33,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
   }
 
-  const { role, department } = token as any;
-  if (role !== "ADMIN" && department !== "YEMINLI_MALI_MUSAVIR") {
-    return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
-  }
+  // GEÇİCİ: tüm giriş yapmış kullanıcılara açık
+  // TODO: Aşağıdaki bloğu uncomment ederek Admin+YMM kısıtına geri dön
+  // const { role, department } = token as any;
+  // if (role !== "ADMIN" && department !== "YEMINLI_MALI_MUSAVIR") {
+  //   return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
+  // }
 
   let formData: FormData;
   try {

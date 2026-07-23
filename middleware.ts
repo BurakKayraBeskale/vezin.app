@@ -23,14 +23,15 @@ export default withAuth(
       return NextResponse.redirect(new URL("/", req.url));
     }
 
-    // Beyanname — Admin ve YMM
-    if (
-      pathname.startsWith("/beyanname") &&
-      token?.role !== "ADMIN" &&
-      (token as any)?.department !== "YEMINLI_MALI_MUSAVIR"
-    ) {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
+    // Beyanname — GEÇİCİ: tüm giriş yapmış kullanıcılara açık
+    // TODO: Aşağıdaki bloğu uncomment ederek Admin+YMM kısıtına geri dön
+    // if (
+    //   pathname.startsWith("/beyanname") &&
+    //   token?.role !== "ADMIN" &&
+    //   (token as any)?.department !== "YEMINLI_MALI_MUSAVIR"
+    // ) {
+    //   return NextResponse.redirect(new URL("/", req.url));
+    // }
 
     // Karşıt İnceleme — sadece Admin, YMM, Muhasebe
     if (

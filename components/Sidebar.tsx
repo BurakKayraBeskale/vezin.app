@@ -319,7 +319,8 @@ export default function Sidebar({
           />
         )}
 
-        {(userRole === "ADMIN" || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
+        {/* GEÇİCİ: tüm kullanıcılara açık — TODO: (userRole === "ADMIN" || userDepartment === "YEMINLI_MALI_MUSAVIR") koşuluna geri dön */}
+        {true && (
           <NavLink
             href="/beyanname"
             label="Beyanname"
