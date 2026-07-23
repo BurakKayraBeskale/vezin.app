@@ -11,6 +11,9 @@ function isAllowed(role: string, department: string) {
 export async function GET(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
+  // DEBUG — gerçek token değerlerini logla (karşılaştırma tamamlanınca kaldır)
+  const { email: _dbgEmail } = token as any;
+  console.log('[auth] user:', _dbgEmail, '| role:', (token as any).role, '| dept:', (token as any).department, '| api:', req.nextUrl?.pathname ?? req.url);
   const { role, department } = token as any;
   if (!isAllowed(role, department)) return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
 

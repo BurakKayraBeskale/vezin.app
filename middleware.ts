@@ -7,6 +7,9 @@ export default withAuth(
     const { token } = req.nextauth;
     const pathname = req.nextUrl.pathname;
 
+    // DEBUG — gerçek token değerlerini logla (karşılaştırma tamamlanınca kaldır)
+    console.log("[auth] user:", (token as any)?.email, "| role:", (token as any)?.role, "| dept:", (token as any)?.department, "| path:", pathname);
+
     // Force password change — block all non-API page routes until changed
     if (
       token?.mustChangePassword &&
