@@ -5,4 +5,4 @@
  * Etkilenen dosyalar: middleware.ts, Sidebar.tsx,
  * app/(app)/*/page.tsx, app/api/*\/route.ts
  */
-export const BYPASS_AUTH_ROLES = true;
+export const BYPASS_AUTH_ROLES = false;
