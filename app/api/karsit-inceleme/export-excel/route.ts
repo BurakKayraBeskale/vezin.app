@@ -135,6 +135,9 @@ async function buildExcel(
       if ([8, 10, 11].includes(i)) {
         c.numFmt    = NUM_FMT;
         c.alignment = { horizontal: "right", vertical: "middle" };
+      } else if (i === 3) { // Sıra No — metin formatı (bilimsel gösterim engeli)
+        c.numFmt    = "@";
+        c.alignment = { horizontal: "left", vertical: "middle" };
       } else if (i === 9) {
         c.alignment = { horizontal: "center", vertical: "middle" };
       } else if (i === 0) {

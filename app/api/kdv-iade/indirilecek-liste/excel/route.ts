@@ -141,11 +141,11 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
     // Zebradeseni: tevkifatlı ise sarı, yoksa beyaz/açık turuncu
     const bg = isTevkifatli ? C.YELLOW_LT : (isEven ? C.ORANGE_LT : C.WHITE);
 
-    const vals: { col: number; val: any; num?: boolean; center?: boolean }[] = [
+    const vals: { col: number; val: any; num?: boolean; center?: boolean; text?: boolean }[] = [
       { col: IDX.SIRA,       val: sira,       center: true },
       { col: IDX.TARIH,      val: tarih },
       { col: IDX.SERI,       val: seri },
-      { col: IDX.SIRA_NO,    val: invSiraNo },
+      { col: IDX.SIRA_NO,    val: invSiraNo,  text: true },
       { col: IDX.UNVAN,      val: saticiUnvan },
       { col: IDX.VERGI_NO,   val: vergiNo },
       { col: IDX.CINS,       val: cins },
@@ -159,7 +159,7 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
       { col: IDX.DONEM,      val: donemi },
     ];
 
-    for (const { col, val, num, center } of vals) {
+    for (const { col, val, num, center, text } of vals) {
       const c = row.getCell(col);
       c.value  = val === 0 && num ? 0 : val;
       c.fill   = solidFill(bg);
@@ -173,6 +173,9 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
       if (num) {
         c.numFmt    = C.NUM_FMT;
         c.alignment = { horizontal: "right", vertical: "middle" };
+      } else if (text) {
+        c.numFmt    = "@";
+        c.alignment = { horizontal: "left", vertical: "middle" };
       } else if (center) {
         c.alignment = { horizontal: "center", vertical: "middle" };
       } else {

@@ -145,6 +145,9 @@ async function buildExcel(invoices: SatisInvoice[]): Promise<Uint8Array> {
       if (i === 8 || i === 9) {
         c.numFmt    = C.NUM_FMT;
         c.alignment = { horizontal: "right", vertical: "middle" };
+      } else if (i === 3) { // Sıra No — metin formatı (bilimsel gösterim engeli)
+        c.numFmt    = "@";
+        c.alignment = { horizontal: "left", vertical: "middle" };
       } else if (i === 0) {
         c.alignment = { horizontal: "center", vertical: "middle" };
       } else if (i === 11) { // Kaynak

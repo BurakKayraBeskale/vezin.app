@@ -168,6 +168,9 @@ async function buildExcel(
       if (isKdvHaric || isKdv || isYuklCol) {
         c.numFmt    = C.NUM_FMT;
         c.alignment = { horizontal: "right", vertical: "middle" };
+      } else if (i === 3) { // Sıra No — metin formatı (bilimsel gösterim engeli)
+        c.numFmt    = "@";
+        c.alignment = { horizontal: "left", vertical: "middle" };
       } else if (i === 0) {
         c.alignment = { horizontal: "center", vertical: "middle" };
       } else if (i === vals.length - 1) { // Kaynak

@@ -119,8 +119,7 @@ function kdvDonemi(iso: string): string {
 }
 
 function parseId(id: string): { seri: string; siraNo: string } {
-  const m = id.match(/^([A-Za-z]{1,3})(\d+)$/);
-  if (m) return { seri: m[1].toUpperCase(), siraNo: m[2] };
+  // e-Fatura ID'si bölünmez — seri boş, sıra no olduğu gibi kullanılır
   return { seri: "", siraNo: id };
 }
 
