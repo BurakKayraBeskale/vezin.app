@@ -141,6 +141,7 @@ function TutanakHazirlaPanel() {
   const [xmlFiles,      setXmlFiles]      = useState<File[]>([]);
   const [xmlParsing,    setXmlParsing]    = useState(false);
   const [xmlError,      setXmlError]      = useState<string | null>(null);
+  const [xmlProgress,   setXmlProgress]   = useState<{ done: number; total: number } | null>(null);
   const xmlInputRef = useRef<HTMLInputElement>(null);
 
   // Excel mode state
@@ -185,25 +186,40 @@ function TutanakHazirlaPanel() {
     if (xmlFiles.length === 0) { setXmlError("En az bir XML veya ZIP dosyası seçin."); return; }
     setXmlParsing(true);
     setXmlError(null);
-    try {
-      const fd = new FormData();
-      xmlFiles.forEach(f => fd.append("files[]", f));
-      const res  = await fetch("/api/karsit-inceleme/parse-xml", { method: "POST", body: fd });
+    const BATCH = 50;
+    const batches: File[][] = [];
+    for (let i = 0; i < xmlFiles.length; i += BATCH) batches.push(xmlFiles.slice(i, i + BATCH));
+    const allFaturalar: KarsitFatura[] = [];
+    const allHatalar: string[] = [];
+    setXmlProgress({ done: 0, total: xmlFiles.length });
+    for (let b = 0; b < batches.length; b++) {
+      let res: Response;
+      try {
+        const fd = new FormData();
+        batches[b].forEach(f => fd.append("files[]", f));
+        res = await fetch("/api/karsit-inceleme/parse-xml", { method: "POST", body: fd });
+      } catch (e: any) {
+        setXmlError(e?.message ? `Ağ hatası: ${e.message}` : "Sunucuya bağlanılamadı.");
+        setXmlParsing(false); setXmlProgress(null); return;
+      }
+      if (!res.ok) {
+        let msg: string;
+        if (res.status === 413) msg = "Dosya boyutu çok büyük — dosyaları ZIP ile sıkıştırıp tekrar deneyin.";
+        else if (res.status === 504) msg = "İşlem zaman aşımına uğradı — daha az dosya seçip tekrar deneyin.";
+        else { const d = await res.json().catch(() => ({})); msg = d.error ?? `Sunucu hatası (${res.status})`; }
+        setXmlError(msg); setXmlParsing(false); setXmlProgress(null); return;
+      }
       const data = await res.json();
-      if (!res.ok) { setXmlError(data.error || "Hata"); return; }
-      if (data.faturalar?.length > 0) {
-        setFaturalar(prev => [...prev, ...data.faturalar]);
-      }
-      if (data.hatalar?.length > 0) {
-        setXmlError(`${data.faturalar.length} fatura eklendi. ${data.hatalar.length} dosya işlenemedi.`);
-      }
-      setXmlFiles([]);
-      if (xmlInputRef.current) xmlInputRef.current.value = "";
-    } catch (e: any) {
-      setXmlError("İstek başarısız: " + (e?.message ?? ""));
-    } finally {
-      setXmlParsing(false);
+      allFaturalar.push(...(data.faturalar ?? []));
+      allHatalar.push(...(data.hatalar ?? []));
+      setXmlProgress({ done: Math.min((b + 1) * BATCH, xmlFiles.length), total: xmlFiles.length });
     }
+    if (allFaturalar.length > 0) setFaturalar(prev => [...prev, ...allFaturalar]);
+    if (allHatalar.length > 0) setXmlError(`${allFaturalar.length} fatura eklendi. ${allHatalar.length} dosya işlenemedi.`);
+    setXmlFiles([]);
+    if (xmlInputRef.current) xmlInputRef.current.value = "";
+    setXmlParsing(false);
+    setXmlProgress(null);
   }
 
   // ── Excel upload ──
@@ -577,6 +593,20 @@ function TutanakHazirlaPanel() {
             )}
 
             {xmlError && <p className="text-sm text-amber-600 dark:text-amber-400">{xmlError}</p>}
+
+            {xmlParsing && xmlProgress && xmlProgress.total > 50 && (
+              <div className="space-y-1">
+                <p className="text-xs text-gray-600 dark:text-white/60 font-medium">
+                  {xmlProgress.done} / {xmlProgress.total} dosya gönderildi
+                </p>
+                <div className="w-full bg-gray-200 dark:bg-white/10 rounded-full h-1.5">
+                  <div
+                    className="bg-[#F57C28] h-1.5 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.round((xmlProgress.done / xmlProgress.total) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             <button
               onClick={handleXmlParse}

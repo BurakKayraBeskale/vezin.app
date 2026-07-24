@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export interface KarsitFatura {
   id: string;

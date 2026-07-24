@@ -1163,6 +1163,7 @@ function IndirilenKdvPanel() {
   const [xlLoading, setXlLoading]       = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
   const [inputMethod, setInputMethod]   = useState<"xml" | "excel" | "pdf">("xml");
+  const [progress, setProgress]         = useState<{ done: number; total: number } | null>(null);
 
   function addFiles(incoming: File[]) {
     const valid = incoming.filter(f => {
@@ -1185,16 +1186,42 @@ function IndirilenKdvPanel() {
   async function parse() {
     if (files.length === 0) return;
     setLoading(true); setError(null); setResult(null);
-    try {
-      const fd = new FormData();
-      for (const f of files) fd.append("files[]", f);
-      const res  = await fetch("/api/kdv-iade/indirilecek-liste", { method: "POST", body: fd });
+    const BATCH = 50;
+    const batches: File[][] = [];
+    for (let i = 0; i < files.length; i += BATCH) batches.push(files.slice(i, i + BATCH));
+    const allInvoices: KdvInvoice[] = [];
+    const allExcluded: any[] = [];
+    setProgress({ done: 0, total: files.length });
+    for (let b = 0; b < batches.length; b++) {
+      let res: Response;
+      try {
+        const fd = new FormData();
+        for (const f of batches[b]) fd.append("files[]", f);
+        res = await fetch("/api/kdv-iade/indirilecek-liste", { method: "POST", body: fd });
+      } catch (e: any) {
+        setError(e?.message ? `Ağ hatası: ${e.message}` : "Sunucuya bağlanılamadı.");
+        setLoading(false); setProgress(null); return;
+      }
+      if (!res.ok) {
+        let msg: string;
+        if (res.status === 413) msg = "Dosya boyutu çok büyük — dosyaları ZIP ile sıkıştırıp tekrar deneyin.";
+        else if (res.status === 504) msg = "İşlem zaman aşımına uğradı — daha az dosya seçip tekrar deneyin.";
+        else { const j = await res.json().catch(() => ({})); msg = j.error ?? `Sunucu hatası (${res.status})`; }
+        setError(msg); setLoading(false); setProgress(null); return;
+      }
       const json = await res.json();
-      if (!res.ok) { setError(json.error ?? "İşlem başarısız"); return; }
-      setResult(json);
-      saveDashboardRecord("indirilen", json.stats);
-    } catch { setError("Sunucuya bağlanılamadı."); }
-    finally   { setLoading(false); }
+      allInvoices.push(...(json.invoices ?? []));
+      allExcluded.push(...(json.excluded ?? []));
+      setProgress({ done: Math.min((b + 1) * BATCH, files.length), total: files.length });
+    }
+    const stats = {
+      invoiceCount: allInvoices.length, excludedCount: allExcluded.length,
+      totalKdvHaric: allInvoices.reduce((s, i) => s + i.kdvHaricTutar, 0),
+      totalKdv: allInvoices.reduce((s, i) => s + i.kdvTutari, 0),
+    };
+    setResult({ invoices: allInvoices, excluded: allExcluded, stats });
+    saveDashboardRecord("indirilen", stats);
+    setLoading(false); setProgress(null);
   }
 
   function handlePdfImport(aiInvoices: AiInvoice[]) {
@@ -1308,6 +1335,9 @@ function IndirilenKdvPanel() {
           <p className="text-xs text-gray-400 dark:text-white/30 mt-1">
             .xml · .zip (içindeki XML'ler otomatik açılır) · Çoklu seçim desteklenir
           </p>
+          <p className="text-xs text-[#F57C28]/70 mt-1">
+            Çok sayıda XML için ZIP olarak sıkıştırın
+          </p>
         </div>
       )}
 
@@ -1380,7 +1410,21 @@ function IndirilenKdvPanel() {
       {inputMethod === "xml" && loading && (
         <div className="flex flex-col items-center gap-3 py-8">
           <Spinner />
-          <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
+          {progress && progress.total > 50 ? (
+            <>
+              <p className="text-sm font-semibold text-gray-700 dark:text-white/70">
+                {progress.done} / {progress.total} dosya gönderildi
+              </p>
+              <div className="w-full max-w-xs bg-gray-200 dark:bg-white/10 rounded-full h-1.5">
+                <div
+                  className="bg-[#F57C28] h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
+          )}
           <p className="text-xs text-gray-400 dark:text-white/30">AI çağrısı yok · tamamen kod taraflı</p>
         </div>
       )}
@@ -1541,6 +1585,7 @@ function YuklenilenKdvPanel() {
   const [toplamHasilat, setToplamHasilat]     = useState("");
   const [iadeIslemTutari, setIadeIslemTutari] = useState("");
   const [inputMethod, setInputMethod]   = useState<"xml" | "excel" | "pdf">("xml");
+  const [progress, setProgress]         = useState<{ done: number; total: number } | null>(null);
 
   const ratio = (() => {
     const h = parseFloat(toplamHasilat.replace(",", "."));
@@ -1572,19 +1617,44 @@ function YuklenilenKdvPanel() {
   async function parse() {
     if (files.length === 0) return;
     setLoading(true); setError(null); setResult(null); setSelected(new Set());
-    try {
-      const fd = new FormData();
-      for (const f of files) fd.append("files[]", f);
-      const res  = await fetch("/api/kdv-iade/indirilecek-liste", { method: "POST", body: fd });
-      const json = await res.json();
-      if (!res.ok) { setError(json.error ?? "İşlem başarısız"); return; }
-      setResult(json);
-      if (method === "manuel") {
-        setSelected(new Set((json as KdvParseResult).invoices.map((inv: KdvInvoice) => inv.id)));
+    const BATCH = 50;
+    const batches: File[][] = [];
+    for (let i = 0; i < files.length; i += BATCH) batches.push(files.slice(i, i + BATCH));
+    const allInvoices: KdvInvoice[] = [];
+    const allExcluded: any[] = [];
+    setProgress({ done: 0, total: files.length });
+    for (let b = 0; b < batches.length; b++) {
+      let res: Response;
+      try {
+        const fd = new FormData();
+        for (const f of batches[b]) fd.append("files[]", f);
+        res = await fetch("/api/kdv-iade/indirilecek-liste", { method: "POST", body: fd });
+      } catch (e: any) {
+        setError(e?.message ? `Ağ hatası: ${e.message}` : "Sunucuya bağlanılamadı.");
+        setLoading(false); setProgress(null); return;
       }
-      saveDashboardRecord("yuklenilen", json.stats);
-    } catch { setError("Sunucuya bağlanılamadı."); }
-    finally   { setLoading(false); }
+      if (!res.ok) {
+        let msg: string;
+        if (res.status === 413) msg = "Dosya boyutu çok büyük — dosyaları ZIP ile sıkıştırıp tekrar deneyin.";
+        else if (res.status === 504) msg = "İşlem zaman aşımına uğradı — daha az dosya seçip tekrar deneyin.";
+        else { const j = await res.json().catch(() => ({})); msg = j.error ?? `Sunucu hatası (${res.status})`; }
+        setError(msg); setLoading(false); setProgress(null); return;
+      }
+      const json = await res.json();
+      allInvoices.push(...(json.invoices ?? []));
+      allExcluded.push(...(json.excluded ?? []));
+      setProgress({ done: Math.min((b + 1) * BATCH, files.length), total: files.length });
+    }
+    const stats = {
+      invoiceCount: allInvoices.length, excludedCount: allExcluded.length,
+      totalKdvHaric: allInvoices.reduce((s, i) => s + i.kdvHaricTutar, 0),
+      totalKdv: allInvoices.reduce((s, i) => s + i.kdvTutari, 0),
+    };
+    const merged: KdvParseResult = { invoices: allInvoices, excluded: allExcluded, stats };
+    setResult(merged);
+    if (method === "manuel") setSelected(new Set(allInvoices.map(inv => inv.id)));
+    saveDashboardRecord("yuklenilen", stats);
+    setLoading(false); setProgress(null);
   }
 
   function handlePdfImport(aiInvoices: AiInvoice[]) {
@@ -1741,6 +1811,9 @@ function YuklenilenKdvPanel() {
           <p className="text-xs text-gray-400 dark:text-white/30 mt-1">
             .xml · .zip · Çoklu seçim desteklenir
           </p>
+          <p className="text-xs text-[#F57C28]/70 mt-1">
+            Çok sayıda XML için ZIP olarak sıkıştırın
+          </p>
         </div>
       )}
 
@@ -1789,7 +1862,21 @@ function YuklenilenKdvPanel() {
       {inputMethod === "xml" && loading && (
         <div className="flex flex-col items-center gap-3 py-8">
           <Spinner />
-          <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
+          {progress && progress.total > 50 ? (
+            <>
+              <p className="text-sm font-semibold text-gray-700 dark:text-white/70">
+                {progress.done} / {progress.total} dosya gönderildi
+              </p>
+              <div className="w-full max-w-xs bg-gray-200 dark:bg-white/10 rounded-full h-1.5">
+                <div
+                  className="bg-[#F57C28] h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
+          )}
         </div>
       )}
 
@@ -2424,6 +2511,7 @@ function SatisFaturaPanel() {
   const [result, setResult]           = useState<SatisParseResult | null>(null);
   const [xlLoading, setXlLoading]     = useState(false);
   const [inputMethod, setInputMethod] = useState<"xml" | "excel" | "pdf">("xml");
+  const [progress, setProgress]       = useState<{ done: number; total: number } | null>(null);
 
   function addFiles(incoming: File[]) {
     const valid = incoming.filter(f => {
@@ -2445,16 +2533,44 @@ function SatisFaturaPanel() {
   async function parse() {
     if (files.length === 0) return;
     setLoading(true); setError(null); setResult(null);
-    try {
-      const fd = new FormData();
-      for (const f of files) fd.append("files[]", f);
-      const res  = await fetch("/api/kdv-iade/satis-listesi", { method: "POST", body: fd });
+    const BATCH = 50;
+    const batches: File[][] = [];
+    for (let i = 0; i < files.length; i += BATCH) batches.push(files.slice(i, i + BATCH));
+    const allInvoices: SatisInvoice[] = [];
+    const allSkipped: any[] = [];
+    setProgress({ done: 0, total: files.length });
+    for (let b = 0; b < batches.length; b++) {
+      let res: Response;
+      try {
+        const fd = new FormData();
+        for (const f of batches[b]) fd.append("files[]", f);
+        res = await fetch("/api/kdv-iade/satis-listesi", { method: "POST", body: fd });
+      } catch (e: any) {
+        setError(e?.message ? `Ağ hatası: ${e.message}` : "Sunucuya bağlanılamadı.");
+        setLoading(false); setProgress(null); return;
+      }
+      if (!res.ok) {
+        let msg: string;
+        if (res.status === 413) msg = "Dosya boyutu çok büyük — dosyaları ZIP ile sıkıştırıp tekrar deneyin.";
+        else if (res.status === 504) msg = "İşlem zaman aşımına uğradı — daha az dosya seçip tekrar deneyin.";
+        else { const j = await res.json().catch(() => ({})); msg = j.error ?? `Sunucu hatası (${res.status})`; }
+        setError(msg); setLoading(false); setProgress(null); return;
+      }
       const json = await res.json();
-      if (!res.ok) { setError(json.error ?? "İşlem başarısız"); return; }
-      setResult(json);
-      saveDashboardRecord("satis", json.stats);
-    } catch { setError("Sunucuya bağlanılamadı."); }
-    finally   { setLoading(false); }
+      allInvoices.push(...(json.invoices ?? []));
+      allSkipped.push(...(json.skipped ?? []));
+      setProgress({ done: Math.min((b + 1) * BATCH, files.length), total: files.length });
+    }
+    const stats = {
+      invoiceCount: allInvoices.length, skippedCount: allSkipped.length,
+      ihracCount: allInvoices.filter(i => i.tur === "İhraç Kayıtlı").length,
+      istisnaCount: allInvoices.filter(i => i.tur === "KDV İstisnası").length,
+      totalKdvHaric: allInvoices.reduce((s, i) => s + i.kdvHaricTutar, 0),
+      totalKdv: allInvoices.reduce((s, i) => s + i.kdvTutari, 0),
+    };
+    setResult({ invoices: allInvoices, skipped: allSkipped, stats });
+    saveDashboardRecord("satis", stats);
+    setLoading(false); setProgress(null);
   }
 
   function handlePdfImport(aiInvoices: AiInvoice[]) {
@@ -2544,6 +2660,7 @@ function SatisFaturaPanel() {
           </div>
           <p className="text-sm font-medium text-gray-600 dark:text-white/60">XML veya ZIP sürükleyin ya da tıklayın</p>
           <p className="text-xs text-gray-400 dark:text-white/30 mt-1">.xml · .zip · Çoklu seçim desteklenir</p>
+          <p className="text-xs text-[#F57C28]/70 mt-1">Çok sayıda XML için ZIP olarak sıkıştırın</p>
         </div>
       )}
 
@@ -2575,7 +2692,21 @@ function SatisFaturaPanel() {
       {inputMethod === "xml" && loading && (
         <div className="flex flex-col items-center gap-3 py-8">
           <Spinner />
-          <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
+          {progress && progress.total > 50 ? (
+            <>
+              <p className="text-sm font-semibold text-gray-700 dark:text-white/70">
+                {progress.done} / {progress.total} dosya gönderildi
+              </p>
+              <div className="w-full max-w-xs bg-gray-200 dark:bg-white/10 rounded-full h-1.5">
+                <div
+                  className="bg-[#F57C28] h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-white/40">XML dosyaları ayrıştırılıyor…</p>
+          )}
           <p className="text-xs text-gray-400 dark:text-white/30">AI çağrısı yok · tamamen kod taraflı</p>
         </div>
       )}
