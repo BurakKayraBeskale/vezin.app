@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getVisibleTaskFilter } from "@/lib/task-visibility";
 
 function weekBounds(weeksAgo: number) {
   const now = new Date();
@@ -26,6 +27,9 @@ export async function GET() {
   const now = new Date();
   const thisWeekStart = weekBounds(0).start;
   const { start: lastStart, end: lastEnd } = weekBounds(1);
+
+  // Görünürlük filtresi (tasksByStatus, overdueList, weeklyData için)
+  const visibilityWhere = await getVisibleTaskFilter({ id: userId, role: userRole, department: userDepartment });
 
   // Metrik kartlar: sadece o kullanıcıya atanan görevler
   const myTasks = { assignedToId: userId };
@@ -64,6 +68,7 @@ export async function GET() {
     }),
     prisma.task.groupBy({
       by: ["status"],
+      where: visibilityWhere as any,
       _count: { id: true },
     }),
   ]);
@@ -72,27 +77,24 @@ export async function GET() {
     tasksByStatus.map((s) => [s.status, s._count.id])
   );
 
-  // Performans grafiği filtresi:
-  // Admin → tüm görevler, Manager/Employee → kendi departmanındaki görevler
-  const weeklyFilter =
-    userRole === "ADMIN"
-      ? {}
-      : { assignedTo: { department: userDepartment } };
+  // Performans grafiği filtresi: görünürlük filtresiyle aynı
+  const weeklyFilter = visibilityWhere;
 
   const weeklyData = await Promise.all(
     Array.from({ length: 7 }, async (_, i) => {
       const weeksAgo = 6 - i; // oldest first
       const { start, end } = weekBounds(weeksAgo);
 
+      const wf = weeklyFilter as any;
       const [acilan, kapanan, geciken] = await Promise.all([
         prisma.task.count({
-          where: { ...weeklyFilter, createdAt: { gte: start, lt: end } },
+          where: { ...wf, createdAt: { gte: start, lt: end } },
         }),
         prisma.task.count({
-          where: { ...weeklyFilter, status: "DONE", updatedAt: { gte: start, lt: end } },
+          where: { ...wf, status: "DONE", updatedAt: { gte: start, lt: end } },
         }),
         prisma.task.count({
-          where: { ...weeklyFilter, dueDate: { gte: start, lt: end }, status: { not: "DONE" } },
+          where: { ...wf, dueDate: { gte: start, lt: end }, status: { not: "DONE" } },
         }),
       ]);
 
@@ -101,9 +103,9 @@ export async function GET() {
     })
   );
 
-  // Geciken görevler listesi (PDF için)
+  // Geciken görevler listesi (PDF için) — görünürlük filtresine tabi
   const overdueList = await prisma.task.findMany({
-    where: { dueDate: { lt: now }, status: { not: "DONE" } },
+    where: { ...(visibilityWhere as any), dueDate: { lt: now }, status: { not: "DONE" } },
     select: { id: true, title: true, dueDate: true, assignedTo: { select: { name: true } }, priority: true },
     orderBy: { dueDate: "asc" },
     take: 15,

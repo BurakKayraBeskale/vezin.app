@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
+import { getVisibleTaskFilter } from "@/lib/task-visibility";
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+
+  // Görevi göremiyorsa logları da gösterme
+  const visibilityWhere = await getVisibleTaskFilter({
+    id: token.id as string,
+    role: (token as any).role as string,
+    department: (token as any).department as string,
+  });
+  const task = await prisma.task.findFirst({ where: { id: params.id, ...(visibilityWhere as any) }, select: { id: true } });
+  if (!task) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
 
   const logs = await prisma.taskLog.findMany({
     where: { taskId: params.id },

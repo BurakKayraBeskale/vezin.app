@@ -64,6 +64,20 @@ export default async function BacklogPage() {
       : Promise.resolve([]),
   ]);
 
+  // EMPLOYEE için @mention ve atanabilir kullanıcı listesini kısıtla
+  const visibleUsers =
+    role === "EMPLOYEE"
+      ? (() => {
+          const ids = new Set<string>([userId]);
+          for (const t of tasks) {
+            if (t.assignedTo?.id) ids.add(t.assignedTo.id);
+            for (const a of t.assignees ?? []) ids.add(a.user.id);
+            if ((t as any).createdBy?.id) ids.add((t as any).createdBy.id);
+          }
+          return users.filter((u) => ids.has(u.id));
+        })()
+      : users;
+
   const open = tasks.filter((t) => t.status !== "DONE").length;
   const highPriority = tasks.filter((t) => t.priority === "HIGH" && t.status !== "DONE").length;
 
@@ -93,7 +107,7 @@ export default async function BacklogPage() {
 
       <BacklogTable
         initialTasks={JSON.parse(JSON.stringify(tasks))}
-        users={JSON.parse(JSON.stringify(users))}
+        users={JSON.parse(JSON.stringify(visibleUsers))}
         isAdmin={isAdmin}
         currentUserId={userId}
         canDeleteFiles={isAdmin || role === "MANAGER"}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { getVisibleTaskFilter } from "@/lib/task-visibility";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -21,8 +22,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const token = await getSession(req);
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
-  const task = await prisma.task.findUnique({
-    where: { id: params.id },
+  const visibilityWhere = await getVisibleTaskFilter({
+    id: token.id as string,
+    role: (token as any).role as string,
+    department: (token as any).department as string,
+  });
+
+  const task = await prisma.task.findFirst({
+    where: { id: params.id, ...(visibilityWhere as any) },
     include: taskInclude,
   });
 
@@ -39,9 +46,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const isAdmin = token.role === "ADMIN";
     const userId = token.id as string;
 
-    // Fetch current task before update
-    const current = await prisma.task.findUnique({
-      where: { id: params.id },
+    // Fetch current task before update — enforce visibility
+    const visibilityWhere = await getVisibleTaskFilter({
+      id: userId,
+      role: (token as any).role as string,
+      department: (token as any).department as string,
+    });
+    const current = await prisma.task.findFirst({
+      where: { id: params.id, ...(visibilityWhere as any) },
       select: { status: true, assignedToId: true },
     });
     if (!current) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });

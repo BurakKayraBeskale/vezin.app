@@ -67,6 +67,21 @@ export default async function BoardPage() {
       : Promise.resolve([]),
   ]);
 
+  // EMPLOYEE için @mention ve atanabilir kullanıcı listesini kısıtla:
+  // yalnızca görünür görevlerdeki kullanıcıları göster
+  const visibleUsers =
+    role === "EMPLOYEE"
+      ? (() => {
+          const ids = new Set<string>([userId]);
+          for (const t of tasks) {
+            if (t.assignedTo?.id) ids.add(t.assignedTo.id);
+            for (const a of t.assignees ?? []) ids.add(a.user.id);
+            if ((t as any).createdBy?.id) ids.add((t as any).createdBy.id);
+          }
+          return users.filter((u) => ids.has(u.id));
+        })()
+      : users;
+
   const counts = {
     todo: tasks.filter((t) => t.status === "TODO").length,
     inProgress: tasks.filter((t) => t.status === "IN_PROGRESS").length,
@@ -102,7 +117,7 @@ export default async function BoardPage() {
 
       <KanbanBoard
         initialTasks={JSON.parse(JSON.stringify(tasks))}
-        users={JSON.parse(JSON.stringify(users))}
+        users={JSON.parse(JSON.stringify(visibleUsers))}
         isAdmin={isAdmin}
         currentUserId={userId}
         canDeleteFiles={isAdmin || role === "MANAGER"}
