@@ -108,6 +108,54 @@ function toNum(s: string): number {
   return parseFloat(s.replace(/\s/g, "").replace(",", ".")) || 0;
 }
 
+// ── KDV kodu sınıflandırması ───────────────────────────────────────────────
+
+function isTevkifatCode(code: string): boolean {
+  const c = code.trim();
+  if (c === "9015") return true;
+  const n = parseInt(c, 10);
+  return !isNaN(n) && n >= 601 && n <= 699;
+}
+
+/** TaxTotal bloğundan yalnızca KDV bileşenini çıkarır; tevkifat kodlu alt satırları dışlar. */
+function parseTaxTotalKdv(taxTotalBlock: string): { kdv: number; kdvOrani: number } {
+  if (!taxTotalBlock) return { kdv: 0, kdvOrani: 0 };
+  const subtotals = allBlocks(taxTotalBlock, "TaxSubtotal");
+  if (subtotals.length === 0) {
+    return { kdv: toNum(firstText(taxTotalBlock, "TaxAmount")), kdvOrani: 0 };
+  }
+  let kdv = 0, kdvOrani = 0;
+  for (const sub of subtotals) {
+    const catBlock = firstBlock(sub, "TaxCategory");
+    const schBlock = firstBlock(catBlock || sub, "TaxScheme");
+    const typeCode = firstText(schBlock || catBlock || sub, "TaxTypeCode").trim();
+    if (!isTevkifatCode(typeCode)) {
+      kdv += toNum(firstText(sub, "TaxAmount"));
+      if (kdvOrani === 0) kdvOrani = toNum(firstText(sub, "Percent"));
+    }
+  }
+  return { kdv, kdvOrani };
+}
+
+function parseLineKdv(lineTaxBlock: string): { kdvTutari: number; kdvOrani: number } {
+  if (!lineTaxBlock) return { kdvTutari: 0, kdvOrani: 0 };
+  const subtotals = allBlocks(lineTaxBlock, "TaxSubtotal");
+  if (subtotals.length === 0) {
+    return { kdvTutari: toNum(firstText(lineTaxBlock, "TaxAmount")), kdvOrani: 0 };
+  }
+  let kdvTutari = 0, kdvOrani = 0;
+  for (const sub of subtotals) {
+    const catBlock = firstBlock(sub, "TaxCategory");
+    const schBlock = firstBlock(catBlock || sub, "TaxScheme");
+    const typeCode = firstText(schBlock || catBlock || sub, "TaxTypeCode").trim();
+    if (!isTevkifatCode(typeCode)) {
+      kdvTutari += toNum(firstText(sub, "TaxAmount"));
+      if (kdvOrani === 0) kdvOrani = toNum(firstText(sub, "Percent"));
+    }
+  }
+  return { kdvTutari, kdvOrani };
+}
+
 function fmtDate(iso: string): string {
   const p = iso.split("-");
   return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : iso;
@@ -171,11 +219,10 @@ function parseSatisInvoice(
   // Header-level TaxTotal
   const firstLineIdx     = xml.indexOf("<InvoiceLine");
   const headerPart       = firstLineIdx > -1 ? xml.slice(0, firstLineIdx) : xml;
-  const taxTotalBlock    = firstBlock(headerPart, "TaxTotal") || firstBlock(xml, "TaxTotal");
-  const taxSubtotalBlock = firstBlock(taxTotalBlock, "TaxSubtotal");
+  const taxTotalBlock = firstBlock(headerPart, "TaxTotal") || firstBlock(xml, "TaxTotal");
 
-  const totalKdv = toNum(firstText(taxTotalBlock, "TaxAmount"));
-  const kdvOrani = toNum(firstText(taxSubtotalBlock, "Percent"));
+  // KDV'yi TaxSubtotal düzeyinde sınıflandır; tevkifat kodlu satırları dışla
+  const { kdv: totalKdv, kdvOrani } = parseTaxTotalKdv(taxTotalBlock);
 
   // Classification
   const ihrac   = isIhracKayitli(xml);
@@ -195,10 +242,8 @@ function parseSatisInvoice(
     const miktar        = toNum(miktarStr);
     const birim         = firstAttr(lb, "InvoicedQuantity", "unitCode");
     const kdvHaricTutar = toNum(firstText(lb, "LineExtensionAmount"));
-    const lineTaxTotal  = firstBlock(lb, "TaxTotal");
-    const lineKdvTutari = toNum(firstText(lineTaxTotal, "TaxAmount"));
-    const lineTaxSub    = firstBlock(lineTaxTotal, "TaxSubtotal");
-    const lineKdvOrani  = toNum(firstText(lineTaxSub, "Percent"));
+    const lineTaxTotal = firstBlock(lb, "TaxTotal");
+    const { kdvTutari: lineKdvTutari, kdvOrani: lineKdvOrani } = parseLineKdv(lineTaxTotal);
     return { cins, miktar, birim, kdvHaricTutar, kdvOrani: lineKdvOrani, kdvTutari: lineKdvTutari };
   });
 

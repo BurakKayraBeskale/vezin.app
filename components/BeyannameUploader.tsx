@@ -37,6 +37,7 @@ interface KdvInvoice {
   tevkifatOrani?: number;
   isTevkifat?: boolean;
   tevkifatUyari?: boolean;
+  uyarilar?: string[];
   satirlar: KdvInvoiceLine[]; sourceFile: string;
 }
 interface KdvExcluded {
@@ -1480,16 +1481,28 @@ function IndirilenKdvPanel() {
               </p>
             </div>
           )}
-          {/* Tevkifat tutarı doğrulama uyarısı */}
+          {/* Doğrulama uyarıları */}
           {(result.stats.uyariCount ?? 0) > 0 && (
             <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
               <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
               </svg>
-              <p className="text-xs text-red-700 dark:text-red-400 leading-relaxed">
-                <strong>{result.stats.uyariCount}</strong> faturada tevkifat tutarı doğrulanamadı
-                (TaxInclusiveAmount − PayableAmount ≠ WithholdingTaxTotal). Bu faturalar sarı satırda gösterilir, Excel'e indirmeden önce kontrol edin.
-              </p>
+              <div className="text-xs text-red-700 dark:text-red-400 leading-relaxed">
+                <p className="mb-1">
+                  <strong>{result.stats.uyariCount}</strong> faturada doğrulama uyarısı var — Excel'e indirmeden önce kontrol edin:
+                </p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {result.invoices.filter(i => i.tevkifatUyari && (i.uyarilar?.length ?? 0) > 0).slice(0, 5).map((inv, idx) => (
+                    <li key={idx} className="truncate max-w-xs">
+                      <span className="font-medium">{inv.siraNo || inv.id}:</span>{" "}
+                      {inv.uyarilar![0]}
+                    </li>
+                  ))}
+                  {(result.stats.uyariCount ?? 0) > 5 && (
+                    <li>…ve {(result.stats.uyariCount ?? 0) - 5} fatura daha</li>
+                  )}
+                </ul>
+              </div>
             </div>
           )}
           {/* Tevkifat özeti */}

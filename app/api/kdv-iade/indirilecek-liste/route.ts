@@ -32,7 +32,8 @@ export interface ParsedInvoice {
   tevkifatKodu: string;     // TaxTypeCode from TaxScheme (e.g. "606")
   tevkifatOrani: number;    // Percent within TaxSubtotal (e.g. 90)
   isTevkifat: boolean;      // InvoiceTypeCode=TEVKIFAT veya tevkifatTutari>0
-  tevkifatUyari: boolean;   // TaxInclusiveAmount−PayableAmount ≠ tevkifatTutari
+  tevkifatUyari: boolean;   // herhangi bir doğrulama uyarısı varsa true
+  uyarilar: string[];       // doğrulama uyarısı mesajları
   satirlar: InvoiceLine[];
   sourceFile: string;
 }
@@ -143,6 +144,89 @@ function toNum(s: string): number {
   return parseFloat(s.replace(/\s/g, "").replace(",", ".")) || 0;
 }
 
+// ── KDV / tevkifat kodu sınıflandırması ────────────────────────────────────
+
+/** 9015 ve 601–699 aralığı: tevkifat kodları. Bunlar KDV değildir. */
+function isTevkifatCode(code: string): boolean {
+  const c = code.trim();
+  if (c === "9015") return true;
+  const n = parseInt(c, 10);
+  return !isNaN(n) && n >= 601 && n <= 699;
+}
+
+/**
+ * TaxTotal bloğunu KDV ve eski-usul tevkifat bileşenlerine ayırır.
+ *
+ * UBL-TR 1.2: TaxTotal/TaxAmount = tüm TaxSubtotal'ların toplamıdır.
+ * Bazı entegratörler tevkifatı WithholdingTaxTotal yerine TaxTotal içinde
+ * 9015 veya 601-606 koduyla gönderir. Bu fonksiyon onları ayırt eder.
+ *
+ * - TaxSubtotal yoksa: TaxTotal/TaxAmount'ı doğrudan KDV say (basit eski XML).
+ * - TaxSubtotal varsa:
+ *     isTevkifatCode(TaxTypeCode) → legacyTevkifat
+ *     diğerleri ("0015", boş, vs.)→ KDV
+ */
+function parseTaxTotalBreakdown(taxTotalBlock: string): {
+  kdv: number; kdvOrani: number;
+  legacyTevkifat: number; legacyTevkifatKodu: string; legacyTevkifatOrani: number;
+} {
+  const empty = { kdv: 0, kdvOrani: 0, legacyTevkifat: 0, legacyTevkifatKodu: "", legacyTevkifatOrani: 0 };
+  if (!taxTotalBlock) return empty;
+
+  const subtotals = allBlocks(taxTotalBlock, "TaxSubtotal");
+
+  // Alt satır yoksa TaxTotal/TaxAmount = doğrudan KDV (fallback)
+  if (subtotals.length === 0) {
+    return { ...empty, kdv: toNum(firstText(taxTotalBlock, "TaxAmount")) };
+  }
+
+  let kdv = 0, kdvOrani = 0;
+  let legacyTevkifat = 0, legacyTevkifatKodu = "", legacyTevkifatOrani = 0;
+
+  for (const sub of subtotals) {
+    const catBlock = firstBlock(sub, "TaxCategory");
+    const schBlock = firstBlock(catBlock || sub, "TaxScheme");
+    const typeCode = firstText(schBlock || catBlock || sub, "TaxTypeCode").trim();
+    const amount   = toNum(firstText(sub, "TaxAmount"));
+    const pct      = toNum(firstText(sub, "Percent"));
+
+    if (isTevkifatCode(typeCode)) {
+      // Eski usul: tevkifat TaxTotal içinde ayrı bir TaxSubtotal olarak geliyor
+      legacyTevkifat += amount;
+      if (!legacyTevkifatKodu) { legacyTevkifatKodu = typeCode; legacyTevkifatOrani = pct; }
+    } else {
+      // "0015", "" (boş), "KDV" ya da bilinmeyen → KDV olarak say
+      kdv += amount;
+      if (kdvOrani === 0 && pct > 0) kdvOrani = pct;
+    }
+  }
+
+  return { kdv, kdvOrani, legacyTevkifat, legacyTevkifatKodu, legacyTevkifatOrani };
+}
+
+/**
+ * Tek bir InvoiceLine/TaxTotal bloğundan KDV tutarını ve oranını çıkarır.
+ * Tevkifat kodlu TaxSubtotal'lar KDV toplamına dahil edilmez.
+ */
+function parseLineKdv(lineTaxBlock: string): { kdvTutari: number; kdvOrani: number } {
+  if (!lineTaxBlock) return { kdvTutari: 0, kdvOrani: 0 };
+  const subtotals = allBlocks(lineTaxBlock, "TaxSubtotal");
+  if (subtotals.length === 0) {
+    return { kdvTutari: toNum(firstText(lineTaxBlock, "TaxAmount")), kdvOrani: 0 };
+  }
+  let kdvTutari = 0, kdvOrani = 0;
+  for (const sub of subtotals) {
+    const catBlock = firstBlock(sub, "TaxCategory");
+    const schBlock = firstBlock(catBlock || sub, "TaxScheme");
+    const typeCode = firstText(schBlock || catBlock || sub, "TaxTypeCode").trim();
+    if (!isTevkifatCode(typeCode)) {
+      kdvTutari += toNum(firstText(sub, "TaxAmount"));
+      if (kdvOrani === 0) kdvOrani = toNum(firstText(sub, "Percent"));
+    }
+  }
+  return { kdvTutari, kdvOrani };
+}
+
 function fmtDate(iso: string): string {
   const p = iso.split("-");
   return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : iso;
@@ -243,11 +327,12 @@ function parseInvoice(
   // Find TaxTotal that appears before the first InvoiceLine
   const firstLineIdx = xml.indexOf("<InvoiceLine");
   const headerPart   = firstLineIdx > -1 ? xml.slice(0, firstLineIdx) : xml;
-  const taxTotalBlock    = firstBlock(headerPart, "TaxTotal") || firstBlock(xml, "TaxTotal");
-  const taxSubtotalBlock = firstBlock(taxTotalBlock, "TaxSubtotal");
+  const taxTotalBlock = firstBlock(headerPart, "TaxTotal") || firstBlock(xml, "TaxTotal");
 
-  const totalKdv  = toNum(firstText(taxTotalBlock, "TaxAmount"));
-  const kdvOrani  = toNum(firstText(taxSubtotalBlock, "Percent"));
+  // KDV ve eski-usul tevkifatı TaxSubtotal düzeyinde ayırt et (kör toplama yok)
+  const taxBreakdown = parseTaxTotalBreakdown(taxTotalBlock);
+  const totalKdv     = taxBreakdown.kdv;
+  const kdvOrani     = taxBreakdown.kdvOrani;
 
   // ── Filter 2: KDV = 0 ──
   if (totalKdv === 0) return { excluded: makeExcluded("KDV = 0") };
@@ -255,16 +340,14 @@ function parseInvoice(
   // ── Filter 3: İhraç kayıtlı ──
   if (isIhracKayitli(xml)) return { excluded: makeExcluded("İhraç Kayıtlı") };
 
-  // ── Tevkifat (WithholdingTaxTotal) ──────────────────────────────────────
-  const wht        = parseWithholdingTax(xml, headerPart);
-  const isTevkifat = typeCode === "TEVKIFAT" || wht.tutari > 0;
+  // ── Tevkifat ─────────────────────────────────────────────────────────────
+  // Önce açık WithholdingTaxTotal'a bak; yoksa TaxTotal içindeki eski usul tut.
+  const wht = parseWithholdingTax(xml, headerPart);
 
-  // Doğrulama: TaxInclusiveAmount − PayableAmount = tevkifat tutarı
-  const legalBlock      = firstBlock(headerPart, "LegalMonetaryTotal");
-  const taxInclusiveAmt = toNum(firstText(legalBlock, "TaxInclusiveAmount"));
-  const payableAmt      = toNum(firstText(legalBlock, "PayableAmount"));
-  const tevkifatUyari   = wht.tutari > 0 && taxInclusiveAmt > 0 && payableAmt > 0
-    && Math.abs((taxInclusiveAmt - payableAmt) - wht.tutari) > 0.02;
+  const tevkifatTutariRaw = wht.tutari > 0 ? wht.tutari : taxBreakdown.legacyTevkifat;
+  const tevkifatKoduRaw   = wht.tutari > 0 ? wht.kodu   : taxBreakdown.legacyTevkifatKodu;
+  const tevkifatOraniRaw  = wht.tutari > 0 ? wht.orani  : taxBreakdown.legacyTevkifatOrani;
+  const isTevkifat        = typeCode === "TEVKIFAT" || tevkifatTutariRaw > 0;
 
   // ── Parse invoice lines ──
   const lineBlocks = allBlocks(xml, "InvoiceLine");
@@ -276,10 +359,8 @@ function parseInvoice(
     const birim          = firstAttr(lb, "InvoicedQuantity", "unitCode");
     const kdvHaricTutar  = toNum(firstText(lb, "LineExtensionAmount"));
 
-    const lineTaxTotal      = firstBlock(lb, "TaxTotal");
-    const lineKdvTutari     = toNum(firstText(lineTaxTotal, "TaxAmount"));
-    const lineTaxSub        = firstBlock(lineTaxTotal, "TaxSubtotal");
-    const lineKdvOrani      = toNum(firstText(lineTaxSub, "Percent"));
+    const lineTaxTotal = firstBlock(lb, "TaxTotal");
+    const { kdvTutari: lineKdvTutari, kdvOrani: lineKdvOrani } = parseLineKdv(lineTaxTotal);
 
     return { cins, miktar, birim, kdvHaricTutar, kdvOrani: lineKdvOrani, kdvTutari: lineKdvTutari };
   });
@@ -300,6 +381,47 @@ function parseInvoice(
   const kdvHaricTutar = toNum(firstText(headerPart, "TaxExclusiveAmount")) ||
     satirlar.reduce((s, l) => s + l.kdvHaricTutar, 0);
 
+  // ── Doğrulama kontrolleri ────────────────────────────────────────────────
+  const legalBlock      = firstBlock(headerPart, "LegalMonetaryTotal");
+  const taxInclusiveAmt = toNum(firstText(legalBlock, "TaxInclusiveAmount"));
+  const payableAmt      = toNum(firstText(legalBlock, "PayableAmount"));
+  const taxExclInLegal  = toNum(firstText(legalBlock, "TaxExclusiveAmount")) || kdvHaricTutar;
+
+  const uyarilar: string[] = [];
+
+  // 1. TaxInclusiveAmount − PayableAmount = tevkifat tutarı
+  if (tevkifatTutariRaw > 0 && taxInclusiveAmt > 0 && payableAmt > 0) {
+    const diff = Math.abs((taxInclusiveAmt - payableAmt) - tevkifatTutariRaw);
+    if (diff > 0.02) {
+      uyarilar.push(
+        `TaxInclusiveAmount−PayableAmount (${(taxInclusiveAmt - payableAmt).toFixed(2)}) ≠ tevkifat (${tevkifatTutariRaw.toFixed(2)})`
+      );
+    }
+  }
+
+  // 2. KDV, faturanın toplam vergi alanını (TaxInclusiveAmt − TaxExclAmt) aşıyor
+  if (taxInclusiveAmt > 0 && taxExclInLegal > 0) {
+    const derivedAllTax = taxInclusiveAmt - taxExclInLegal;
+    if (totalKdv > derivedAllTax + 0.5) {
+      uyarilar.push(
+        `KDV (${totalKdv.toFixed(2)}) toplam vergi alanını (${derivedAllTax.toFixed(2)}) aşıyor — çifte sayma riski`
+      );
+    }
+  }
+
+  // 3. KDV ≈ matrah × oran (tek oranlı faturalar için çapraz kontrol)
+  if (kdvOrani > 0 && kdvHaricTutar > 0 && totalKdv > 0) {
+    const expectedKdv = kdvHaricTutar * (kdvOrani / 100);
+    const tolerance   = Math.max(0.5, totalKdv * 0.02);
+    if (Math.abs(totalKdv - expectedKdv) > tolerance) {
+      uyarilar.push(
+        `KDV (${totalKdv.toFixed(2)}) matrah×oran beklentisiyle (${expectedKdv.toFixed(2)}) uyuşmuyor — karma oran veya hata`
+      );
+    }
+  }
+
+  const tevkifatUyari = uyarilar.length > 0;
+
   const { seri, siraNo } = parseId(id);
 
   return {
@@ -312,11 +434,12 @@ function parseInvoice(
       kdvHaricTutar,
       kdvTutari: totalKdv,
       kdvOrani,
-      tevkifatTutari: wht.tutari,
-      tevkifatKodu:   wht.kodu,
-      tevkifatOrani:  wht.orani,
+      tevkifatTutari: tevkifatTutariRaw,
+      tevkifatKodu:   tevkifatKoduRaw,
+      tevkifatOrani:  tevkifatOraniRaw,
       isTevkifat,
       tevkifatUyari,
+      uyarilar,
       satirlar,
       sourceFile,
     },
