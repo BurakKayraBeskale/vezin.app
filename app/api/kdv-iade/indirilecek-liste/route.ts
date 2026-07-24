@@ -28,6 +28,11 @@ export interface ParsedInvoice {
   kdvHaricTutar: number;
   kdvTutari: number;
   kdvOrani: number;
+  tevkifatTutari: number;   // WithholdingTaxTotal/TaxAmount (0 if not present)
+  tevkifatKodu: string;     // TaxTypeCode from TaxScheme (e.g. "606")
+  tevkifatOrani: number;    // Percent within TaxSubtotal (e.g. 90)
+  isTevkifat: boolean;      // InvoiceTypeCode=TEVKIFAT veya tevkifatTutari>0
+  tevkifatUyari: boolean;   // TaxInclusiveAmount−PayableAmount ≠ tevkifatTutari
   satirlar: InvoiceLine[];
   sourceFile: string;
 }
@@ -173,6 +178,41 @@ function isIhracKayitli(xml: string): boolean {
   return false;
 }
 
+// ── WithholdingTaxTotal (tevkifat) parser ────────────────────────────────
+
+function parseWithholdingTax(
+  xml: string,
+  headerPart: string,
+): { tutari: number; kodu: string; orani: number } {
+  // Inner helper — extract kodu+orani from any WithholdingTaxTotal block
+  function wttMeta(blk: string) {
+    const sub  = firstBlock(blk, "TaxSubtotal");
+    const cat  = firstBlock(sub || blk, "TaxCategory");
+    const sch  = firstBlock(cat || blk, "TaxScheme");
+    return {
+      kodu:  firstText(sch || cat || blk, "TaxTypeCode"),
+      orani: toNum(firstText(sub || blk, "Percent")),
+    };
+  }
+
+  // 1. Header-level WithholdingTaxTotal (before InvoiceLine) — takes precedence
+  const headerWTT = firstBlock(headerPart, "WithholdingTaxTotal");
+  if (headerWTT) {
+    const tutari = toNum(firstText(headerWTT, "TaxAmount"));
+    if (tutari > 0) return { tutari, ...wttMeta(headerWTT) };
+  }
+
+  // 2. Line-level: sum from InvoiceLine/WithholdingTaxTotal
+  let tutari = 0; let kodu = ""; let orani = 0;
+  for (const lb of allBlocks(xml, "InvoiceLine")) {
+    const lwtt = firstBlock(lb, "WithholdingTaxTotal");
+    if (!lwtt) continue;
+    tutari += toNum(firstText(lwtt, "TaxAmount"));
+    if (!kodu) { const m = wttMeta(lwtt); kodu = m.kodu; orani = m.orani; }
+  }
+  return { tutari, kodu, orani };
+}
+
 // ── Single invoice parser ──────────────────────────────────────────────────
 
 function parseInvoice(
@@ -214,6 +254,17 @@ function parseInvoice(
 
   // ── Filter 3: İhraç kayıtlı ──
   if (isIhracKayitli(xml)) return { excluded: makeExcluded("İhraç Kayıtlı") };
+
+  // ── Tevkifat (WithholdingTaxTotal) ──────────────────────────────────────
+  const wht        = parseWithholdingTax(xml, headerPart);
+  const isTevkifat = typeCode === "TEVKIFAT" || wht.tutari > 0;
+
+  // Doğrulama: TaxInclusiveAmount − PayableAmount = tevkifat tutarı
+  const legalBlock      = firstBlock(headerPart, "LegalMonetaryTotal");
+  const taxInclusiveAmt = toNum(firstText(legalBlock, "TaxInclusiveAmount"));
+  const payableAmt      = toNum(firstText(legalBlock, "PayableAmount"));
+  const tevkifatUyari   = wht.tutari > 0 && taxInclusiveAmt > 0 && payableAmt > 0
+    && Math.abs((taxInclusiveAmt - payableAmt) - wht.tutari) > 0.02;
 
   // ── Parse invoice lines ──
   const lineBlocks = allBlocks(xml, "InvoiceLine");
@@ -261,6 +312,11 @@ function parseInvoice(
       kdvHaricTutar,
       kdvTutari: totalKdv,
       kdvOrani,
+      tevkifatTutari: wht.tutari,
+      tevkifatKodu:   wht.kodu,
+      tevkifatOrani:  wht.orani,
+      isTevkifat,
+      tevkifatUyari,
       satirlar,
       sourceFile,
     },
@@ -354,10 +410,13 @@ export async function POST(req: NextRequest) {
       invoices,
       excluded,
       stats: {
-        invoiceCount: invoices.length,
+        invoiceCount:  invoices.length,
         excludedCount: excluded.length,
         totalKdvHaric,
         totalKdv,
+        tevkifatCount: invoices.filter(i => i.isTevkifat).length,
+        totalTevkifat: invoices.reduce((s, i) => s + i.tevkifatTutari, 0),
+        uyariCount:    invoices.filter(i => i.tevkifatUyari).length,
       },
     });
   } catch (err: any) {

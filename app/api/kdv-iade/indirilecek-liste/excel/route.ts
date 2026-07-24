@@ -125,6 +125,8 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
   let siraNo     = 0;
   let totalKdvHaric = 0;
   let totalKdv      = 0;
+  let totalTev1     = 0;
+  let totalTev2     = 0;
 
   function addDataRow(
     sira: number,
@@ -135,6 +137,7 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
     donemi: string,
     isTevkifatli: boolean,
     isEven: boolean,
+    tevkifat: number,
   ) {
     const row = ws.getRow(dataRowNum);
 
@@ -152,9 +155,9 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
       { col: IDX.MIKTAR,     val: miktar },
       { col: IDX.KDV_HARIC,  val: kdvHaric,   num: true },
       { col: IDX.KDV,        val: kdv,         num: true },
-      { col: IDX.TEV1,       val: 0,            num: true },
-      { col: IDX.TEV2,       val: 0,            num: true },
-      { col: IDX.TOPLAM_KDV, val: kdv,          num: true }, // Toplam İndirilen = KDV (basit durumda)
+      { col: IDX.TEV1,       val: Math.max(0, kdv - tevkifat), num: true }, // İndirilecek KDV
+      { col: IDX.TEV2,       val: tevkifat,                   num: true }, // 2 No.lu Beyanname
+      { col: IDX.TOPLAM_KDV, val: kdv,                        num: true }, // Toplam = TEV1 + TEV2
       { col: IDX.GGB,        val: "" },
       { col: IDX.DONEM,      val: donemi },
     ];
@@ -189,8 +192,9 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
 
   for (const inv of invoices) {
     siraNo++;
-    const isEven = siraNo % 2 === 0;
-    const isTevkifatli = false; // ParsedInvoice'ta tevkifat bayrağı olmadığından varsayılan false
+    const isEven       = siraNo % 2 === 0;
+    const isTevkifatli = (inv as any).isTevkifat ?? false;
+    const tevkifat     = (inv as any).tevkifatTutari ?? 0;
 
     if (merge) {
       const cinsAll = [...new Set(inv.satirlar.map(l => l.cins).filter(Boolean))].join(", ") || "—";
@@ -203,15 +207,20 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
         inv.saticiUnvan, inv.saticiVergiNo,
         cinsAll, miktarAll,
         inv.kdvHaricTutar, inv.kdvTutari,
-        inv.donemi, isTevkifatli, isEven,
+        inv.donemi, isTevkifatli, isEven, tevkifat,
       );
       totalKdvHaric += inv.kdvHaricTutar;
       totalKdv      += inv.kdvTutari;
+      totalTev2     += tevkifat;
+      totalTev1     += Math.max(0, inv.kdvTutari - tevkifat);
     } else {
       const lines = inv.satirlar.length > 0 ? inv.satirlar : [{
         cins: "—", miktar: 1, birim: "",
         kdvHaricTutar: inv.kdvHaricTutar, kdvOrani: inv.kdvOrani, kdvTutari: inv.kdvTutari,
       }];
+
+      totalTev2 += tevkifat;
+      totalTev1 += Math.max(0, inv.kdvTutari - tevkifat);
 
       lines.forEach((line, li) => {
         const miktarStr = `${line.miktar}${line.birim ? " " + line.birim : ""}`;
@@ -221,7 +230,7 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
           inv.saticiUnvan, inv.saticiVergiNo,
           line.cins || "—", miktarStr,
           line.kdvHaricTutar, line.kdvTutari,
-          inv.donemi, isTevkifatli, isEven,
+          inv.donemi, isTevkifatli, isEven, li === 0 ? tevkifat : 0,
         );
         totalKdvHaric += line.kdvHaricTutar;
         totalKdv      += line.kdvTutari;
@@ -262,8 +271,8 @@ async function buildExcel(invoices: ParsedInvoice[], merge: boolean): Promise<Ui
 
   totCell(IDX.KDV_HARIC,  totalKdvHaric, true);
   totCell(IDX.KDV,        totalKdv,      true);
-  totCell(IDX.TEV1,       0,             true);
-  totCell(IDX.TEV2,       0,             true);
+  totCell(IDX.TEV1,       totalTev1,     true);
+  totCell(IDX.TEV2,       totalTev2,     true);
   totCell(IDX.TOPLAM_KDV, totalKdv,      true);
   totCell(IDX.GGB,        "");
   totCell(IDX.DONEM,      "");
