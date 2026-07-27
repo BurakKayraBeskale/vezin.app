@@ -16,9 +16,6 @@ export default async function BeyannamePage() {
     <div className="p-6 lg:p-8 max-w-3xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Beyanname Oluştur</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          PDF veya görsel yükleyin — yapay zeka verileri çıkarır, Excel olarak indirin.
-        </p>
       </div>
       <BeyannameUploader />
     </div>
