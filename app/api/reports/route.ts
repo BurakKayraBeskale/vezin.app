@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { isManagerOrAdmin } from "@/lib/access";
 
 const DEPT_LABELS: Record<string, string> = {
   OUTSOURCE:            "Outsource",
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const role = (session.user as any).role as string;
-  if (!BYPASS_AUTH_ROLES && role !== "ADMIN") return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
+  if (!BYPASS_AUTH_ROLES && !isManagerOrAdmin(role)) return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
   const period = searchParams.get("period") ?? "monthly"; // weekly | monthly

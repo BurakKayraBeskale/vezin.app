@@ -1,14 +1,7 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
-
-/** Rol/departman karşılaştırması — büyük/küçük harf bağımsız */
-function roleIs(token: any, value: string): boolean {
-  return String(token?.role ?? "").toUpperCase() === value.toUpperCase();
-}
-function deptIs(token: any, value: string): boolean {
-  return String((token as any)?.department ?? "").toUpperCase() === value.toUpperCase();
-}
+import { canAccess } from "@/lib/access";
 
 export default withAuth(
   function middleware(req) {
@@ -24,34 +17,13 @@ export default withAuth(
       return NextResponse.redirect(new URL("/change-password", req.url));
     }
 
-    // Admin-only routes
-    if (
-      !BYPASS_AUTH_ROLES &&
-      pathname.startsWith("/admin") &&
-      !roleIs(token, "ADMIN")
-    ) {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
+    if (!BYPASS_AUTH_ROLES) {
+      const role = String((token as any)?.role ?? "");
+      const department = String((token as any)?.department ?? "");
 
-    // Beyanname — Admin ve YMM
-    if (
-      !BYPASS_AUTH_ROLES &&
-      pathname.startsWith("/beyanname") &&
-      !roleIs(token, "ADMIN") &&
-      !deptIs(token, "YEMINLI_MALI_MUSAVIR")
-    ) {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
-
-    // Karşıt İnceleme — sadece Admin, YMM, Muhasebe
-    if (
-      !BYPASS_AUTH_ROLES &&
-      pathname.startsWith("/karsit-inceleme") &&
-      !roleIs(token, "ADMIN") &&
-      !deptIs(token, "YEMINLI_MALI_MUSAVIR") &&
-      !deptIs(token, "MUHASEBE")
-    ) {
-      return NextResponse.redirect(new URL("/", req.url));
+      if (!canAccess(role, department, pathname)) {
+        return NextResponse.redirect(new URL("/", req.url));
+      }
     }
   },
   {

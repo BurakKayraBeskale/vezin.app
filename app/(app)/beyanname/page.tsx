@@ -2,15 +2,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import BeyannameUploader from "@/components/BeyannameUploader";
+import { canAccess } from "@/lib/access";
 
 export default async function BeyannamePage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  // GEÇİCİ: tüm giriş yapmış kullanıcılara açık
-  // TODO: Aşağıdaki satırı uncomment ederek Admin+YMM kısıtına geri dön
-  // const { role, department } = session.user as any;
-  // if (role !== "ADMIN" && department !== "YEMINLI_MALI_MUSAVIR") redirect("/");
+  const { role, department } = session.user as any;
+  if (!canAccess(role, department, "/beyanname")) redirect("/");
 
   return (
     <div className="p-6 lg:p-8 max-w-3xl mx-auto">

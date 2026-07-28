@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import CompanyList from "@/components/CompanyList";
-import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { canAccess, isManagerOrAdmin } from "@/lib/access";
 
 export default async function CompaniesPage() {
   const session = await getServerSession(authOptions);
@@ -11,10 +11,10 @@ export default async function CompaniesPage() {
 
   const { role, department } = session.user as any;
 
-  const canView = role === "ADMIN" || department === "BAGIMSIZ_DENETIM";
-  if (!canView) redirect("/");
+  if (!canAccess(role, department, "/companies")) redirect("/");
 
-  const canManage = role === "ADMIN" || (department === "BAGIMSIZ_DENETIM" && role === "MANAGER");
+  // ADMIN ve MANAGER firma ekleyip düzenleyebilir
+  const canManage = isManagerOrAdmin(role);
   const userId = (session.user as any).id as string;
 
   const [companies, allUsers] = await Promise.all([

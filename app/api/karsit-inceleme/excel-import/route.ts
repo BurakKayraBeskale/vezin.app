@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { canAccess } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -10,9 +10,7 @@ export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
   const { role, department } = token as any;
-  if (role !== "ADMIN" && department !== "YEMINLI_MALI_MUSAVIR" && department !== "MUHASEBE") {
-    return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
-  }
+  if (!canAccess(role, department, "/karsit-inceleme")) return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
 
   let formData: FormData;
   try { formData = await req.formData(); }

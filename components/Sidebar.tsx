@@ -6,6 +6,7 @@ import { signOut } from "next-auth/react";
 import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { isManagerOrAdmin } from "@/lib/access";
 
 interface SidebarProps {
   userName: string;
@@ -74,17 +75,8 @@ const employeeExtraNavItems = [
   },
 ];
 
-const adminNavItems = [
-  {
-    href: "/admin/users",
-    label: "Kullanıcılar",
-    badgeKey: null as null,
-    icon: (
-      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-      </svg>
-    ),
-  },
+// ADMIN + MANAGER görebilir
+const managementNavItems = [
   {
     href: "/reports",
     label: "Raporlar",
@@ -112,6 +104,20 @@ const adminNavItems = [
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+];
+
+// Sadece ADMIN görebilir
+const adminOnlyNavItems = [
+  {
+    href: "/admin/users",
+    label: "Kullanıcılar",
+    badgeKey: null as null,
+    icon: (
+      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     ),
   },
@@ -254,7 +260,7 @@ export default function Sidebar({
           }
           active={pathname === "/meetings"}
         />
-        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "BAGIMSIZ_DENETIM") && (
+        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole) || userDepartment === "BAGIMSIZ_DENETIM") && (
           <NavLink
             href="/companies"
             label="Firmalar"
@@ -267,7 +273,8 @@ export default function Sidebar({
           />
         )}
 
-        {(BYPASS_AUTH_ROLES || userRole === "EMPLOYEE" || userRole === "MANAGER") && employeeExtraNavItems.map((item) => (
+        {/* Dilekçe + İzin: EMPLOYEE kendi görünümünü görür (badge yok) */}
+        {(BYPASS_AUTH_ROLES || userRole === "EMPLOYEE") && employeeExtraNavItems.map((item) => (
           <NavLink
             key={item.href}
             href={item.href}
@@ -307,7 +314,8 @@ export default function Sidebar({
           active={pathname === "/mail-taslagi"}
         />
 
-        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "BAGIMSIZ_DENETIM") && (
+        {/* Tarayıcı — herkese açık */}
+        {(BYPASS_AUTH_ROLES || true) && (
           <NavLink
             href="/tarayici"
             label="Tarayıcı"
@@ -320,7 +328,7 @@ export default function Sidebar({
           />
         )}
 
-        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
+        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole) || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
           <NavLink
             href="/beyanname"
             label="Beyanname"
@@ -333,7 +341,7 @@ export default function Sidebar({
           />
         )}
 
-        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "YEMINLI_MALI_MUSAVIR" || userDepartment === "MUHASEBE") && (
+        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole) || userDepartment === "YEMINLI_MALI_MUSAVIR" || userDepartment === "MUHASEBE") && (
           <NavLink
             href="/karsit-inceleme"
             label="Karşıt İnceleme"
@@ -346,7 +354,8 @@ export default function Sidebar({
           />
         )}
 
-        {(BYPASS_AUTH_ROLES || userRole === "ADMIN" || userDepartment === "MUHASEBE" || userDepartment === "BAGIMSIZ_DENETIM" || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
+        {/* Karşılaştırma — herkese açık */}
+        {(BYPASS_AUTH_ROLES || true) && (
           <NavLink
             href="/karsilastirma"
             label="Karşılaştırma"
@@ -359,14 +368,25 @@ export default function Sidebar({
           />
         )}
 
-        {(BYPASS_AUTH_ROLES || userRole === "ADMIN") && (
+        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole)) && (
           <>
             <div className="pt-3 pb-1">
               <p className="px-3 text-[9px] font-semibold text-white/25 uppercase tracking-widest">
                 Yönetim
               </p>
             </div>
-            {adminNavItems.map((item) => (
+            {managementNavItems.map((item) => (
+              <NavLink
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                active={pathname === item.href}
+                badge={item.badgeKey ? adminBadges[item.badgeKey] : undefined}
+              />
+            ))}
+            {/* Kullanıcılar, AI Yöneticisi, Yedekleme — yalnızca ADMIN */}
+            {(BYPASS_AUTH_ROLES || userRole === "ADMIN") && adminOnlyNavItems.map((item) => (
               <NavLink
                 key={item.href}
                 href={item.href}

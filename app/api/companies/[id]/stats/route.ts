@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
+import { canAccess } from "@/lib/access";
 
 function canView(token: any) {
-  return token.role === "ADMIN" || token.department === "BAGIMSIZ_DENETIM";
+  return canAccess(String(token.role ?? ""), String(token.department ?? ""), "/companies");
 }
 
 const STATUS_LABELS: Record<string, string> = {

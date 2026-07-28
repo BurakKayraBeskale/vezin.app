@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
+import { isManagerOrAdmin } from "@/lib/access";
 
 function canManage(token: any) {
-  return token.role === "ADMIN" || (token.department === "BAGIMSIZ_DENETIM" && token.role === "MANAGER");
+  return isManagerOrAdmin(String(token.role ?? ""));
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
