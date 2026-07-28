@@ -65,8 +65,8 @@ export const authOptions: NextAuthOptions = {
             select: { role: true, department: true, mustChangePassword: true },
           });
           if (dbUser) {
-            token.role = dbUser.role;
-            token.department = dbUser.department;
+            token.role = dbUser.role as "ADMIN" | "MANAGER" | "EMPLOYEE";
+            token.department = dbUser.department as typeof token.department;
             token.mustChangePassword = dbUser.mustChangePassword ?? false;
           }
         } catch {
