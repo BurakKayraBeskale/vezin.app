@@ -52,14 +52,28 @@ export const authOptions: NextAuthOptions = {
   ],
   session: { strategy: "jwt" },
   callbacks: {
-    jwt({ token, user, trigger, session }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
-        token.role = (user as any).role;
-        token.department = (user as any).department;
-        token.mustChangePassword = (user as any).mustChangePassword ?? false;
       }
-      // Allow client-side session.update() to clear mustChangePassword
+      // Her token yenilemesinde DB'den güncel rol/departman/mustChangePassword çek
+      // → Panelden yapılan yetki değişikliği kullanıcı sayfa yenileyince anında yansır
+      if (token.id) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: token.id as string },
+            select: { role: true, department: true, mustChangePassword: true },
+          });
+          if (dbUser) {
+            token.role = dbUser.role;
+            token.department = dbUser.department;
+            token.mustChangePassword = dbUser.mustChangePassword ?? false;
+          }
+        } catch {
+          // DB erişim hatası olursa mevcut token değerleri korunur
+        }
+      }
+      // client-side session.update() ile mustChangePassword temizlenebilsin
       if (trigger === "update" && session?.mustChangePassword !== undefined) {
         token.mustChangePassword = session.mustChangePassword;
       }

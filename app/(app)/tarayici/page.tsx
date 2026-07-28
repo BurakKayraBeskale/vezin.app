@@ -2,14 +2,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import GorselToExcel from "@/components/GorselToExcel";
-import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export default async function TarayiciPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
-
-  const { role, department } = session.user as any;
-  if (role !== "ADMIN" && department !== "BAGIMSIZ_DENETIM") redirect("/");
 
   return (
     <div className="p-6 lg:p-8 max-w-3xl mx-auto">

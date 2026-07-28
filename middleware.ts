@@ -2,13 +2,18 @@ import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
+/** Rol/departman karşılaştırması — büyük/küçük harf bağımsız */
+function roleIs(token: any, value: string): boolean {
+  return String(token?.role ?? "").toUpperCase() === value.toUpperCase();
+}
+function deptIs(token: any, value: string): boolean {
+  return String((token as any)?.department ?? "").toUpperCase() === value.toUpperCase();
+}
+
 export default withAuth(
   function middleware(req) {
     const { token } = req.nextauth;
     const pathname = req.nextUrl.pathname;
-
-    // DEBUG — gerçek token değerlerini logla (karşılaştırma tamamlanınca kaldır)
-    console.log("[auth] user:", (token as any)?.email, "| role:", (token as any)?.role, "| dept:", (token as any)?.department, "| path:", pathname);
 
     // Force password change — block all non-API page routes until changed
     if (
@@ -23,18 +28,17 @@ export default withAuth(
     if (
       !BYPASS_AUTH_ROLES &&
       pathname.startsWith("/admin") &&
-      token?.role !== "ADMIN"
+      !roleIs(token, "ADMIN")
     ) {
       return NextResponse.redirect(new URL("/", req.url));
     }
 
     // Beyanname — Admin ve YMM
-    // TODO: BYPASS_AUTH_ROLES = false yapıldığında bu blok devreye girer
     if (
       !BYPASS_AUTH_ROLES &&
       pathname.startsWith("/beyanname") &&
-      token?.role !== "ADMIN" &&
-      (token as any)?.department !== "YEMINLI_MALI_MUSAVIR"
+      !roleIs(token, "ADMIN") &&
+      !deptIs(token, "YEMINLI_MALI_MUSAVIR")
     ) {
       return NextResponse.redirect(new URL("/", req.url));
     }
@@ -43,9 +47,9 @@ export default withAuth(
     if (
       !BYPASS_AUTH_ROLES &&
       pathname.startsWith("/karsit-inceleme") &&
-      token?.role !== "ADMIN" &&
-      (token as any)?.department !== "YEMINLI_MALI_MUSAVIR" &&
-      (token as any)?.department !== "MUHASEBE"
+      !roleIs(token, "ADMIN") &&
+      !deptIs(token, "YEMINLI_MALI_MUSAVIR") &&
+      !deptIs(token, "MUHASEBE")
     ) {
       return NextResponse.redirect(new URL("/", req.url));
     }

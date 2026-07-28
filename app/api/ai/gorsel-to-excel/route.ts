@@ -3,7 +3,6 @@ import { getToken } from "next-auth/jwt";
 import { getOpenAI } from "@/lib/openai";
 import { getAiPrompt } from "@/lib/ai-prompts";
 import { extractText } from "unpdf";
-import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export const dynamic = "force-dynamic";
 
@@ -48,11 +47,6 @@ export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) {
     return NextResponse.json({ error: "Yetkisiz erişim" }, { status: 401 });
-  }
-
-  const { role, department } = token as any;
-  if (role !== "ADMIN" && department !== "BAGIMSIZ_DENETIM") {
-    return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
   }
 
   let formData: FormData;
