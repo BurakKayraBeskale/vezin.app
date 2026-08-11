@@ -10,36 +10,44 @@ datasource db {
 // Role: "ADMIN" | "MANAGER" | "EMPLOYEE"
 // Status: "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE"
 // Priority: "LOW" | "MEDIUM" | "HIGH"
-// Department: "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YEMINLI_MALI_MUSAVIR" | "ADMIN"
+// Department (user): "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YEMINLI_MALI_MUSAVIR" | "ADMIN"
+// Project department: "BAGIMSIZ_DENETIM" | "VERGI"
 
 model User {
-  id                 String   @id @default(cuid())
-  name               String
-  email              String   @unique
-  password           String
-  role               String   @default("EMPLOYEE")
-  department         String   @default("OUTSOURCE")
-  mustChangePassword Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  assignedTasks      Task[]           @relation("AssignedTo")
-  createdTasks       Task[]           @relation("CreatedBy")
-  taskAssignees      TaskAssignee[]
-  feedbacks          Feedback[]
-  files              File[]
-  taskLogs           TaskLog[]
-  petitions          Petition[]
-  leaveRequests      LeaveRequest[]   @relation("LeaveRequests")
-  leaveBalances      LeaveBalance[]   @relation("LeaveBalances")
-  manages            UserRelation[]   @relation("manages")
-  subordinateTo      UserRelation[]   @relation("subordinateTo")
-  notifications      Notification[]
-  meetingsCreated    Meeting[]        @relation("MeetingCreator")
-  meetingAttendees   MeetingAttendee[]
-  templates          TaskTemplate[]   @relation("TemplateCreator")
-  taskComments       TaskComment[]
-  loginLogs          LoginLog[]
-  companyAssignments CompanyAssignment[]
-  karsitIncelemeler  KarsitInceleme[]
+  id                  String   @id @default(cuid())
+  name                String
+  email               String   @unique
+  password            String
+  role                String   @default("EMPLOYEE")
+  department          String   @default("OUTSOURCE")
+  mustChangePassword  Boolean  @default(true)
+  title               String   @default("")
+  seniorityLevel      Int      @default(0)
+  canViewAllTasks     Boolean  @default(false)
+  canViewAllProjects  Boolean  @default(false)
+  overseesDepartment  String?  // "BAGIMSIZ_DENETIM" | "VERGI" | null
+  createdAt           DateTime @default(now())
+  assignedTasks       Task[]            @relation("AssignedTo")
+  createdTasks        Task[]            @relation("CreatedBy")
+  taskAssignees       TaskAssignee[]
+  feedbacks           Feedback[]
+  files               File[]
+  taskLogs            TaskLog[]
+  petitions           Petition[]
+  leaveRequests       LeaveRequest[]    @relation("LeaveRequests")
+  leaveBalances       LeaveBalance[]    @relation("LeaveBalances")
+  manages             UserRelation[]    @relation("manages")
+  subordinateTo       UserRelation[]    @relation("subordinateTo")
+  notifications       Notification[]
+  meetingsCreated     Meeting[]         @relation("MeetingCreator")
+  meetingAttendees    MeetingAttendee[]
+  templates           TaskTemplate[]    @relation("TemplateCreator")
+  taskComments        TaskComment[]
+  loginLogs           LoginLog[]
+  companyAssignments  CompanyAssignment[]
+  projectMembers      ProjectMember[]
+  projectsCreated     Project[]         @relation("ProjectCreatedBy")
+  karsitIncelemeler   KarsitInceleme[]
 }
 
 model Notification {
@@ -78,6 +86,9 @@ model Task {
   dueDate        DateTime?
   createdBy      User      @relation("CreatedBy", fields: [createdById], references: [id])
   createdById    String
+  parentTaskId   String?
+  parent         Task?     @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  children       Task[]    @relation("TaskHierarchy")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   isRecurring    Boolean   @default(false)
@@ -86,6 +97,8 @@ model Task {
   nextOccurrence DateTime?
   companyId      String?
   company        Company?  @relation(fields: [companyId], references: [id])
+  projectId      String?
+  project        Project?  @relation(fields: [projectId], references: [id])
   assignees      TaskAssignee[]
   feedbacks      Feedback[]
   files          File[]
@@ -253,6 +266,36 @@ model Company {
   updatedAt   DateTime  @updatedAt
   assignments CompanyAssignment[]
   tasks       Task[]
+}
+
+// department: "BAGIMSIZ_DENETIM" | "VERGI"
+model Project {
+  id          String    @id @default(cuid())
+  name        String
+  department  String    // "BAGIMSIZ_DENETIM" | "VERGI"
+  taxNumber   String?
+  sector      String?
+  startDate   DateTime?
+  notes       String?
+  about       String?
+  createdById String
+  createdBy   User      @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  members     ProjectMember[]
+  tasks       Task[]
+}
+
+model ProjectMember {
+  id         String   @id @default(cuid())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId  String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  assignedAt DateTime @default(now())
+  assignedBy String   @default("")
+
+  @@unique([projectId, userId])
 }
 
 model CompanyAssignment {

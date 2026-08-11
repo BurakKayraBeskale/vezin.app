@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { getVisibleTaskFilter } from "@/lib/task-visibility";
+import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 
@@ -9,12 +9,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
-  const visibilityWhere = await getVisibleTaskFilter({
-    id: token.id as string,
-    role: (token as any).role as string,
-    department: (token as any).department as string,
-  });
-  const task = await prisma.task.findFirst({ where: { id: params.id, ...(visibilityWhere as any) } });
+  const projectIds = await getVisibleProjectIds({ id: token.id as string, role: (token as any).role as string, canViewAllProjects: (token as any).canViewAllProjects ?? false, overseesDepartment: (token as any).overseesDepartment ?? null });
+  const taskWhere = buildTaskVisibilityWhere(projectIds);
+  const task = await prisma.task.findFirst({ where: { AND: [{ id: params.id }, taskWhere as any] } });
   if (!task) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
 
   const formData = await req.formData();

@@ -144,7 +144,9 @@ export default function ReportsPage() {
   useEffect(() => {
     if (status === "loading") return;
     const role = (session?.user as any)?.role;
-    if (!BYPASS_AUTH_ROLES && !isManagerOrAdmin(role ?? "")) { router.replace("/"); return; }
+    const canViewAllTasks = (session?.user as any)?.canViewAllTasks ?? false;
+    // Raporlar yalnızca canViewAllTasks veya ADMIN'e açık
+    if (!BYPASS_AUTH_ROLES && role !== "ADMIN" && !canViewAllTasks) { router.replace("/"); return; }
     setLoading(true);
     fetch(`/api/reports?period=${period}`)
       .then((r) => r.json())

@@ -18,7 +18,12 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const role = (session.user as any).role as string;
-  if (!BYPASS_AUTH_ROLES && !isManagerOrAdmin(role)) return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
+  const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
+  const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
+  // Raporlar: ADMIN, canViewAllProjects veya gözetmen (overseesDepartment set)
+  if (!BYPASS_AUTH_ROLES && role !== "ADMIN" && !canViewAllProjects && !overseesDepartment) {
+    return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
+  }
 
   const { searchParams } = new URL(req.url);
   const period = searchParams.get("period") ?? "monthly"; // weekly | monthly

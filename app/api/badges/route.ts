@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getVisibleTaskFilter } from "@/lib/task-visibility";
+import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -12,7 +12,10 @@ export async function GET() {
   const role = session.user.role as string;
   const department = (session.user as any).department as string;
 
-  const visibilityWhere = await getVisibleTaskFilter({ id: userId, role, department });
+  const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
+  const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
+  const projectIds = await getVisibleProjectIds({ id: userId, role, canViewAllProjects, overseesDepartment });
+  const visibilityWhere = buildTaskVisibilityWhere(projectIds);
 
   const [overdueCount, unreadPetitions, pendingLeave, unreadNotifications] = await Promise.all([
     prisma.task.count({

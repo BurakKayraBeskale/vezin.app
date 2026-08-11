@@ -262,6 +262,86 @@ async function main() {
     console.log(`   ⏭  Görevler atlandı (${existingTaskCount} kayıt mevcut)`);
   }
 
+  // ── Kıdem Seviyeleri ─────────────────────────────────────────────────────
+  // YMM ortakları: tam görünürlük, herkese atayabilir
+  const YMM_UPDATES = [
+    { email: "ismailkos@vezin.com.tr",  title: "YMM", seniorityLevel: 100, canViewAllTasks: true },
+    { email: "muratozgur@vezin.com.tr", title: "YMM", seniorityLevel: 100, canViewAllTasks: true },
+  ];
+  for (const u of YMM_UPDATES) {
+    await prisma.user.updateMany({ where: { email: u.email }, data: u });
+  }
+
+  // Karya Beşkale (sistem ADMIN): canViewAllTasks=true
+  await prisma.user.updateMany({
+    where: { email: "karyabeskale@vezin.com.tr" },
+    data: { canViewAllTasks: true },
+  });
+
+  // Admin hesapları: canViewAllTasks=true (zaten ADMIN rolüyle tüm görülebilir)
+  await prisma.user.updateMany({
+    where: { email: { in: ["admin@vezin.com", "kkoklor@gmail.com"] } },
+    data: { canViewAllTasks: true },
+  });
+
+  // ── Proje Görünürlüğü ────────────────────────────────────────────────────
+  // İsmail Koş: tüm birimleri görür (canViewAllProjects)
+  await prisma.user.updateMany({
+    where: { email: "ismailkos@vezin.com.tr" },
+    data: { canViewAllProjects: true },
+  });
+
+  // Vergi gözetmenleri: Murat Özgür (YMM, yalnızca Vergi), Ebubekir Öztürk
+  await prisma.user.updateMany({
+    where: { email: { in: ["muratozgur@vezin.com.tr", "ebubekirozturk@vezin.com.tr"] } },
+    data: { overseesDepartment: "VERGI" },
+  });
+
+  // Bağımsız Denetim gözetmeni: Ahmet Oruç
+  await prisma.user.updateMany({
+    where: { email: "ahmetoruc@vezin.com.tr" },
+    data: { overseesDepartment: "BAGIMSIZ_DENETIM" },
+  });
+
+  // Admin + Karya: canViewAllProjects=true
+  await prisma.user.updateMany({
+    where: { email: { in: ["admin@vezin.com", "kkoklor@gmail.com", "karyabeskale@vezin.com.tr"] } },
+    data: { canViewAllProjects: true },
+  });
+
+  console.log("✔ Proje görünürlük rolleri güncellendi");
+
+  // ── İcmal Listesi — Unvana göre kıdem ataması ────────────────────────────
+  // Aşağıdaki diziyi icmal listenizdeki kişi unvanlarına göre doldurun.
+  //
+  // Seviye haritası:
+  //   Asistant              = 0
+  //   Experienced Assistant = 1
+  //   Senior 1              = 2
+  //   Senior 2              = 3
+  //   Asistant Manager      = 4
+  //   Manager 1             = 5
+  //   Manager 2             = 6
+  //   Manager 3             = 7
+  //   Senior Manager 1      = 8
+  //   Senior Manager 2      = 9
+  //   Senior Manager 3      = 10
+  //   Partner               = 14
+  //   YMM (ortak)           = 100
+  //
+  // Örnek: { email: "ahmetoruc@vezin.com.tr", title: "Senior 1", seniorityLevel: 2 }
+  const ICMAL_MAP: { email: string; title: string; seniorityLevel: number }[] = [
+    // TODO: İcmal listenizdeki 18 kişiyi buraya ekleyin
+  ];
+  for (const u of ICMAL_MAP) {
+    await prisma.user.updateMany({
+      where: { email: u.email },
+      data: { title: u.title, seniorityLevel: u.seniorityLevel },
+    });
+  }
+
+  console.log("✔ Kıdem seviyeleri güncellendi");
+
   // ── LeaveBalance (2026) ──────────────────────────────────
   for (const emp of [ayse, murat, zeynep]) {
     await prisma.leaveBalance.upsert({

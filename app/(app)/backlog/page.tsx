@@ -4,38 +4,38 @@ import { prisma } from "@/lib/prisma";
 import BacklogTable from "@/components/BacklogTable";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { getVisibleTaskIds, buildVisibilityWhere } from "@/lib/task-visibility";
 
 export const dynamic = "force-dynamic";
-
-async function getVisibleUserIds(userId: string, role: string): Promise<string[] | null> {
-  if (role === "ADMIN") return null;
-
-  // Sadece SUBORDINATE ilişkisindeki kişilerin görevleri görünür
-  // SUPERIOR ve PEER ilişkileri görev görünürlüğünü etkilemez
-  const relations = await prisma.userRelation.findMany({
-    where: { managerId: userId, relationType: "SUBORDINATE" },
-    select: { subordinateId: true },
-  });
-
-  return [userId, ...relations.map((r) => r.subordinateId)];
-}
 
 export default async function BacklogPage() {
   const session = await getServerSession(authOptions);
   const isAdmin = session?.user.role === "ADMIN";
   const userId = session!.user.id;
   const role = session!.user.role;
+  const canViewAllTasks = (session!.user as any).canViewAllTasks ?? false;
+  const canManage = isAdmin || canViewAllTasks;
 
-  const visibleUserIds = await getVisibleUserIds(userId, role);
-  const taskWhere = visibleUserIds ? { assignedToId: { in: visibleUserIds } } : {};
+  // ── Görünür görevler — kıdem+atama zinciri modeli ────────────────────────
+  const visibleIds = await getVisibleTaskIds({ id: userId, role, canViewAllTasks });
+  const taskWhere = buildVisibilityWhere(visibleIds);
+
+  // ── Atanabilir kullanıcılar — kıdem kuralı ────────────────────────────────
+  const assigner = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { seniorityLevel: true, canViewAllTasks: true, role: true },
+  });
+  const canAssignAll = assigner ? (assigner.canViewAllTasks || assigner.role === "ADMIN") : false;
 
   const [tasks, users, templates] = await Promise.all([
     prisma.task.findMany({
-      where: taskWhere,
+      where: taskWhere as any,
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
         assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
         createdBy: { select: { id: true, name: true } },
+        parent: { select: { id: true, title: true } },
+        children: { select: { id: true, title: true, status: true } },
         files: {
           include: { uploadedBy: { select: { id: true, name: true } } },
           orderBy: { createdAt: "desc" },
@@ -51,12 +51,18 @@ export default async function BacklogPage() {
       },
       orderBy: { createdAt: "desc" },
     }),
+    // Atanabilir kullanıcılar: kıdem kuralına göre filtreli
     prisma.user.findMany({
-      where: { email: { notIn: HIDDEN_ACCOUNT_EMAILS } },
-      select: { id: true, name: true, email: true },
+      where: canAssignAll
+        ? { email: { notIn: HIDDEN_ACCOUNT_EMAILS } }
+        : {
+            email: { notIn: HIDDEN_ACCOUNT_EMAILS },
+            seniorityLevel: { lt: assigner?.seniorityLevel ?? 0 },
+          },
+      select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
       orderBy: { name: "asc" },
     }),
-    (isAdmin || role === "MANAGER")
+    canManage
       ? prisma.taskTemplate.findMany({
           select: { id: true, title: true, description: true, priority: true, estimatedDays: true },
           orderBy: { createdAt: "desc" },
@@ -64,19 +70,8 @@ export default async function BacklogPage() {
       : Promise.resolve([]),
   ]);
 
-  // EMPLOYEE için @mention ve atanabilir kullanıcı listesini kısıtla
-  const visibleUsers =
-    role === "EMPLOYEE"
-      ? (() => {
-          const ids = new Set<string>([userId]);
-          for (const t of tasks) {
-            if (t.assignedTo?.id) ids.add(t.assignedTo.id);
-            for (const a of t.assignees ?? []) ids.add(a.user.id);
-            if ((t as any).createdBy?.id) ids.add((t as any).createdBy.id);
-          }
-          return users.filter((u) => ids.has(u.id));
-        })()
-      : users;
+  // Görünür kullanıcılar (@mention için): görev katılımcıları ∪ atanabilir kullanıcılar
+  const visibleUsers = users;
 
   const open = tasks.filter((t) => t.status !== "DONE").length;
   const highPriority = tasks.filter((t) => t.priority === "HIGH" && t.status !== "DONE").length;
@@ -108,9 +103,9 @@ export default async function BacklogPage() {
       <BacklogTable
         initialTasks={JSON.parse(JSON.stringify(tasks))}
         users={JSON.parse(JSON.stringify(visibleUsers))}
-        isAdmin={isAdmin}
+        isAdmin={canManage}
         currentUserId={userId}
-        canDeleteFiles={isAdmin || role === "MANAGER"}
+        canDeleteFiles={canManage}
         templates={JSON.parse(JSON.stringify(templates))}
       />
     </div>

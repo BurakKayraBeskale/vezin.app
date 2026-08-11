@@ -6,12 +6,20 @@ declare module "next-auth" {
   interface User {
     role: "ADMIN" | "EMPLOYEE" | "MANAGER";
     department: string;
+    canViewAllTasks: boolean;
+    seniorityLevel: number;
+    canViewAllProjects?: boolean;
+    overseesDepartment?: string | null;
   }
   interface Session {
     user: {
       id: string;
       role: "ADMIN" | "EMPLOYEE" | "MANAGER";
       department: string;
+      canViewAllTasks: boolean;
+      seniorityLevel: number;
+      canViewAllProjects?: boolean;
+      overseesDepartment?: string | null;
     } & DefaultSession["user"];
   }
 }
@@ -21,5 +29,9 @@ declare module "next-auth/jwt" {
     id: string;
     role: "ADMIN" | "EMPLOYEE" | "MANAGER";
     department: string;
+    canViewAllTasks: boolean;
+    seniorityLevel: number;
+    canViewAllProjects?: boolean;
+    overseesDepartment?: string | null;
   }
 }

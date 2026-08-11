@@ -11,9 +11,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const userId = (session.user as any).id as string;
 
+  // Overdue count: yalnızca kullanıcının kendisine atanan gecikmiş görevler
   const [overdueCount, unreadPetitions, pendingLeave, unreadNotifications] = await Promise.all([
     prisma.task.count({
-      where: { dueDate: { lt: new Date() }, status: { not: "DONE" } },
+      where: { assignedToId: userId, dueDate: { lt: new Date() }, status: { not: "DONE" } },
     }),
     session.user.role === "ADMIN"
       ? prisma.petition.count({ where: { isRead: false } })
@@ -36,6 +37,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       userEmail={session.user.email ?? ""}
       userRole={session.user.role}
       userDepartment={(session.user as any).department ?? ""}
+      canViewAllTasks={(session.user as any).canViewAllTasks ?? false}
+      canViewAllProjects={(session.user as any).canViewAllProjects ?? false}
       overdueCount={overdueCount}
       unreadPetitions={unreadPetitions}
       pendingLeave={pendingLeave}

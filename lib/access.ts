@@ -20,16 +20,21 @@ export function isManagerOrAdmin(role: string): boolean {
   return r === "ADMIN" || r === "MANAGER";
 }
 
-/** Departman kısıtı olan kurallar — SADECE EMPLOYEE rolü için geçerlidir */
+/** Departman kısıtı olan kurallar — EMPLOYEE rolü için geçerlidir */
 export interface DeptRule {
   pathPrefix: string;
   allowedDepts: string[]; // boş = herkese açık
+  /** true ise ADMIN ve MANAGER da departman kısıtına tabidir */
+  strictDept?: boolean;
 }
 
 export const DEPT_GATED_RULES: DeptRule[] = [
   { pathPrefix: "/beyanname",       allowedDepts: ["YEMINLI_MALI_MUSAVIR"] },
   { pathPrefix: "/karsit-inceleme", allowedDepts: ["YEMINLI_MALI_MUSAVIR", "MUHASEBE"] },
   { pathPrefix: "/companies",       allowedDepts: ["BAGIMSIZ_DENETIM"] },
+  // KDV İade — rol fark etmeksizin sadece YMM/Muhasebe erişir (ADMIN dahil)
+  { pathPrefix: "/kdv-iade",        allowedDepts: ["YEMINLI_MALI_MUSAVIR", "MUHASEBE"], strictDept: true },
+  { pathPrefix: "/api/kdv-iade",    allowedDepts: ["YEMINLI_MALI_MUSAVIR", "MUHASEBE"], strictDept: true },
   // /karsilastirma ve /tarayici herkese açık — kural yok
 ];
 
@@ -41,7 +46,15 @@ export function canAccess(role: string, department: string, pathname: string): b
   const r = role.toUpperCase();
   const d = department.toUpperCase();
 
-  // ADMIN: her şeye erişir
+  // Önce strictDept kurallarını kontrol et (ADMIN dahil herkese uygulanır)
+  const strictRule = DEPT_GATED_RULES.find(
+    (rr) => rr.strictDept && pathname.startsWith(rr.pathPrefix)
+  );
+  if (strictRule) {
+    return strictRule.allowedDepts.some((dept) => d === dept.toUpperCase());
+  }
+
+  // ADMIN: (strictDept dışında) her şeye erişir
   if (r === "ADMIN") return true;
 
   // Admin-only path'lere ADMIN dışı kimse giremez
@@ -51,7 +64,7 @@ export function canAccess(role: string, department: string, pathname: string): b
   if (r === "MANAGER") return true;
 
   // EMPLOYEE: departman kurallarına bak
-  const rule = DEPT_GATED_RULES.find((rr) => pathname.startsWith(rr.pathPrefix));
+  const rule = DEPT_GATED_RULES.find((rr) => !rr.strictDept && pathname.startsWith(rr.pathPrefix));
   if (!rule || rule.allowedDepts.length === 0) return true; // kural yoksa açık
   return rule.allowedDepts.some((dept) => d === dept.toUpperCase());
 }

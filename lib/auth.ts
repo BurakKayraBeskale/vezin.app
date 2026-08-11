@@ -46,6 +46,8 @@ export const authOptions: NextAuthOptions = {
           role: user.role as "ADMIN" | "MANAGER" | "EMPLOYEE",
           department: user.department,
           mustChangePassword: user.mustChangePassword,
+          canViewAllTasks: user.canViewAllTasks,
+          seniorityLevel: user.seniorityLevel,
         };
       },
     }),
@@ -62,12 +64,16 @@ export const authOptions: NextAuthOptions = {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: { role: true, department: true, mustChangePassword: true },
+            select: { role: true, department: true, mustChangePassword: true, canViewAllTasks: true, seniorityLevel: true, canViewAllProjects: true, overseesDepartment: true },
           });
           if (dbUser) {
             token.role = dbUser.role as "ADMIN" | "MANAGER" | "EMPLOYEE";
             token.department = dbUser.department as typeof token.department;
             token.mustChangePassword = dbUser.mustChangePassword ?? false;
+            token.canViewAllTasks = dbUser.canViewAllTasks ?? false;
+            token.seniorityLevel = dbUser.seniorityLevel ?? 0;
+            token.canViewAllProjects = dbUser.canViewAllProjects ?? false;
+            token.overseesDepartment = dbUser.overseesDepartment ?? null;
           }
         } catch {
           // DB erişim hatası olursa mevcut token değerleri korunur
@@ -85,6 +91,10 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role as string;
         (session.user as any).department = token.department as string;
         (session.user as any).mustChangePassword = token.mustChangePassword as boolean;
+        (session.user as any).canViewAllTasks = token.canViewAllTasks as boolean ?? false;
+        (session.user as any).seniorityLevel = token.seniorityLevel as number ?? 0;
+        (session.user as any).canViewAllProjects = token.canViewAllProjects as boolean ?? false;
+        (session.user as any).overseesDepartment = token.overseesDepartment as string | null ?? null;
       }
       return session;
     },

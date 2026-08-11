@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getVisibleTaskFilter } from "@/lib/task-visibility";
+import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
 
 function weekBounds(weeksAgo: number) {
   const now = new Date();
@@ -22,14 +22,16 @@ export async function GET() {
 
   const userId = (session.user as any).id as string;
   const userRole = (session.user as any).role as "ADMIN" | "MANAGER" | "EMPLOYEE";
-  const userDepartment = (session.user as any).department as string;
+  const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
+  const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
 
   const now = new Date();
   const thisWeekStart = weekBounds(0).start;
   const { start: lastStart, end: lastEnd } = weekBounds(1);
 
   // Görünürlük filtresi (tasksByStatus, overdueList, weeklyData için)
-  const visibilityWhere = await getVisibleTaskFilter({ id: userId, role: userRole, department: userDepartment });
+  const projectIds = await getVisibleProjectIds({ id: userId, role: userRole, canViewAllProjects, overseesDepartment });
+  const visibilityWhere = buildTaskVisibilityWhere(projectIds);
 
   // Metrik kartlar: sadece o kullanıcıya atanan görevler
   const myTasks = { assignedToId: userId };

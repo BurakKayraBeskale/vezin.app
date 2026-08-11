@@ -12,6 +12,8 @@ interface AppShellProps {
   userEmail: string;
   userRole: "ADMIN" | "MANAGER" | "EMPLOYEE";
   userDepartment: string;
+  canViewAllTasks: boolean;
+  canViewAllProjects: boolean;
   overdueCount: number;
   unreadPetitions: number;
   pendingLeave: number;
@@ -26,6 +28,8 @@ export default function AppShell({
   userEmail,
   userRole,
   userDepartment,
+  canViewAllTasks,
+  canViewAllProjects,
   overdueCount: initOverdue,
   unreadPetitions: initPetitions,
   pendingLeave: initLeave,
@@ -165,6 +169,8 @@ export default function AppShell({
         userEmail={userEmail}
         userRole={userRole}
         userDepartment={userDepartment}
+        canViewAllTasks={canViewAllTasks}
+        canViewAllProjects={canViewAllProjects}
         overdueCount={backlogBadge}
         unreadPetitions={badges.unreadPetitions}
         pendingLeave={badges.pendingLeave}

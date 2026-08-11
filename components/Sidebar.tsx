@@ -13,6 +13,8 @@ interface SidebarProps {
   userEmail: string;
   userRole: "ADMIN" | "MANAGER" | "EMPLOYEE";
   userDepartment: string;
+  canViewAllTasks: boolean;
+  canViewAllProjects: boolean;
   overdueCount: number;
   unreadPetitions: number;
   pendingLeave: number;
@@ -184,7 +186,7 @@ function NavLink({ href, label, icon, active, badge }: NavLinkProps) {
 }
 
 export default function Sidebar({
-  userName, userEmail, userRole, userDepartment, overdueCount, unreadPetitions, pendingLeave,
+  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, overdueCount, unreadPetitions, pendingLeave,
   unreadNotifications, isOpen = false, onClose,
 }: SidebarProps) {
   const pathname = usePathname();
@@ -260,16 +262,18 @@ export default function Sidebar({
           }
           active={pathname === "/meetings"}
         />
-        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole) || userDepartment === "BAGIMSIZ_DENETIM") && (
+        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole) || canViewAllProjects ||
+          userDepartment === "BAGIMSIZ_DENETIM" || userDepartment === "VERGI" ||
+          userDepartment === "YEMINLI_MALI_MUSAVIR" || userDepartment === "MUHASEBE") && (
           <NavLink
-            href="/companies"
-            label="Firmalar"
+            href="/projeler"
+            label="Projeler"
             icon={
               <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
               </svg>
             }
-            active={pathname.startsWith("/companies")}
+            active={pathname.startsWith("/projeler")}
           />
         )}
 
@@ -368,14 +372,21 @@ export default function Sidebar({
           />
         )}
 
-        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole)) && (
+        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole) || canViewAllProjects || canViewAllTasks) && (
           <>
             <div className="pt-3 pb-1">
               <p className="px-3 text-[9px] font-semibold text-white/25 uppercase tracking-widest">
                 Yönetim
               </p>
             </div>
-            {managementNavItems.map((item) => (
+            {managementNavItems
+              .filter((item) => {
+                // "Raporlar" yalnızca canViewAllTasks veya ADMIN için görünür
+                if (item.href === "/reports") return BYPASS_AUTH_ROLES || canViewAllProjects || canViewAllTasks || userRole === "ADMIN";
+                // Diğer yönetim öğeleri MANAGER/ADMIN için
+                return true;
+              })
+              .map((item) => (
               <NavLink
                 key={item.href}
                 href={item.href}
