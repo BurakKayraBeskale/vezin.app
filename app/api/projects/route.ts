@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Kurucuyu + istenen üyeleri ekle
+  // Kurucuyu + istenen üyeleri ekle (SQLite: skipDuplicates yok, Set ile tekilleştir)
   const allMemberIds = [...new Set([userId, ...newMemberIds])];
   await prisma.projectMember.createMany({
     data: allMemberIds.map((uid) => ({
@@ -112,7 +112,6 @@ export async function POST(req: NextRequest) {
       userId: uid,
       assignedBy: userId,
     })),
-    skipDuplicates: true,
   });
 
   const full = await prisma.project.findUnique({ where: { id: project.id }, include: projectInclude });

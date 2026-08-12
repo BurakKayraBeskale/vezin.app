@@ -118,7 +118,6 @@ export async function POST(req: NextRequest) {
           userId: u.id,
           status: "PENDING",
         })),
-        skipDuplicates: true,
       }),
       prisma.notification.createMany({
         data: deptUsers.map((u: { id: string }) => ({

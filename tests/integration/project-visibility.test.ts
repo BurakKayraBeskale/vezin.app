@@ -180,8 +180,7 @@ beforeAll(async () => {
     });
     createdProjectIds.push(p.id);
     await prisma.projectMember.createMany({
-      data: memberIds.map((uid) => ({ projectId: p.id, userId: uid, assignedBy: createdById })),
-      skipDuplicates: true,
+      data: [...new Set(memberIds)].map((uid) => ({ projectId: p.id, userId: uid, assignedBy: createdById })),
     });
     return p.id;
   }

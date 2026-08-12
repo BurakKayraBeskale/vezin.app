@@ -128,10 +128,10 @@ export async function POST(req: NextRequest) {
   });
 
   const idsToAssign = assigneeIds.length > 0 ? assigneeIds : (primaryAssignee ? [primaryAssignee] : []);
+  // SQLite: skipDuplicates desteklenmez — task yeni oluşturulduğu için mükerrer olamaz
   if (idsToAssign.length > 0) {
     await prisma.taskAssignee.createMany({
-      data: idsToAssign.map((uid) => ({ taskId: task.id, userId: uid })),
-      skipDuplicates: true,
+      data: [...new Set(idsToAssign)].map((uid) => ({ taskId: task.id, userId: uid })),
     });
   }
 

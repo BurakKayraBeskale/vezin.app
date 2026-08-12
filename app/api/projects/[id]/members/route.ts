@@ -49,10 +49,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    await prisma.projectMember.createMany({
-      data: addUserIds.map((uid) => ({ projectId: params.id, userId: uid, assignedBy: userId })),
-      skipDuplicates: true,
+    // SQLite: skipDuplicates desteklenmez — mevcut üyeleri filtrele
+    const existing = await prisma.projectMember.findMany({
+      where: { projectId: params.id, userId: { in: addUserIds } },
+      select: { userId: true },
     });
+    const existingSet = new Set(existing.map((e) => e.userId));
+    const toAdd = addUserIds.filter((uid) => !existingSet.has(uid));
+    if (toAdd.length > 0) {
+      await prisma.projectMember.createMany({
+        data: toAdd.map((uid) => ({ projectId: params.id, userId: uid, assignedBy: userId })),
+      });
+    }
   }
 
   if (removeUserIds.length > 0) {

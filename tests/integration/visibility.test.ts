@@ -156,7 +156,6 @@ beforeAll(async () => {
     data: [mudur1.id, senior.id, asistan1.id, asistan2.id].map((uid) => ({
       projectId: proj1.id, userId: uid, assignedBy: admin.id,
     })),
-    skipDuplicates: true,
   });
 
   // Proje 2: mudur2
@@ -166,7 +165,6 @@ beforeAll(async () => {
   createdProjectIds.push(proj2.id);
   await prisma.projectMember.createMany({
     data: [{ projectId: proj2.id, userId: mudur2.id, assignedBy: admin.id }],
-    skipDuplicates: true,
   });
 
   // Görevler
