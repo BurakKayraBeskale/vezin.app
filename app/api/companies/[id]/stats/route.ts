@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { canAccess } from "@/lib/access";
-
-function canView(token: any) {
-  return canAccess(String(token.role ?? ""), String(token.department ?? ""), "/companies");
-}
+import { canAccessCompanies } from "@/lib/access";
 
 const STATUS_LABELS: Record<string, string> = {
   TODO: "Yapılacak",
@@ -23,7 +19,9 @@ const STATUS_COLORS: Record<string, string> = {
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-  if (!canView(token)) return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  if (!canAccessCompanies(token as any)) {
+    return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
+  }
 
   const tasks = await prisma.task.findMany({
     where: { companyId: params.id },

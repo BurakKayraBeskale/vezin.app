@@ -10,6 +10,7 @@ declare module "next-auth" {
     seniorityLevel: number;
     canViewAllProjects?: boolean;
     overseesDepartment?: string | null;
+    canManageCompanies?: boolean;
   }
   interface Session {
     user: {
@@ -20,6 +21,7 @@ declare module "next-auth" {
       seniorityLevel: number;
       canViewAllProjects?: boolean;
       overseesDepartment?: string | null;
+      canManageCompanies?: boolean;
     } & DefaultSession["user"];
   }
 }
@@ -33,5 +35,6 @@ declare module "next-auth/jwt" {
     seniorityLevel: number;
     canViewAllProjects?: boolean;
     overseesDepartment?: string | null;
+    canManageCompanies?: boolean;
   }
 }

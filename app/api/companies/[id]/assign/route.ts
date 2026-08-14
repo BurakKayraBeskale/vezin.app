@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { isManagerOrAdmin } from "@/lib/access";
-
-function canManage(token: any) {
-  return isManagerOrAdmin(String(token.role ?? ""));
-}
+import { canAccessCompanies } from "@/lib/access";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-  if (!canManage(token)) return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  if (!canAccessCompanies(token as any)) {
+    return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
+  }
 
   const { userId, remove } = await req.json();
   if (!userId) return NextResponse.json({ error: "userId gerekli" }, { status: 400 });
@@ -43,7 +41,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         });
       } catch { /* ignore */ }
 
-      // 5-year notification on assignment
       if (company.startDate) {
         const yearsWorking = (Date.now() - company.startDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
         if (yearsWorking >= 5) {

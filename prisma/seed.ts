@@ -72,6 +72,7 @@ async function main() {
       role:              "ADMIN",
       department:        "ADMIN",
       mustChangePassword: false,
+      canManageCompanies: false,
     },
   });
   console.log("✔ admin@vezin.com");
@@ -87,6 +88,7 @@ async function main() {
       role:               "ADMIN",
       department:         "ADMIN",
       mustChangePassword: false,
+      canManageCompanies: false,
     },
   });
 
@@ -105,12 +107,13 @@ async function main() {
     } else {
       await prisma.user.create({
         data: {
-          name:              u.name,
-          email:             u.email,
-          password:          await hash(u.password),
-          role:              "EMPLOYEE",
-          department:        "OUTSOURCE",
+          name:               u.name,
+          email:              u.email,
+          password:           await hash(u.password),
+          role:               "EMPLOYEE",
+          department:         "OUTSOURCE",
           mustChangePassword: true,
+          canManageCompanies: false,
         },
       });
       created++;
@@ -123,11 +126,12 @@ async function main() {
     where:  { email: "ayse.kaya@vezin.com" },
     update: {},
     create: {
-      name:       "Ayşe Kaya",
-      email:      "ayse.kaya@vezin.com",
-      password:   await hash("vezin123"),
-      role:       "EMPLOYEE",
-      department: "MUHASEBE",
+      name:               "Ayşe Kaya",
+      email:              "ayse.kaya@vezin.com",
+      password:           await hash("vezin123"),
+      role:               "EMPLOYEE",
+      department:         "MUHASEBE",
+      canManageCompanies: false,
     },
   });
 
@@ -135,11 +139,12 @@ async function main() {
     where:  { email: "murat.demir@vezin.com" },
     update: {},
     create: {
-      name:       "Murat Demir",
-      email:      "murat.demir@vezin.com",
-      password:   await hash("vezin123"),
-      role:       "EMPLOYEE",
-      department: "OUTSOURCE",
+      name:               "Murat Demir",
+      email:              "murat.demir@vezin.com",
+      password:           await hash("vezin123"),
+      role:               "EMPLOYEE",
+      department:         "OUTSOURCE",
+      canManageCompanies: false,
     },
   });
 
@@ -147,11 +152,12 @@ async function main() {
     where:  { email: "zeynep.celik@vezin.com" },
     update: {},
     create: {
-      name:       "Zeynep Çelik",
-      email:      "zeynep.celik@vezin.com",
-      password:   await hash("vezin123"),
-      role:       "EMPLOYEE",
-      department: "BAGIMSIZ_DENETIM",
+      name:               "Zeynep Çelik",
+      email:              "zeynep.celik@vezin.com",
+      password:           await hash("vezin123"),
+      role:               "EMPLOYEE",
+      department:         "BAGIMSIZ_DENETIM",
+      canManageCompanies: false,
     },
   });
 

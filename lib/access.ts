@@ -31,12 +31,19 @@ export interface DeptRule {
 export const DEPT_GATED_RULES: DeptRule[] = [
   { pathPrefix: "/beyanname",       allowedDepts: ["YEMINLI_MALI_MUSAVIR"] },
   { pathPrefix: "/karsit-inceleme", allowedDepts: ["YEMINLI_MALI_MUSAVIR", "MUHASEBE"] },
-  { pathPrefix: "/companies",       allowedDepts: ["BAGIMSIZ_DENETIM"] },
   // KDV İade — rol fark etmeksizin sadece YMM/Muhasebe erişir (ADMIN dahil)
   { pathPrefix: "/kdv-iade",        allowedDepts: ["YEMINLI_MALI_MUSAVIR", "MUHASEBE"], strictDept: true },
   { pathPrefix: "/api/kdv-iade",    allowedDepts: ["YEMINLI_MALI_MUSAVIR", "MUHASEBE"], strictDept: true },
   // /karsilastirma ve /tarayici herkese açık — kural yok
 ];
+
+/**
+ * /companies sayfalarına ve firma yazma işlemlerine erişim:
+ * yalnızca ADMIN rolü veya canManageCompanies=true olan kullanıcılar.
+ */
+export function canAccessCompanies(user: { role: string; canManageCompanies?: boolean }): boolean {
+  return user.role === "ADMIN" || user.canManageCompanies === true;
+}
 
 /**
  * Bu rol+departman kombinasyonu verilen pathname'e erişebilir mi?

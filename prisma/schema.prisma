@@ -26,6 +26,7 @@ model User {
   canViewAllTasks     Boolean  @default(false)
   canViewAllProjects  Boolean  @default(false)
   overseesDepartment  String?  // "BAGIMSIZ_DENETIM" | "VERGI" | null
+  canManageCompanies  Boolean  @default(false)
   createdAt           DateTime @default(now())
   assignedTasks       Task[]            @relation("AssignedTo")
   createdTasks        Task[]            @relation("CreatedBy")

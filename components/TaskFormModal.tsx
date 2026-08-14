@@ -37,7 +37,7 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
 
   useEffect(() => {
     if (!isBAGIMSIZ) return;
-    fetch("/api/companies")
+    fetch("/api/companies?mode=options")
       .then((r) => r.ok ? r.json() : [])
       .then((data) => {
         if (Array.isArray(data)) setCompanies(data.map((c: any) => ({ id: c.id, name: c.name })));

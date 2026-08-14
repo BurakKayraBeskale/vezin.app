@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import CompanyDetail from "@/components/CompanyDetail";
-import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { canAccessCompanies } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -11,12 +11,12 @@ export default async function CompanyDetailPage({ params }: { params: { id: stri
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  const { role, department } = session.user as any;
-  const canView = role === "ADMIN" || department === "BAGIMSIZ_DENETIM";
-  if (!canView) redirect("/");
+  const user = session.user as any;
+  const { role } = user;
 
-  const canManage = role === "ADMIN" || (department === "BAGIMSIZ_DENETIM" && role === "MANAGER");
-  const userId = (session.user as any).id as string;
+  if (!canAccessCompanies(user)) notFound();
+
+  const canManage = true;
 
   const company = await prisma.company.findUnique({
     where: { id: params.id },
@@ -33,12 +33,6 @@ export default async function CompanyDetailPage({ params }: { params: { id: stri
   });
 
   if (!company) notFound();
-
-  // EMPLOYEE: only if assigned
-  if (role === "EMPLOYEE" && department === "BAGIMSIZ_DENETIM") {
-    const isAssigned = company.assignments.some((a) => a.userId === userId);
-    if (!isAssigned) redirect("/companies");
-  }
 
   // Metrics
   const totalTasks = company.tasks.length;

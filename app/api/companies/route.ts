@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { canAccess, isManagerOrAdmin } from "@/lib/access";
-
-function canManage(token: any) {
-  return isManagerOrAdmin(String(token.role ?? ""));
-}
-function canView(token: any) {
-  return canAccess(String(token.role ?? ""), String(token.department ?? ""), "/companies");
-}
+import { canAccessCompanies } from "@/lib/access";
 
 const companyInclude = {
   assignments: {
@@ -42,32 +35,36 @@ async function send5YearNotifications(companyId: string, companyName: string, st
 export async function GET(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-  if (!canView(token)) return NextResponse.json({ error: "Bu modüle erişim yetkiniz yok" }, { status: 403 });
 
-  const userId = token.id as string;
+  const mode = req.nextUrl.searchParams.get("mode");
 
-  // EMPLOYEE in BAGIMSIZ_DENETIM sees only assigned companies
-  let companies;
-  if (token.role === "EMPLOYEE" && token.department === "BAGIMSIZ_DENETIM") {
-    companies = await prisma.company.findMany({
-      where: { assignments: { some: { userId } } },
-      include: companyInclude,
+  // ?mode=options: kimliği doğrulanmış herkese açık — yalnızca { id, name }
+  if (mode === "options") {
+    const companies = await prisma.company.findMany({
+      select: { id: true, name: true },
       orderBy: { name: "asc" },
     });
-  } else {
-    companies = await prisma.company.findMany({
-      include: companyInclude,
-      orderBy: { name: "asc" },
-    });
+    return NextResponse.json(companies);
   }
 
+  // Tam detay: yalnızca ADMIN veya canManageCompanies
+  if (!canAccessCompanies(token as any)) {
+    return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
+  }
+
+  const companies = await prisma.company.findMany({
+    include: companyInclude,
+    orderBy: { name: "asc" },
+  });
   return NextResponse.json(companies);
 }
 
 export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-  if (!canManage(token)) return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  if (!canAccessCompanies(token as any)) {
+    return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
+  }
 
   const body = await req.json();
   const { name, taxNumber, sector, startDate, notes, about } = body;
@@ -85,7 +82,6 @@ export async function POST(req: NextRequest) {
     include: companyInclude,
   });
 
-  // Check 5-year rule on creation
   if (company.startDate) {
     await send5YearNotifications(company.id, company.name, company.startDate);
   }

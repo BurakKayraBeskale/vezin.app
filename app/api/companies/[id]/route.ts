@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { canAccess, isManagerOrAdmin } from "@/lib/access";
-
-function canManage(token: any) {
-  return isManagerOrAdmin(String(token.role ?? ""));
-}
-function canView(token: any) {
-  return canAccess(String(token.role ?? ""), String(token.department ?? ""), "/companies");
-}
+import { canAccessCompanies } from "@/lib/access";
 
 const companyInclude = {
   assignments: {
@@ -41,7 +34,9 @@ async function send5YearNotifications(companyId: string, companyName: string, st
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-  if (!canView(token)) return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  if (!canAccessCompanies(token as any)) {
+    return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
+  }
 
   const company = await prisma.company.findUnique({
     where: { id: params.id },
@@ -49,19 +44,15 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   });
   if (!company) return NextResponse.json({ error: "Firma bulunamadı" }, { status: 404 });
 
-  // Employee: only see assigned
-  if (token.role === "EMPLOYEE" && token.department === "BAGIMSIZ_DENETIM") {
-    const isAssigned = company.assignments.some((a) => a.userId === (token.id as string));
-    if (!isAssigned) return NextResponse.json({ error: "Erişim yok" }, { status: 403 });
-  }
-
   return NextResponse.json(company);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-  if (!canManage(token)) return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  if (!canAccessCompanies(token as any)) {
+    return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
+  }
 
   try {
     const body = await req.json();
@@ -83,7 +74,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       include: companyInclude,
     });
 
-    // Re-check 5-year rule on update
     if (company.startDate) {
       await send5YearNotifications(company.id, company.name, company.startDate);
     }
@@ -101,7 +91,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-  if (!canManage(token)) return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  if (!canAccessCompanies(token as any)) {
+    return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
+  }
 
   await prisma.company.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });

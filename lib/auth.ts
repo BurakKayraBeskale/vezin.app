@@ -64,7 +64,7 @@ export const authOptions: NextAuthOptions = {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: { role: true, department: true, mustChangePassword: true, canViewAllTasks: true, seniorityLevel: true, canViewAllProjects: true, overseesDepartment: true },
+            select: { role: true, department: true, mustChangePassword: true, canViewAllTasks: true, seniorityLevel: true, canViewAllProjects: true, overseesDepartment: true, canManageCompanies: true },
           });
           if (dbUser) {
             token.role = dbUser.role as "ADMIN" | "MANAGER" | "EMPLOYEE";
@@ -74,6 +74,7 @@ export const authOptions: NextAuthOptions = {
             token.seniorityLevel = dbUser.seniorityLevel ?? 0;
             token.canViewAllProjects = dbUser.canViewAllProjects ?? false;
             token.overseesDepartment = dbUser.overseesDepartment ?? null;
+            token.canManageCompanies = dbUser.canManageCompanies ?? false;
           }
         } catch {
           // DB erişim hatası olursa mevcut token değerleri korunur
@@ -95,6 +96,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).seniorityLevel = token.seniorityLevel as number ?? 0;
         (session.user as any).canViewAllProjects = token.canViewAllProjects as boolean ?? false;
         (session.user as any).overseesDepartment = token.overseesDepartment as string | null ?? null;
+        (session.user as any).canManageCompanies = token.canManageCompanies as boolean ?? false;
       }
       return session;
     },
