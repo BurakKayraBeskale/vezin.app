@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere } from "@/lib/task-visibility";
-import { canAccessProjects } from "@/lib/access";
+import { canAccessProjects, canDeleteProject } from "@/lib/access";
 
 const projectInclude = {
   createdBy: { select: { id: true, name: true } },
@@ -95,29 +95,21 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const user = getVisUser(token);
   if (!checkProjectAccess(user)) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
 
-  const userRole = user.role;
-  const overseesDepartment = user.overseesDepartment;
-  const isAdmin = userRole === "ADMIN";
-
-  // Sadece ADMIN veya departman gözetmeni silebilir
-  if (!isAdmin && overseesDepartment == null) {
-    return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
-  }
-
+  // createdById'yi de çekiyoruz — kurucu silme yetkisine ihtiyaç var
   const project = await prisma.project.findUnique({
     where: { id: params.id },
-    select: { id: true, department: true, _count: { select: { tasks: true } } },
+    select: { id: true, department: true, createdById: true, _count: { select: { tasks: true } } },
   });
   if (!project) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
 
-  // Gözetmen yalnızca kendi departmanını silebilir
-  if (!isAdmin && project.department !== overseesDepartment) {
+  // Yetki: ADMIN | kendi departman gözetmeni | projeyi oluşturan kişi
+  if (!canDeleteProject(user, project)) {
     return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
   }
 
   // Görev cascade kontrolü: görev varsa cascade=true zorunlu
   const taskCount = project._count.tasks;
-  const cascade = req.nextUrl.searchParams.get("cascade") === "true";
+  const cascade = new URL(req.url).searchParams.get("cascade") === "true";
   if (taskCount > 0 && !cascade) {
     return NextResponse.json(
       { error: "Proje altında görevler var, silmek için cascade=true gönderin", taskCount },

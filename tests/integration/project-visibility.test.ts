@@ -36,7 +36,7 @@ vi.mock("next-auth/jwt", () => ({ getToken: vi.fn() }));
 import { GET as tasksGET, POST as tasksPOST } from "../../app/api/tasks/route";
 import { GET as taskByIdGET, DELETE as tasksDELETE } from "../../app/api/tasks/[id]/route";
 import { GET as projectsGET, POST as projectsPOST } from "../../app/api/projects/route";
-import { GET as projectByIdGET } from "../../app/api/projects/[id]/route";
+import { GET as projectByIdGET, DELETE as projectDELETE } from "../../app/api/projects/[id]/route";
 import { POST as projectMembersPOST } from "../../app/api/projects/[id]/members/route";
 import { getServerSession } from "next-auth";
 import { getToken } from "next-auth/jwt";
@@ -516,6 +516,74 @@ describe("T15/T16: Proje oluşturma — kıdem sınırı", () => {
     // Temizlik
     await prisma.projectMember.deleteMany({ where: { projectId: data.id } });
     await prisma.project.delete({ where: { id: data.id } });
+  });
+});
+
+describe("T18/T19/T20: Proje silme yetkisi — DELETE /api/projects/[id]", () => {
+  // Her test kendi projesini oluşturur — afterAll temizliği için createdProjectIds'e eklenir.
+  // T18 projeyi gerçekten siler → listeden çıkar; T19/T20 siler olmaz → listede kalır.
+
+  it("T19: Aynı projedeki başka bir üye silemiyor → 404", async () => {
+    // manager (level 5) proje oluşturuyor, bdUser1 sadece üye
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} Silme T19`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+    await prisma.projectMember.createMany({
+      data: [
+        { projectId: proj.id, userId: manager.id, assignedBy: manager.id },
+        { projectId: proj.id, userId: bdUser1.id, assignedBy: manager.id },
+      ],
+    });
+
+    asUser(bdUser1); // üye ama kurucu değil, gözetmen değil, ADMIN değil
+    const req = fakeReq(`http://localhost/api/projects/${proj.id}`);
+    const res = await projectDELETE(req, { params: { id: proj.id } });
+    expect(res.status).toBe(404);
+
+    // Proje silinmemiş olmalı
+    const still = await prisma.project.findUnique({ where: { id: proj.id } });
+    expect(still).not.toBeNull();
+  });
+
+  it("T20: Başka birimden bir kullanıcı silemiyor → 404", async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} Silme T20`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+    await prisma.projectMember.create({
+      data: { projectId: proj.id, userId: manager.id, assignedBy: manager.id },
+    });
+
+    asUser(vergiUser); // Vergi projesinde üye, BD projesinde yok, kurucu da değil
+    const req = fakeReq(`http://localhost/api/projects/${proj.id}`);
+    const res = await projectDELETE(req, { params: { id: proj.id } });
+    expect(res.status).toBe(404);
+
+    const still = await prisma.project.findUnique({ where: { id: proj.id } });
+    expect(still).not.toBeNull();
+  });
+
+  it("T18: Projeyi oluşturan kişi kendi projesini silebilir → 200", async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} Silme T18`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    // afterAll'a ekliyoruz; silinirse deleteMany silinen ID'yi sessizce atlar
+    createdProjectIds.push(proj.id);
+    await prisma.projectMember.create({
+      data: { projectId: proj.id, userId: manager.id, assignedBy: manager.id },
+    });
+
+    asUser(manager); // projeyi oluşturan kişi
+    const req = fakeReq(`http://localhost/api/projects/${proj.id}`);
+    const res = await projectDELETE(req, { params: { id: proj.id } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Proje gerçekten silinmiş olmalı
+    const gone = await prisma.project.findUnique({ where: { id: proj.id } });
+    expect(gone).toBeNull();
   });
 });
 

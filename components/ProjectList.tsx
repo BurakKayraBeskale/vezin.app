@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { canDeleteProject } from "@/lib/access";
 
 type ProjectUser = { id: string; name: string; email: string; seniorityLevel: number; title: string };
 type Project = {
@@ -25,6 +26,10 @@ interface ProjectListProps {
   canViewAllProjects: boolean;
   currentDept: string | null;
   userDepartment: string;
+  /** Silme yetkisi hesabı için gereken session bilgileri */
+  userId: string;
+  userRole: string;
+  overseesDepartment: string | null;
 }
 
 const DEPT_LABELS: Record<string, string> = {
@@ -39,6 +44,9 @@ export default function ProjectList({
   canViewAllProjects,
   currentDept,
   userDepartment,
+  userId,
+  userRole,
+  overseesDepartment,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [activeDept, setActiveDept] = useState<string>(
@@ -46,6 +54,7 @@ export default function ProjectList({
   );
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     department: activeDept,
@@ -90,6 +99,33 @@ export default function ProjectList({
       setForm({ name: "", department: activeDept, taxNumber: "", sector: "", startDate: "", notes: "", memberIds: [] });
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleDelete(project: Project, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const taskCount = project._count.tasks;
+    const confirmMsg = taskCount > 0
+      ? `"${project.name}" projesi ${taskCount} görev içeriyor. Projeyi ve tüm görevleri silmek istediğinizden emin misiniz?`
+      : `"${project.name}" projesini silmek istediğinizden emin misiniz?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingId(project.id);
+    try {
+      const url = taskCount > 0
+        ? `/api/projects/${project.id}?cascade=true`
+        : `/api/projects/${project.id}`;
+      const res = await fetch(url, { method: "DELETE" });
+      if (res.ok) {
+        setProjects((prev) => prev.filter((p) => p.id !== project.id));
+      } else {
+        const data = await res.json();
+        alert(data.error || "Silme başarısız");
+      }
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -141,7 +177,12 @@ export default function ProjectList({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((project) => (
+          {filtered.map((project) => {
+            const userCanDelete = canDeleteProject(
+              { id: userId, role: userRole, overseesDepartment },
+              { createdById: project.createdBy.id, department: project.department }
+            );
+            return (
             <a
               key={project.id}
               href={`/projeler/${project.id}`}
@@ -154,13 +195,34 @@ export default function ProjectList({
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{project.sector}</p>
                   )}
                 </div>
-                <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${
-                  project.department === "BAGIMSIZ_DENETIM"
-                    ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-                    : "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
-                }`}>
-                  {DEPT_LABELS[project.department] ?? project.department}
-                </span>
+                <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                    project.department === "BAGIMSIZ_DENETIM"
+                      ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      : "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                  }`}>
+                    {DEPT_LABELS[project.department] ?? project.department}
+                  </span>
+                  {userCanDelete && (
+                    <button
+                      onClick={(e) => handleDelete(project, e)}
+                      disabled={deletingId === project.id}
+                      title="Projeyi sil"
+                      className="p-1 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
+                    >
+                      {deletingId === project.id ? (
+                        <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
                 <span>{project._count.tasks} görev</span>
@@ -183,7 +245,8 @@ export default function ProjectList({
                 )}
               </div>
             </a>
-          ))}
+            );
+          })}
         </div>
       )}
 

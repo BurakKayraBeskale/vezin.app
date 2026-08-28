@@ -92,6 +92,23 @@ export function canAssignTask(assignerLevel: number, targetLevel: number): boole
 }
 
 /**
+ * Proje silme yetkisi (tek doğru kaynak — route ve UI buradan çağırır):
+ *   1. ADMIN → her zaman silebilir
+ *   2. Departman gözetmeni (overseesDepartment) → kendi departmanındaki projeyi silebilir
+ *   3. Projeyi oluşturan kişi (createdById) → kendi projesini silebilir
+ *   Hiçbiri sağlanmıyorsa → false (route 404 döndürür, buton gizlenir)
+ */
+export function canDeleteProject(
+  user: { id: string; role: string; overseesDepartment?: string | null },
+  project: { createdById: string; department: string }
+): boolean {
+  if (user.role === "ADMIN") return true;
+  if (user.overseesDepartment != null && project.department === user.overseesDepartment) return true;
+  if (project.createdById === user.id) return true;
+  return false;
+}
+
+/**
  * /projeler sayfaları ve /api/projects* uçlarına erişim:
  *   - ADMIN → her zaman erişebilir
  *   - canViewAllProjects=true → erişebilir (İsmail Koş, Murat Özgür)

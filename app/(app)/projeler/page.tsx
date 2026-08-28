@@ -63,6 +63,9 @@ export default async function ProjelerPage() {
       canViewAllProjects={canViewAllProjects}
       currentDept={null}
       userDepartment={userDepartment}
+      userId={userId}
+      userRole={userRole}
+      overseesDepartment={overseesDepartment}
     />
   );
 }
