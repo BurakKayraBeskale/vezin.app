@@ -206,9 +206,23 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const token = await getSession(req);
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
-  const { isAdmin, canViewAllTasks } = sessionFields(token);
-  if (!isAdmin && !canViewAllTasks) {
-    return NextResponse.json({ error: "Sadece admin" }, { status: 403 });
+  const { isAdmin, canViewAllTasks, overseesDepartment } = sessionFields(token);
+
+  // ADMIN veya canViewAllTasks → her görevi silebilir
+  // Gözetmen → yalnızca kendi departmanındaki görevi silebilir
+  if (!isAdmin && !canViewAllTasks && overseesDepartment == null) {
+    return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
+  }
+
+  if (!isAdmin && !canViewAllTasks && overseesDepartment != null) {
+    // Görevin bağlı olduğu projenin departmanını kontrol et
+    const task = await prisma.task.findUnique({
+      where: { id: params.id },
+      select: { project: { select: { department: true } } },
+    });
+    if (!task || task.project?.department !== overseesDepartment) {
+      return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
+    }
   }
 
   await prisma.task.delete({ where: { id: params.id } });

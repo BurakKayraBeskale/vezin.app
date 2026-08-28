@@ -45,6 +45,52 @@ export function canAccessCompanies(user: { role: string; canManageCompanies?: bo
   return user.role === "ADMIN" || user.canManageCompanies === true;
 }
 
+// ── Kıdem Seviyesi Sistemi ──────────────────────────────────────────────────
+
+/**
+ * Tek doğru kaynak: unvan → kıdem seviyesi.
+ * Seed'de seniorityLevel ataması buraya göre yapılır; kod içinde
+ * bu tablodan türetme yapılmaz — canViewAllProjects ve overseesDepartment
+ * yalnızca DB'deki boolean/string alandan okunur.
+ */
+export const TITLE_TO_SENIORITY: Record<string, number> = {
+  "Asistant": 0,
+  "Experienced Assistant 1": 1,
+  "Experienced Assistant 2": 1,
+  "Experienced Audit Assistant 1": 1,
+  "Senior 1": 2,
+  "Senior 2": 3,
+  "Asistant Manager": 4,
+  "Manager 1": 5,
+  "Manager 2": 6,
+  "Manager 3": 7,
+  "Senior Manager 1": 8,
+  "Senior Manager 2": 9,
+  "Senior Manager 3": 10,
+  "Partner": 14,
+  "YMM": 100,
+};
+
+/**
+ * Proje açma yetkisi:
+ *   seniorityLevel >= 5 (Manager 1 ve üstü) VEYA overseesDepartment != null
+ */
+export function canCreateProject(user: {
+  seniorityLevel: number;
+  overseesDepartment?: string | null;
+}): boolean {
+  return user.seniorityLevel >= 5 || user.overseesDepartment != null;
+}
+
+/**
+ * Görev atama yetkisi (kıdeme bağlı):
+ *   Atayan, hedefin seniorityLevel'ını KESİNLİKLE geçmelidir.
+ *   Eşit veya yüksek kıdemliye atama yapılamaz.
+ */
+export function canAssignTask(assignerLevel: number, targetLevel: number): boolean {
+  return assignerLevel > targetLevel;
+}
+
 /**
  * Bu rol+departman kombinasyonu verilen pathname'e erişebilir mi?
  * middleware, page guard ve API route'larında birebir aynı mantık.

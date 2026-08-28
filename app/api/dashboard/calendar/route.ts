@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -14,11 +15,20 @@ export async function GET(req: NextRequest) {
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
 
-  // Tasks with dueDate in this month — only assigned to current user
+  const userId = (session.user as any).id as string;
+  const role = (session.user as any).role as string;
+  const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
+  const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
+
+  // Görünürlük filtresi — takvim de aynı kapsamı kullanır
+  const projectIds = await getVisibleProjectIds({ id: userId, role, canViewAllProjects, overseesDepartment });
+  const visibilityWhere = buildTaskVisibilityWhere(projectIds);
+
+  // Takvim: görünürlük kapsamındaki görevler + o aya ait vade tarihi
   const tasks = await prisma.task.findMany({
     where: {
+      ...(visibilityWhere as any),
       dueDate: { gte: monthStart, lte: monthEnd },
-      assignedToId: session.user.id,
     },
     select: {
       id: true,

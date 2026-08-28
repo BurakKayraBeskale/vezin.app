@@ -29,12 +29,13 @@ export async function GET() {
   const thisWeekStart = weekBounds(0).start;
   const { start: lastStart, end: lastEnd } = weekBounds(1);
 
-  // Görünürlük filtresi (tasksByStatus, overdueList, weeklyData için)
+  // Görünürlük filtresi — tüm sayaç, groupBy ve liste sorgularında kullanılır
   const projectIds = await getVisibleProjectIds({ id: userId, role: userRole, canViewAllProjects, overseesDepartment });
   const visibilityWhere = buildTaskVisibilityWhere(projectIds);
 
-  // Metrik kartlar: sadece o kullanıcıya atanan görevler
-  const myTasks = { assignedToId: userId };
+  // Sayaç kartları: görünürlük filtresi + kişisel filtre (assignedToId)
+  // Böylece kullanıcı yalnızca GÖREBİLECEĞİ projeler içindeki kendi görevlerini sayar.
+  const myVisibleTasks = { ...(visibilityWhere as any), assignedToId: userId };
 
   const [
     openTasks,
@@ -46,13 +47,13 @@ export async function GET() {
     tasksByStatus,
   ] = await Promise.all([
     prisma.task.count({
-      where: { ...myTasks, status: { not: "DONE" } },
+      where: { ...myVisibleTasks, status: { not: "DONE" } },
     }),
     prisma.task.count({
-      where: { ...myTasks, status: "DONE", updatedAt: { gte: thisWeekStart } },
+      where: { ...myVisibleTasks, status: "DONE", updatedAt: { gte: thisWeekStart } },
     }),
     prisma.task.count({
-      where: { ...myTasks, dueDate: { lt: now }, status: { not: "DONE" } },
+      where: { ...myVisibleTasks, dueDate: { lt: now }, status: { not: "DONE" } },
     }),
     // Aktif Kullanıcılar: sadece admin için hesaplanır
     userRole === "ADMIN"
@@ -63,10 +64,10 @@ export async function GET() {
         })
       : Promise.resolve(0),
     prisma.task.count({
-      where: { ...myTasks, status: "DONE", updatedAt: { gte: lastStart, lt: lastEnd } },
+      where: { ...myVisibleTasks, status: "DONE", updatedAt: { gte: lastStart, lt: lastEnd } },
     }),
     prisma.task.count({
-      where: { ...myTasks, dueDate: { lt: lastEnd }, status: { not: "DONE" }, createdAt: { lt: lastEnd } },
+      where: { ...myVisibleTasks, dueDate: { lt: lastEnd }, status: { not: "DONE" }, createdAt: { lt: lastEnd } },
     }),
     prisma.task.groupBy({
       by: ["status"],

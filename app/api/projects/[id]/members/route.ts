@@ -10,18 +10,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const userRole = (token as any).role as string;
   const canViewAllProjects = (token as any).canViewAllProjects as boolean ?? false;
 
+  const overseesDepartment = (token as any).overseesDepartment as string | null ?? null;
+
   const project = await prisma.project.findUnique({
     where: { id: params.id },
-    select: { id: true, createdById: true },
+    select: { id: true, createdById: true, department: true },
   });
   if (!project) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
 
-  // Üye yönetimi: kurucu, gözetmen, admin veya canViewAllProjects
-  const overseesDepartment = (token as any).overseesDepartment as string | null ?? null;
+  // Üye yönetimi: kurucu, gözetmen (kendi departmanı), admin veya canViewAllProjects
   const canManage =
     userRole === "ADMIN" ||
     canViewAllProjects ||
-    overseesDepartment != null ||
+    (overseesDepartment != null && project.department === overseesDepartment) ||
     project.createdById === userId;
   if (!canManage) return NextResponse.json({ error: "Üye yönetimi yetkiniz yok" }, { status: 403 });
 

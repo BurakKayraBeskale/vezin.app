@@ -291,22 +291,30 @@ async function main() {
   });
 
   // ── Proje Görünürlüğü ────────────────────────────────────────────────────
-  // İsmail Koş: tüm birimleri görür (canViewAllProjects)
+  // İsmail Koş: tüm birimleri görür (canViewAllProjects=true)
   await prisma.user.updateMany({
     where: { email: "ismailkos@vezin.com.tr" },
-    data: { canViewAllProjects: true },
+    data: { canViewAllProjects: true, overseesDepartment: null },
   });
 
-  // Vergi gözetmenleri: Murat Özgür (YMM, yalnızca Vergi), Ebubekir Öztürk
+  // Murat Özgür: YMM, her iki birimi görür (canViewAllProjects=true)
+  // overseesDepartment YOK — canViewAllProjects boolean'dan okunur, kıdemden türetilmez
   await prisma.user.updateMany({
-    where: { email: { in: ["muratozgur@vezin.com.tr", "ebubekirozturk@vezin.com.tr"] } },
-    data: { overseesDepartment: "VERGI" },
+    where: { email: "muratozgur@vezin.com.tr" },
+    data: { canViewAllProjects: true, overseesDepartment: null },
   });
 
-  // Bağımsız Denetim gözetmeni: Ahmet Oruç
+  // Ebubekir Öztürk: Vergi gözetmeni — YALNIZCA Vergi'yi görür (bilinçli istisna)
+  // canViewAllProjects=false — seniorityLevel 9 olsa da bu false kalmalı
+  await prisma.user.updateMany({
+    where: { email: "ebubekirozturk@vezin.com.tr" },
+    data: { overseesDepartment: "VERGI", canViewAllProjects: false },
+  });
+
+  // Ahmet Oruç: Bağımsız Denetim gözetmeni — YALNIZCA BD'yi görür
   await prisma.user.updateMany({
     where: { email: "ahmetoruc@vezin.com.tr" },
-    data: { overseesDepartment: "BAGIMSIZ_DENETIM" },
+    data: { overseesDepartment: "BAGIMSIZ_DENETIM", canViewAllProjects: false },
   });
 
   // Admin + Karya: canViewAllProjects=true
@@ -345,6 +353,16 @@ async function main() {
       data: { title: u.title, seniorityLevel: u.seniorityLevel },
     });
   }
+
+  // ICMAL_MAP atamasından sonra: unvanı SM1/SM2/SM3/Partner olanlar → canViewAllProjects=true
+  // (Ebubekir Öztürk kesinlikle hariç — bilinçli istisna)
+  await prisma.user.updateMany({
+    where: {
+      title: { in: ["Senior Manager 1", "Senior Manager 2", "Senior Manager 3", "Partner"] },
+      email: { not: "ebubekirozturk@vezin.com.tr" },
+    },
+    data: { canViewAllProjects: true },
+  });
 
   console.log("✔ Kıdem seviyeleri güncellendi");
 

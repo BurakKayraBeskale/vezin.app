@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere } from "@/lib/task-visibility";
+import { canCreateProject } from "@/lib/access";
 
 const projectInclude = {
   createdBy: { select: { id: true, name: true } },
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
   const projectIds = await getVisibleProjectIds(user);
   const visWhere = buildProjectVisibilityWhere(projectIds);
 
-  const dept = req.nextUrl.searchParams.get("department");
+  const dept = new URL(req.url).searchParams.get("department");
   const finalWhere = dept && ["BAGIMSIZ_DENETIM", "VERGI"].includes(dept)
     ? { AND: [visWhere, { department: dept }] }
     : visWhere;
@@ -51,14 +52,14 @@ export async function POST(req: NextRequest) {
 
   const userId = token.id as string;
 
-  // Sadece seniorityLevel >= 5 (Manager 1+) veya ADMIN / canViewAllProjects
+  // Proje açma yetkisi: seniorityLevel >= 5 VEYA overseesDepartment != null VEYA ADMIN/canViewAllProjects
   const creator = await prisma.user.findUnique({
     where: { id: userId },
-    select: { seniorityLevel: true, canViewAllProjects: true, role: true },
+    select: { seniorityLevel: true, canViewAllProjects: true, role: true, overseesDepartment: true },
   });
   if (!creator) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
 
-  const canCreate = creator.role === "ADMIN" || creator.canViewAllProjects || creator.seniorityLevel >= 5;
+  const canCreate = creator.role === "ADMIN" || creator.canViewAllProjects || canCreateProject(creator);
   if (!canCreate) {
     return NextResponse.json(
       { error: "Proje oluşturmak için Manager 1 veya üstü kıdem gerekli (seviye ≥ 5)" },

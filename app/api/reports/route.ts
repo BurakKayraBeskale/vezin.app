@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 import { isManagerOrAdmin } from "@/lib/access";
+import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
 
 const DEPT_LABELS: Record<string, string> = {
   OUTSOURCE:            "Outsource",
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
+  const userId = (session.user as any).id as string;
   const role = (session.user as any).role as string;
   const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
   const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
@@ -36,8 +38,23 @@ export async function GET(req: NextRequest) {
     since = new Date(now.getFullYear(), now.getMonth(), 1);
   }
 
+  // Görünürlük filtresi — overseer yalnızca kendi departmanını görür
+  const projectIds = await getVisibleProjectIds({ id: userId, role, canViewAllProjects, overseesDepartment });
+  const visibilityWhere = buildTaskVisibilityWhere(projectIds);
+
+  // Görünür görev ID'leri — taskLog filtrelemesi için
+  const visibleTaskIds = projectIds === null
+    ? null  // tüm görevler
+    : projectIds.length === 0
+      ? []
+      : await prisma.task.findMany({
+          where: visibilityWhere as any,
+          select: { id: true },
+        }).then((ts) => ts.map((t) => t.id));
+
   const [tasks, users, leaveBalances, taskLogs] = await Promise.all([
     prisma.task.findMany({
+      where: visibilityWhere as any,
       select: {
         id: true, status: true, dueDate: true,
         assignedTo: { select: { id: true, name: true, department: true } },
@@ -52,7 +69,11 @@ export async function GET(req: NextRequest) {
       include: { user: { select: { id: true, name: true, department: true } } },
     }),
     prisma.taskLog.findMany({
-      where: { action: "COMPLETED", timestamp: { gte: since } },
+      where: {
+        action: "COMPLETED",
+        timestamp: { gte: since },
+        ...(visibleTaskIds !== null && { taskId: { in: visibleTaskIds } }),
+      },
       select: { taskId: true, userId: true, durationMinutes: true, timestamp: true },
     }),
   ]);
