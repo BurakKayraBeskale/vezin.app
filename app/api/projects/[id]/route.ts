@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere } from "@/lib/task-visibility";
+import { canAccessProjects } from "@/lib/access";
 
 const projectInclude = {
   createdBy: { select: { id: true, name: true } },
@@ -18,9 +19,14 @@ function getVisUser(token: any) {
   return {
     id: token.id as string,
     role: (token as any).role as string,
+    department: (token as any).department as string ?? "",
     canViewAllProjects: (token as any).canViewAllProjects as boolean ?? false,
     overseesDepartment: (token as any).overseesDepartment as string | null ?? null,
   };
+}
+
+function checkProjectAccess(user: ReturnType<typeof getVisUser>): boolean {
+  return canAccessProjects({ role: user.role, department: user.department, canViewAllProjects: user.canViewAllProjects, overseesDepartment: user.overseesDepartment });
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -28,6 +34,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const user = getVisUser(token);
+  if (!checkProjectAccess(user)) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+
   const projectIds = await getVisibleProjectIds(user);
   const visWhere = buildProjectVisibilityWhere(projectIds);
 
@@ -44,6 +52,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const user = getVisUser(token);
+  if (!checkProjectAccess(user)) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+
   const projectIds = await getVisibleProjectIds(user);
   const visWhere = buildProjectVisibilityWhere(projectIds);
 
@@ -82,8 +92,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
-  const userRole = (token as any).role as string;
-  const overseesDepartment = (token as any).overseesDepartment as string | null ?? null;
+  const user = getVisUser(token);
+  if (!checkProjectAccess(user)) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+
+  const userRole = user.role;
+  const overseesDepartment = user.overseesDepartment;
   const isAdmin = userRole === "ADMIN";
 
   // Sadece ADMIN veya departman gözetmeni silebilir

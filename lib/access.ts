@@ -92,6 +92,27 @@ export function canAssignTask(assignerLevel: number, targetLevel: number): boole
 }
 
 /**
+ * /projeler sayfaları ve /api/projects* uçlarına erişim:
+ *   - ADMIN → her zaman erişebilir
+ *   - canViewAllProjects=true → erişebilir (İsmail Koş, Murat Özgür)
+ *   - overseesDepartment != null → erişebilir (Ahmet Oruç, Ebubekir Öztürk)
+ *   - MUHASEBE veya IDARI_ISLER departmanı → HAYIR (diğer tüm istisnalar hariç)
+ *   - Diğer departmanlar → erişebilir
+ */
+export function canAccessProjects(user: {
+  role: string;
+  department: string;
+  canViewAllProjects?: boolean;
+  overseesDepartment?: string | null;
+}): boolean {
+  if (user.role === "ADMIN") return true;
+  if (user.canViewAllProjects) return true;
+  if (user.overseesDepartment != null) return true;
+  const blocked = ["MUHASEBE", "IDARI_ISLER"];
+  return !blocked.includes(user.department.toUpperCase());
+}
+
+/**
  * Bu rol+departman kombinasyonu verilen pathname'e erişebilir mi?
  * middleware, page guard ve API route'larında birebir aynı mantık.
  */

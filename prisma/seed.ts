@@ -12,7 +12,6 @@ const REAL_USERS = [
   { name: "Ayşe Gazel",            email: "aysegazel@vezin.com.tr",         password: "ayse123"      },
   { name: "Ahmet Oruç",            email: "ahmetoruc@vezin.com.tr",          password: "ahmet123"     },
   { name: "Ahmet Yasin Özkul",     email: "ahmetyasinozkul@vezin.com.tr",    password: "ahmet123"     },
-  { name: "Ali Kaplan",            email: "alikaplan@vezin.com.tr",           password: "ali123"       },
   { name: "Ali Kayaş",             email: "alikayas@vezin.com.tr",            password: "ali123"       },
   { name: "Ali Mert Yılmaz",       email: "alimertyilmaz@vezin.com.tr",       password: "ali123"       },
   { name: "Alperen Coşkunoğlu",    email: "alperencoskunoglu@vezin.com.tr",   password: "alperen123"   },
@@ -34,7 +33,6 @@ const REAL_USERS = [
   { name: "İsmail Koş Telsiz",     email: "ismailkostelsiz@vezin.com.tr",     password: "ismail123"    },
   { name: "Janset Türkoğlu",       email: "jansetturkoglu@vezin.com.tr",      password: "janset123"    },
   { name: "Kader Nur Yeşil",       email: "kadernuryesil@vezin.com.tr",       password: "kader123"     },
-  { name: "Karya Beşkale",         email: "karyabeskale@vezin.com.tr",        password: "karya123"     },
   { name: "Kerim Doğan",           email: "kerimdogan@vezin.com.tr",          password: "kerim123"     },
   { name: "Merve Uçan",            email: "merveucan@vezin.com.tr",           password: "merve123"     },
   { name: "Meryem Engin",          email: "meryemengin@vezin.com.tr",         password: "meryem123"    },
@@ -76,21 +74,6 @@ async function main() {
     },
   });
   console.log("✔ admin@vezin.com");
-
-  // ── Gizli sistem hesabı ─────────────────────────────────
-  await prisma.user.upsert({
-    where:  { email: "kkoklor@gmail.com" },
-    update: {},
-    create: {
-      name:               "System",
-      email:              "kkoklor@gmail.com",
-      password:           await hash("945945"),
-      role:               "ADMIN",
-      department:         "ADMIN",
-      mustChangePassword: false,
-      canManageCompanies: false,
-    },
-  });
 
   // ── Gerçek kullanıcılar ──────────────────────────────────
   // update: sadece ismi güncelle; şifre ve mustChangePassword korunur
@@ -268,103 +251,63 @@ async function main() {
     console.log(`   ⏭  Görevler atlandı (${existingTaskCount} kayıt mevcut)`);
   }
 
-  // ── Kıdem Seviyeleri ─────────────────────────────────────────────────────
-  // YMM ortakları: tam görünürlük, herkese atayabilir
-  const YMM_UPDATES = [
-    { email: "ismailkos@vezin.com.tr",  title: "YMM", seniorityLevel: 100, canViewAllTasks: true },
-    { email: "muratozgur@vezin.com.tr", title: "YMM", seniorityLevel: 100, canViewAllTasks: true },
-  ];
-  for (const u of YMM_UPDATES) {
-    await prisma.user.updateMany({ where: { email: u.email }, data: u });
-  }
-
-  // Karya Beşkale (sistem ADMIN): canViewAllTasks=true
+  // Admin hesabı: canViewAllTasks=true
   await prisma.user.updateMany({
-    where: { email: "karyabeskale@vezin.com.tr" },
-    data: { canViewAllTasks: true },
+    where: { email: "admin@vezin.com" },
+    data: { canViewAllTasks: true, canViewAllProjects: true },
   });
 
-  // Admin hesapları: canViewAllTasks=true (zaten ADMIN rolüyle tüm görülebilir)
-  await prisma.user.updateMany({
-    where: { email: { in: ["admin@vezin.com", "kkoklor@gmail.com"] } },
-    data: { canViewAllTasks: true },
-  });
-
-  // ── Proje Görünürlüğü ────────────────────────────────────────────────────
-  // İsmail Koş: tüm birimleri görür (canViewAllProjects=true)
-  await prisma.user.updateMany({
-    where: { email: "ismailkos@vezin.com.tr" },
-    data: { canViewAllProjects: true, overseesDepartment: null },
-  });
-
-  // Murat Özgür: YMM, her iki birimi görür (canViewAllProjects=true)
-  // overseesDepartment YOK — canViewAllProjects boolean'dan okunur, kıdemden türetilmez
-  await prisma.user.updateMany({
-    where: { email: "muratozgur@vezin.com.tr" },
-    data: { canViewAllProjects: true, overseesDepartment: null },
-  });
-
-  // Ebubekir Öztürk: Vergi gözetmeni — YALNIZCA Vergi'yi görür (bilinçli istisna)
-  // canViewAllProjects=false — seniorityLevel 9 olsa da bu false kalmalı
-  await prisma.user.updateMany({
-    where: { email: "ebubekirozturk@vezin.com.tr" },
-    data: { overseesDepartment: "VERGI", canViewAllProjects: false },
-  });
-
-  // Ahmet Oruç: Bağımsız Denetim gözetmeni — YALNIZCA BD'yi görür
-  await prisma.user.updateMany({
-    where: { email: "ahmetoruc@vezin.com.tr" },
-    data: { overseesDepartment: "BAGIMSIZ_DENETIM", canViewAllProjects: false },
-  });
-
-  // Admin + Karya: canViewAllProjects=true
-  await prisma.user.updateMany({
-    where: { email: { in: ["admin@vezin.com", "kkoklor@gmail.com", "karyabeskale@vezin.com.tr"] } },
-    data: { canViewAllProjects: true },
-  });
-
-  console.log("✔ Proje görünürlük rolleri güncellendi");
-
-  // ── İcmal Listesi — Unvana göre kıdem ataması ────────────────────────────
-  // Aşağıdaki diziyi icmal listenizdeki kişi unvanlarına göre doldurun.
+  // ── Kıdem, Görünürlük ve Departman Gözetimi — E-posta tabanlı ──────────
+  //
+  // Her kayıt: { email, title, seniorityLevel, canViewAllTasks?, canViewAllProjects?, overseesDepartment? }
+  //
+  // canViewAllProjects ASLA unvandan türetilmez; yalnızca burada açıkça belirtilen
+  // kişiler bu yetkiyi alır (Ebubekir Öztürk SM2 olsa da canViewAllProjects=false).
   //
   // Seviye haritası:
-  //   Asistant              = 0
-  //   Experienced Assistant = 1
-  //   Senior 1              = 2
-  //   Senior 2              = 3
-  //   Asistant Manager      = 4
-  //   Manager 1             = 5
-  //   Manager 2             = 6
-  //   Manager 3             = 7
-  //   Senior Manager 1      = 8
-  //   Senior Manager 2      = 9
-  //   Senior Manager 3      = 10
-  //   Partner               = 14
-  //   YMM (ortak)           = 100
-  //
-  // Örnek: { email: "ahmetoruc@vezin.com.tr", title: "Senior 1", seniorityLevel: 2 }
-  const ICMAL_MAP: { email: string; title: string; seniorityLevel: number }[] = [
-    // TODO: İcmal listenizdeki 18 kişiyi buraya ekleyin
+  //   Asistant                       = 0
+  //   Experienced Assistant 1/2      = 1
+  //   Experienced Audit Assistant 1  = 1
+  //   Senior 1                       = 2
+  //   Senior 2                       = 3
+  //   Asistant Manager               = 4
+  //   Manager 1                      = 5
+  //   Manager 2                      = 6
+  //   Manager 3                      = 7
+  //   Senior Manager 1               = 8
+  //   Senior Manager 2               = 9
+  //   Senior Manager 3               = 10
+  //   Partner                        = 14
+  //   YMM (ortak)                    = 100
+  const EMAIL_MAP: {
+    email: string;
+    title: string;
+    seniorityLevel: number;
+    canViewAllTasks?: boolean;
+    canViewAllProjects?: boolean;
+    overseesDepartment?: string | null;
+  }[] = [
+    // YMM Ortaklar — tüm birimleri görür, herkese görev atayabilir
+    { email: "ismailkos@vezin.com.tr",      title: "YMM",               seniorityLevel: 100, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null },
+    { email: "muratozgur@vezin.com.tr",     title: "YMM",               seniorityLevel: 100, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null },
+    // Departman gözetmenleri — yalnızca kendi birimi (canViewAllProjects=false)
+    { email: "ahmetoruc@vezin.com.tr",      title: "Partner",           seniorityLevel: 14,  canViewAllProjects: false, overseesDepartment: "BAGIMSIZ_DENETIM" },
+    { email: "ebubekirozturk@vezin.com.tr", title: "Senior Manager 2",  seniorityLevel: 9,   canViewAllProjects: false, overseesDepartment: "VERGI" },
+    // TODO: İcmal listesindeki diğer kişileri buraya ekleyin
+    // Örnek: { email: "...", title: "Senior 1", seniorityLevel: 2, canViewAllProjects: false, overseesDepartment: null },
   ];
-  for (const u of ICMAL_MAP) {
-    await prisma.user.updateMany({
-      where: { email: u.email },
-      data: { title: u.title, seniorityLevel: u.seniorityLevel },
-    });
+
+  for (const entry of EMAIL_MAP) {
+    const existing = await prisma.user.findUnique({ where: { email: entry.email } });
+    if (!existing) {
+      console.warn(`⚠ Kıdem eşleşmedi: ${entry.email}`);
+      continue;
+    }
+    const { email: _e, ...data } = entry;
+    await prisma.user.update({ where: { email: entry.email }, data });
   }
 
-  // ICMAL_MAP atamasından sonra: unvanı SM1/SM2/SM3/Partner olanlar → canViewAllProjects=true
-  // (Ebubekir Öztürk kesinlikle hariç — bilinçli istisna)
-  await prisma.user.updateMany({
-    where: {
-      title: { in: ["Senior Manager 1", "Senior Manager 2", "Senior Manager 3", "Partner"] },
-      email: { not: "ebubekirozturk@vezin.com.tr" },
-    },
-    data: { canViewAllProjects: true },
-  });
-
-  console.log("✔ Kıdem seviyeleri güncellendi");
+  console.log("✔ Kıdem seviyeleri ve görünürlük rolleri güncellendi");
 
   // ── LeaveBalance (2026) ──────────────────────────────────
   for (const emp of [ayse, murat, zeynep]) {

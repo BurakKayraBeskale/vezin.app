@@ -6,7 +6,7 @@ import { signOut } from "next-auth/react";
 import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
-import { isManagerOrAdmin } from "@/lib/access";
+import { isManagerOrAdmin, canAccessProjects } from "@/lib/access";
 
 interface SidebarProps {
   userName: string;
@@ -15,6 +15,7 @@ interface SidebarProps {
   userDepartment: string;
   canViewAllTasks: boolean;
   canViewAllProjects: boolean;
+  overseesDepartment: string | null;
   overdueCount: number;
   unreadPetitions: number;
   pendingLeave: number;
@@ -186,8 +187,8 @@ function NavLink({ href, label, icon, active, badge }: NavLinkProps) {
 }
 
 export default function Sidebar({
-  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, overdueCount, unreadPetitions, pendingLeave,
-  unreadNotifications, isOpen = false, onClose,
+  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, overseesDepartment,
+  overdueCount, unreadPetitions, pendingLeave, unreadNotifications, isOpen = false, onClose,
 }: SidebarProps) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
@@ -262,9 +263,7 @@ export default function Sidebar({
           }
           active={pathname === "/meetings"}
         />
-        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole) || canViewAllProjects ||
-          userDepartment === "BAGIMSIZ_DENETIM" || userDepartment === "VERGI" ||
-          userDepartment === "YEMINLI_MALI_MUSAVIR" || userDepartment === "MUHASEBE") && (
+        {(BYPASS_AUTH_ROLES || canAccessProjects({ role: userRole, department: userDepartment, canViewAllProjects, overseesDepartment })) && (
           <NavLink
             href="/projeler"
             label="Projeler"

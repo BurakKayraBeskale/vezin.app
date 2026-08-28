@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere } from "@/lib/task-visibility";
-import { canCreateProject } from "@/lib/access";
+import { canCreateProject, canAccessProjects } from "@/lib/access";
 
 const projectInclude = {
   createdBy: { select: { id: true, name: true } },
@@ -29,6 +29,11 @@ export async function GET(req: NextRequest) {
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const user = getVisUser(token);
+  const userDept = (token as any).department as string ?? "";
+  if (!canAccessProjects({ role: user.role, department: userDept, canViewAllProjects: user.canViewAllProjects, overseesDepartment: user.overseesDepartment })) {
+    return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+  }
+
   const projectIds = await getVisibleProjectIds(user);
   const visWhere = buildProjectVisibilityWhere(projectIds);
 
@@ -51,6 +56,13 @@ export async function POST(req: NextRequest) {
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const userId = token.id as string;
+  const postRole = (token as any).role as string;
+  const postDept = (token as any).department as string ?? "";
+  const postCanView = (token as any).canViewAllProjects as boolean ?? false;
+  const postOversees = (token as any).overseesDepartment as string | null ?? null;
+  if (!canAccessProjects({ role: postRole, department: postDept, canViewAllProjects: postCanView, overseesDepartment: postOversees })) {
+    return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+  }
 
   // Proje açma yetkisi: seniorityLevel >= 5 VEYA overseesDepartment != null VEYA ADMIN/canViewAllProjects
   const creator = await prisma.user.findUnique({

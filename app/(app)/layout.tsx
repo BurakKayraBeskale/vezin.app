@@ -10,6 +10,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session) redirect("/login");
 
   const userId = (session.user as any).id as string;
+  const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
 
   // Overdue count: yalnızca kullanıcının kendisine atanan gecikmiş görevler
   const [overdueCount, unreadPetitions, pendingLeave, unreadNotifications] = await Promise.all([
@@ -39,6 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       userDepartment={(session.user as any).department ?? ""}
       canViewAllTasks={(session.user as any).canViewAllTasks ?? false}
       canViewAllProjects={(session.user as any).canViewAllProjects ?? false}
+      overseesDepartment={overseesDepartment}
       overdueCount={overdueCount}
       unreadPetitions={unreadPetitions}
       pendingLeave={pendingLeave}

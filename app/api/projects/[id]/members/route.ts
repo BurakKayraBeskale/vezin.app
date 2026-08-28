@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
+import { canAccessProjects } from "@/lib/access";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -8,9 +9,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const userId = token.id as string;
   const userRole = (token as any).role as string;
+  const userDept = (token as any).department as string ?? "";
   const canViewAllProjects = (token as any).canViewAllProjects as boolean ?? false;
-
   const overseesDepartment = (token as any).overseesDepartment as string | null ?? null;
+
+  if (!canAccessProjects({ role: userRole, department: userDept, canViewAllProjects, overseesDepartment })) {
+    return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+  }
 
   const project = await prisma.project.findUnique({
     where: { id: params.id },

@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere, buildTaskVisibilityWhere } from "@/lib/task-visibility";
+import { canAccessProjects } from "@/lib/access";
 import Link from "next/link";
 
 const DEPT_LABELS: Record<string, string> = {
@@ -23,8 +24,13 @@ export default async function ProjeDetayPage({ params }: { params: { id: string 
 
   const userId = (session.user as any).id as string;
   const userRole = (session.user as any).role as string;
+  const userDepartment = (session.user as any).department as string ?? "";
   const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
   const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
+
+  if (!canAccessProjects({ role: userRole, department: userDepartment, canViewAllProjects, overseesDepartment })) {
+    notFound();
+  }
 
   const visUser = { id: userId, role: userRole, canViewAllProjects, overseesDepartment };
   const projectIds = await getVisibleProjectIds(visUser);
