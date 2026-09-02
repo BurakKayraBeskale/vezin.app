@@ -21,7 +21,8 @@ type Project = {
 
 interface ProjectListProps {
   initialProjects: Project[];
-  users: ProjectUser[];
+  /** Departman bazlı üye listeleri — server-side filtrelenmiş */
+  usersByDept: { BAGIMSIZ_DENETIM: ProjectUser[]; VERGI: ProjectUser[] };
   canCreate: boolean;
   canViewAllProjects: boolean;
   currentDept: string | null;
@@ -39,7 +40,7 @@ const DEPT_LABELS: Record<string, string> = {
 
 export default function ProjectList({
   initialProjects,
-  users,
+  usersByDept,
   canCreate,
   canViewAllProjects,
   currentDept,
@@ -276,7 +277,7 @@ export default function ProjectList({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Birim *</label>
                 <select
                   value={form.department}
-                  onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, department: e.target.value, memberIds: [] }))}
                   className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   {visibleDepts.map((d) => (
@@ -311,11 +312,11 @@ export default function ProjectList({
                   className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 />
               </div>
-              {users.length > 0 && (
+              {((usersByDept[form.department as keyof typeof usersByDept]) ?? []).length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Üyeler</label>
                   <div className="max-h-40 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-lg divide-y divide-gray-100 dark:divide-gray-700">
-                    {users.map((u) => (
+                    {(usersByDept[form.department as keyof typeof usersByDept] ?? []).map((u) => (
                       <label key={u.id} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
                         <input
                           type="checkbox"

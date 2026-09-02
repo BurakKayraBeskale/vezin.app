@@ -92,6 +92,17 @@ export function canAssignTask(assignerLevel: number, targetLevel: number): boole
 }
 
 /**
+ * Proje departmanını kullanıcı departmanına eşler.
+ * "VERGI" projelerinde çalışanlar kadro tarafında "YEMINLI_MALI_MUSAVIR" olarak tutulur.
+ * ADMIN/MUHASEBE/IDARI_ISLER/OUTSOURCE hiçbir projeye üye olamaz (null döner → filtre geçersiz).
+ */
+export function projectDeptToUserDept(projectDept: string): string | null {
+  if (projectDept === "BAGIMSIZ_DENETIM") return "BAGIMSIZ_DENETIM";
+  if (projectDept === "VERGI") return "YEMINLI_MALI_MUSAVIR";
+  return null;
+}
+
+/**
  * Proje silme yetkisi (tek doğru kaynak — route ve UI buradan çağırır):
  *   1. ADMIN → her zaman silebilir
  *   2. Departman gözetmeni (overseesDepartment) → kendi departmanındaki projeyi silebilir
@@ -99,6 +110,23 @@ export function canAssignTask(assignerLevel: number, targetLevel: number): boole
  *   Hiçbiri sağlanmıyorsa → false (route 404 döndürür, buton gizlenir)
  */
 export function canDeleteProject(
+  user: { id: string; role: string; overseesDepartment?: string | null },
+  project: { createdById: string; department: string }
+): boolean {
+  if (user.role === "ADMIN") return true;
+  if (user.overseesDepartment != null && project.department === user.overseesDepartment) return true;
+  if (project.createdById === user.id) return true;
+  return false;
+}
+
+/**
+ * Proje düzenleme yetkisi — canDeleteProject ile birebir aynı kural:
+ *   1. ADMIN → her zaman düzenleyebilir
+ *   2. Departman gözetmeni → kendi departmanındaki projeyi düzenleyebilir
+ *   3. Projeyi oluşturan kişi → kendi projesini düzenleyebilir
+ *   Hiçbiri sağlanmıyorsa → false (route 404 döndürür, buton gizlenir)
+ */
+export function canEditProject(
   user: { id: string; role: string; overseesDepartment?: string | null },
   project: { createdById: string; department: string }
 ): boolean {

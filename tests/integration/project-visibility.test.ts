@@ -36,8 +36,9 @@ vi.mock("next-auth/jwt", () => ({ getToken: vi.fn() }));
 import { GET as tasksGET, POST as tasksPOST } from "../../app/api/tasks/route";
 import { GET as taskByIdGET, DELETE as tasksDELETE } from "../../app/api/tasks/[id]/route";
 import { GET as projectsGET, POST as projectsPOST } from "../../app/api/projects/route";
-import { GET as projectByIdGET, DELETE as projectDELETE } from "../../app/api/projects/[id]/route";
+import { GET as projectByIdGET, DELETE as projectDELETE, PATCH as projectPATCH } from "../../app/api/projects/[id]/route";
 import { POST as projectMembersPOST } from "../../app/api/projects/[id]/members/route";
+import { GET as assignableGET } from "../../app/api/users/assignable/route";
 import { getServerSession } from "next-auth";
 import { getToken } from "next-auth/jwt";
 
@@ -584,6 +585,162 @@ describe("T18/T19/T20: Proje silme yetkisi — DELETE /api/projects/[id]", () =>
     // Proje gerçekten silinmiş olmalı
     const gone = await prisma.project.findUnique({ where: { id: proj.id } });
     expect(gone).toBeNull();
+  });
+});
+
+// ── Yeni testler: departman filtresi ve PATCH yetkisi ────────────────────────
+
+describe("Üye listesi departman filtresi — GET /api/users/assignable?projectDept", () => {
+  let bdDeptUser: { id: string };
+  let ymmDeptUser: { id: string };
+  let muhasebeDeptUser: { id: string };
+
+  beforeAll(async () => {
+    const [bd, ymm, muh] = await Promise.all([
+      prisma.user.create({
+        data: {
+          name: `${PREFIX} BD Kadro`,
+          email: email("bd-kadro"),
+          password: await hash("test123"),
+          role: "EMPLOYEE",
+          department: "BAGIMSIZ_DENETIM",
+          seniorityLevel: 1,
+          canViewAllProjects: false,
+          overseesDepartment: null,
+          canViewAllTasks: false,
+        },
+      }),
+      prisma.user.create({
+        data: {
+          name: `${PREFIX} YMM Kadro`,
+          email: email("ymm-kadro"),
+          password: await hash("test123"),
+          role: "EMPLOYEE",
+          department: "YEMINLI_MALI_MUSAVIR",
+          seniorityLevel: 1,
+          canViewAllProjects: false,
+          overseesDepartment: null,
+          canViewAllTasks: false,
+        },
+      }),
+      prisma.user.create({
+        data: {
+          name: `${PREFIX} Muhasebe Kadro`,
+          email: email("muh-kadro"),
+          password: await hash("test123"),
+          role: "EMPLOYEE",
+          department: "MUHASEBE",
+          seniorityLevel: 1,
+          canViewAllProjects: false,
+          overseesDepartment: null,
+          canViewAllTasks: false,
+        },
+      }),
+    ]);
+    bdDeptUser = bd;
+    ymmDeptUser = ymm;
+    muhasebeDeptUser = muh;
+    createdUserIds.push(bd.id, ymm.id, muh.id);
+  });
+
+  it("BD filtresi: YEMINLI_MALI_MUSAVIR kadrosundan kimse dönmez", async () => {
+    // ismailKos: level 100, tüm düşük kıdemlileri görebilir
+    asUser(ismailKos);
+    const req = new Request("http://localhost/api/users/assignable?projectDept=BAGIMSIZ_DENETIM");
+    const res = await assignableGET(req as any);
+    expect(res.status).toBe(200);
+    const users = await json(res);
+    const ids = users.map((u: any) => u.id);
+    expect(ids).not.toContain(ymmDeptUser.id);
+    expect(ids).toContain(bdDeptUser.id);
+  });
+
+  it("Vergi filtresi: BAGIMSIZ_DENETIM kadrosundan kimse dönmez", async () => {
+    asUser(ismailKos);
+    const req = new Request("http://localhost/api/users/assignable?projectDept=VERGI");
+    const res = await assignableGET(req as any);
+    expect(res.status).toBe(200);
+    const users = await json(res);
+    const ids = users.map((u: any) => u.id);
+    expect(ids).not.toContain(bdDeptUser.id);
+    expect(ids).toContain(ymmDeptUser.id);
+  });
+
+  it("BD filtresi: MUHASEBE/IDARI_ISLER/OUTSOURCE kadrosundan kimse dönmez", async () => {
+    asUser(ismailKos);
+    const req = new Request("http://localhost/api/users/assignable?projectDept=BAGIMSIZ_DENETIM");
+    const res = await assignableGET(req as any);
+    const users = await json(res);
+    const ids = users.map((u: any) => u.id);
+    // MUHASEBE bloklu
+    expect(ids).not.toContain(muhasebeDeptUser.id);
+    // OUTSOURCE bloklu (tüm test kullanıcıları OUTSOURCE — hiçbiri görünmemeli)
+    expect(ids).not.toContain(outsider.id);
+    expect(ids).not.toContain(bdUser1.id); // bdUser1 dept=OUTSOURCE
+  });
+});
+
+describe("Proje güncelleme — PATCH /api/projects/[id]", () => {
+  it("Projeyi oluşturan kişi PATCH ile güncelleyebilir → 200", async () => {
+    // manager projeyi oluşturuyor
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} PATCH T-Kurucu`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+    await prisma.projectMember.create({
+      data: { projectId: proj.id, userId: manager.id, assignedBy: manager.id },
+    });
+
+    asUser(manager);
+    const req = new Request(`http://localhost/api/projects/${proj.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: `${PREFIX} Güncellenmiş Proje` }),
+    });
+    const res = await projectPATCH(req as any, { params: { id: proj.id } });
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    expect(data.name).toBe(`${PREFIX} Güncellenmiş Proje`);
+    // department değişmemeli (body'de gönderilmedi; PATCH dept kabul etmez)
+    expect(data.department).toBe("BAGIMSIZ_DENETIM");
+  });
+
+  it("İlgisiz üye (kurucu değil, gözetmen değil, admin değil) PATCH yapamaz → 404", async () => {
+    // bdUser1, bdProj1Id'nin üyesi ama kurucusu adminUser
+    asUser(bdUser1);
+    const req = new Request(`http://localhost/api/projects/${bdProj1Id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: `${PREFIX} Yasak Güncelleme` }),
+    });
+    const res = await projectPATCH(req as any, { params: { id: bdProj1Id } });
+    expect(res.status).toBe(404);
+
+    // Proje adı değişmemiş olmalı
+    const proj = await prisma.project.findUnique({ where: { id: bdProj1Id } });
+    expect(proj?.name).not.toBe(`${PREFIX} Yasak Güncelleme`);
+  });
+
+  it("department alanı PATCH ile değiştirilemez", async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} Dept Koruması`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+    await prisma.projectMember.create({
+      data: { projectId: proj.id, userId: manager.id, assignedBy: manager.id },
+    });
+
+    asUser(manager);
+    const req = new Request(`http://localhost/api/projects/${proj.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: proj.name, department: "VERGI" }),
+    });
+    const res = await projectPATCH(req as any, { params: { id: proj.id } });
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    // department gönderilse bile değişmemeli
+    expect(data.department).toBe("BAGIMSIZ_DENETIM");
   });
 });
 

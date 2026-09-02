@@ -6,16 +6,22 @@
  * Kural: assigner.seniorityLevel > assignee.seniorityLevel (kesin büyük)
  * İstisna: canViewAllTasks || ADMIN → herkese atayabilir.
  *
+ * İsteğe bağlı sorgu parametresi:
+ *   ?projectDept=BAGIMSIZ_DENETIM | VERGI
+ *   Verildiğinde Prisma WHERE'e departman filtresi eklenir (server-side).
+ *   ADMIN/MUHASEBE/IDARI_ISLER/OUTSOURCE kadroları bu filtre kapsamında hiç dönmez.
+ *
  * UI bu endpoint'i kullanarak atanabilecekler listesini filtreler.
  * Sunucu da POST/PATCH /api/tasks sırasında bağımsız kontrol yapar.
  */
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
+import { projectDeptToUserDept } from "@/lib/access";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
@@ -29,13 +35,19 @@ export async function GET() {
 
   const canAssignAll = assigner.canViewAllTasks || assigner.role === "ADMIN";
 
+  // İsteğe bağlı proje departman filtresi
+  const projectDept = new URL(req.url).searchParams.get("projectDept");
+  const userDeptFilter = projectDept ? projectDeptToUserDept(projectDept) : null;
+
+  const where: Record<string, unknown> = {
+    email: { notIn: HIDDEN_ACCOUNT_EMAILS },
+    ...(!canAssignAll && { seniorityLevel: { lt: assigner.seniorityLevel } }),
+    // Departman filtresi verilmişse Prisma WHERE'e eklenir (server-side)
+    ...(userDeptFilter !== null && { department: userDeptFilter }),
+  };
+
   const users = await prisma.user.findMany({
-    where: canAssignAll
-      ? { email: { notIn: HIDDEN_ACCOUNT_EMAILS } }
-      : {
-          email: { notIn: HIDDEN_ACCOUNT_EMAILS },
-          seniorityLevel: { lt: assigner.seniorityLevel },
-        },
+    where,
     select: {
       id: true,
       name: true,

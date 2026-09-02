@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { canAccessProjects } from "@/lib/access";
+import { canAccessProjects, projectDeptToUserDept } from "@/lib/access";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -35,8 +35,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const addUserIds: string[] = Array.isArray(body.addUserIds) ? body.addUserIds.filter(Boolean) : [];
   const removeUserIds: string[] = Array.isArray(body.removeUserIds) ? body.removeUserIds.filter(Boolean) : [];
 
-  // Ekleme: kıdem kontrolü
+  // Ekleme: departman + kıdem kontrolü
   if (addUserIds.length > 0) {
+    // Departman filtresi: proje birimi → beklenen kullanıcı departmanı
+    const targetDept = projectDeptToUserDept(project.department);
+    if (targetDept !== null) {
+      const wrongDeptUser = await prisma.user.findFirst({
+        where: { id: { in: addUserIds }, NOT: { department: targetDept } },
+        select: { id: true },
+      });
+      if (wrongDeptUser) {
+        return NextResponse.json(
+          { error: "Bu projeye sadece ilgili birim kadrosundan üye eklenebilir" },
+          { status: 403 }
+        );
+      }
+    }
+
     const assigner = await prisma.user.findUnique({
       where: { id: userId },
       select: { seniorityLevel: true, canViewAllProjects: true, role: true },

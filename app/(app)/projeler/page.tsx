@@ -25,7 +25,13 @@ export default async function ProjelerPage() {
   const projectIds = await getVisibleProjectIds(visUser);
   const visWhere = buildProjectVisibilityWhere(projectIds);
 
-  const [projects, assignableUsers] = await Promise.all([
+  // Üye seçimi için departman bazlı filtre — server-side Prisma WHERE
+  // BD projesi → BAGIMSIZ_DENETIM kadrosu; Vergi projesi → YEMINLI_MALI_MUSAVIR kadrosu
+  const seniorityFilter = canViewAllProjects || userRole === "ADMIN"
+    ? {}
+    : { seniorityLevel: { lt: seniorityLevel > 0 ? seniorityLevel : 1 } };
+
+  const [projects, bdUsers, vergiUsers] = await Promise.all([
     prisma.project.findMany({
       where: visWhere as any,
       include: {
@@ -40,17 +46,16 @@ export default async function ProjelerPage() {
       },
       orderBy: { createdAt: "desc" },
     }),
-    // Üye seçimi: sadece kendinden düşük kıdemliler (admin/canViewAllProjects → herkes)
-    canViewAllProjects || userRole === "ADMIN"
-      ? prisma.user.findMany({
-          select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
-          orderBy: { name: "asc" },
-        })
-      : prisma.user.findMany({
-          where: { seniorityLevel: { lt: seniorityLevel > 0 ? seniorityLevel : 1 } },
-          select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
-          orderBy: { name: "asc" },
-        }),
+    prisma.user.findMany({
+      where: { department: "BAGIMSIZ_DENETIM", ...seniorityFilter },
+      select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.user.findMany({
+      where: { department: "YEMINLI_MALI_MUSAVIR", ...seniorityFilter },
+      select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   const canCreate = userRole === "ADMIN" || canViewAllProjects || seniorityLevel >= 5;
@@ -58,7 +63,7 @@ export default async function ProjelerPage() {
   return (
     <ProjectList
       initialProjects={projects as any}
-      users={assignableUsers}
+      usersByDept={{ BAGIMSIZ_DENETIM: bdUsers, VERGI: vergiUsers }}
       canCreate={canCreate}
       canViewAllProjects={canViewAllProjects}
       currentDept={null}

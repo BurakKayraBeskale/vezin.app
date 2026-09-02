@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere } from "@/lib/task-visibility";
-import { canAccessProjects, canDeleteProject } from "@/lib/access";
+import { canAccessProjects, canDeleteProject, canEditProject } from "@/lib/access";
 
 const projectInclude = {
   createdBy: { select: { id: true, name: true } },
@@ -59,24 +59,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const existing = await prisma.project.findFirst({
     where: { AND: [{ id: params.id }, visWhere as any] },
-    select: { id: true, createdById: true },
+    select: { id: true, createdById: true, department: true },
   });
   if (!existing) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
 
-  // Düzenleme: kurucu, gözetmen veya admin
-  const canEdit =
-    user.role === "ADMIN" ||
-    user.canViewAllProjects ||
-    user.overseesDepartment != null ||
-    existing.createdById === user.id;
-  if (!canEdit) return NextResponse.json({ error: "Düzenleme yetkiniz yok" }, { status: 403 });
+  // Düzenleme yetkisi: canDeleteProject ile aynı kural
+  if (!canEditProject(user, existing)) {
+    return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+  }
 
   const body = await req.json();
+  // department değiştirilemez — üyelik ve görünürlük tutarsızlığını önler
   const updated = await prisma.project.update({
     where: { id: params.id },
     data: {
       ...(body.name !== undefined && { name: body.name.trim() }),
-      ...(body.department !== undefined && { department: body.department }),
       ...(body.taxNumber !== undefined && { taxNumber: body.taxNumber?.trim() || null }),
       ...(body.sector !== undefined && { sector: body.sector?.trim() || null }),
       ...(body.startDate !== undefined && { startDate: body.startDate ? new Date(body.startDate) : null }),

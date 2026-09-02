@@ -3,8 +3,9 @@ import { authOptions } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere, buildTaskVisibilityWhere } from "@/lib/task-visibility";
-import { canAccessProjects } from "@/lib/access";
+import { canAccessProjects, canEditProject } from "@/lib/access";
 import Link from "next/link";
+import ProjeEditForm from "@/components/ProjeEditForm";
 
 const DEPT_LABELS: Record<string, string> = {
   BAGIMSIZ_DENETIM: "Bağımsız Denetim",
@@ -48,6 +49,11 @@ export default async function ProjeDetayPage({ params }: { params: { id: string 
   });
 
   if (!project) notFound();
+
+  const canEdit = canEditProject(
+    { id: userId, role: userRole, overseesDepartment },
+    { createdById: project.createdBy.id, department: project.department }
+  );
 
   // Tasks in this project — visibility already enforced by project access
   const taskWhere = buildTaskVisibilityWhere(projectIds);
@@ -95,9 +101,22 @@ export default async function ProjeDetayPage({ params }: { params: { id: string 
             {project.sector && <p className="text-sm text-gray-500 dark:text-gray-400">{project.sector}</p>}
             {project.taxNumber && <p className="text-xs text-gray-400 mt-1">VKN: {project.taxNumber}</p>}
           </div>
-          <div className="text-right text-sm text-gray-500">
+          <div className="text-right text-sm text-gray-500 flex flex-col items-end gap-2">
             <p>{tasks.length} görev</p>
             <p>{project.members.length} üye</p>
+            <ProjeEditForm
+              project={{
+                id: project.id,
+                name: project.name,
+                department: project.department,
+                taxNumber: project.taxNumber,
+                sector: project.sector,
+                startDate: project.startDate ? (project.startDate as Date).toISOString() : null,
+                notes: project.notes,
+                about: project.about,
+              }}
+              canEdit={canEdit}
+            />
           </div>
         </div>
 
