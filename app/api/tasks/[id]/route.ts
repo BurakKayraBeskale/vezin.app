@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
+import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -43,9 +43,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const fields = sessionFields(token);
-
-  const projectIds = await getVisibleProjectIds(makeVisUser(fields));
-  const taskWhere = buildTaskVisibilityWhere(projectIds);
+  const taskWhere = buildTaskVisibilityWhereForUser(makeVisUser(fields));
 
   const task = await prisma.task.findFirst({
     where: { AND: [{ id: params.id }, taskWhere as any] },
@@ -68,8 +66,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const canManage = isAdmin || fields.canViewAllProjects || fields.overseesDepartment != null;
 
     // Mevcut görevi çek — görünürlük zorla
-    const projectIds = await getVisibleProjectIds(makeVisUser(fields));
-    const where = buildTaskVisibilityWhere(projectIds);
+    const where = buildTaskVisibilityWhereForUser(makeVisUser(fields));
     const current = await prisma.task.findFirst({
       where: { AND: [{ id: params.id }, where as any] },
       select: { status: true, assignedToId: true },

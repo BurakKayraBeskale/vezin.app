@@ -1,14 +1,21 @@
 /**
- * Görünürlük entegrasyon testleri — proje tabanlı model
+ * Görünürlük entegrasyon testleri — kişiye özgü görev görünürlük modeli
  *
  * Gerçek Prisma (dev.db) ve gerçek route handler'ları kullanır.
  * next-auth session/token katmanı mock'lanır — geri kalan her şey gerçek.
  *
+ * YENİ kural: bir görevi yalnızca şunlar görebilir:
+ *   1. Görevin atandığı kişi
+ *   2. Projeyi oluşturan kişi
+ *   3. Birimin departman sorumlusu (overseesDepartment)
+ *   4. ADMIN veya canViewAllProjects=true
+ *   Proje üyesi olmak tek başına başkasının görevini görme hakkı VERMEZ.
+ *
  * Kapsanan senaryolar:
- *   T1  Müdür1 aynı projedeki görevleri görür (senior + asistanlar)
+ *   T1  Müdür1 projeye üye ama kendine atanmış görevi yok → proje görevlerini GÖREMEZ
  *   T2  Müdür2 ayrı projede: Müdür1'in görevi GÖRÜNMEZ
- *   T3  Senior kendi projesindeki TÜM görevleri görür
- *   T4  Asistan1 kendi projesinin görevlerini görür (Asistan2'ninkini de — aynı projede)
+ *   T3  Senior yalnızca kendine atanmış görevi görür (diğer üyelerin görevleri GÖRÜNMEZ)
+ *   T4  Asistan1 yalnızca kendi görevini görür (Asistan2'ninkini de GÖREMEZ — yeni kural)
  *   T5  Asistan1 session'ıyla Müdür2'nin görev ID'si → 404
  *   T5b Asistan1 kendi görev ID'si → 200
  *   T5c Asistan2 Müdür2'nin görevi → 404
@@ -204,15 +211,17 @@ afterAll(async () => {
 // ── Testler ─────────────────────────────────────────────────────────────────
 
 describe("Görev görünürlüğü — GET /api/tasks", () => {
-  it("T1: Müdür1 Proje 1'deki tüm görevleri görür", async () => {
+  it("T1: Müdür1 projeye üye ama kendine atanmış görevi yok → proje görevlerini göremez", async () => {
     asUser(mudur1);
     const res = await tasksGET();
     expect(res.status).toBe(200);
     const tasks = await json(res);
     const ids: string[] = tasks.map((t: any) => t.id);
-    expect(ids).toContain(gorevProje1A);
-    expect(ids).toContain(gorevProje1B);
-    expect(ids).toContain(gorevProje1C);
+    // mudur1'e atanmış görev yok — başkalarının görevleri görünmez
+    expect(ids).not.toContain(gorevProje1A); // senior'ın görevi
+    expect(ids).not.toContain(gorevProje1B); // asistan1'in görevi
+    expect(ids).not.toContain(gorevProje1C); // asistan2'nin görevi
+    expect(ids).not.toContain(gorevMudur2);  // mudur2'nin görevi
   });
 
   it("T2: Müdür2 Müdür1'in projesindeki görevleri görmez", async () => {
@@ -226,24 +235,24 @@ describe("Görev görünürlüğü — GET /api/tasks", () => {
     expect(ids).not.toContain(gorevProje1C);
   });
 
-  it("T3: Senior Proje 1'deki tüm görevleri görür", async () => {
+  it("T3: Senior yalnızca kendine atanmış görevi görür", async () => {
     asUser(senior);
     const res = await tasksGET();
     const tasks = await json(res);
     const ids: string[] = tasks.map((t: any) => t.id);
-    expect(ids).toContain(gorevProje1A);
-    expect(ids).toContain(gorevProje1B);
-    expect(ids).toContain(gorevProje1C);
+    expect(ids).toContain(gorevProje1A);      // kendi görevi
+    expect(ids).not.toContain(gorevProje1B);  // asistan1'in görevi
+    expect(ids).not.toContain(gorevProje1C);  // asistan2'nin görevi
     expect(ids).not.toContain(gorevMudur2);
   });
 
-  it("T4: Asistan1 Proje 1'deki tüm görevleri görür (Asistan2'ninkini de)", async () => {
+  it("T4: Asistan1 yalnızca kendi görevini görür (Asistan2'ninkini göremez)", async () => {
     asUser(asistan1);
     const res = await tasksGET();
     const tasks = await json(res);
     const ids: string[] = tasks.map((t: any) => t.id);
-    expect(ids).toContain(gorevProje1B);  // kendi görevi
-    expect(ids).toContain(gorevProje1C);  // aynı projede → görünür
+    expect(ids).toContain(gorevProje1B);       // kendi görevi
+    expect(ids).not.toContain(gorevProje1C);   // asistan2'nin görevi — yeni kuralla GÖRÜNMEZ
     expect(ids).not.toContain(gorevMudur2);
   });
 });

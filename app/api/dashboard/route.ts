@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
+import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 
 function weekBounds(weeksAgo: number) {
   const now = new Date();
@@ -30,12 +30,11 @@ export async function GET() {
   const { start: lastStart, end: lastEnd } = weekBounds(1);
 
   // Görünürlük filtresi — tüm sayaç, groupBy ve liste sorgularında kullanılır
-  const projectIds = await getVisibleProjectIds({ id: userId, role: userRole, canViewAllProjects, overseesDepartment });
-  const visibilityWhere = buildTaskVisibilityWhere(projectIds);
+  const visibilityWhere = buildTaskVisibilityWhereForUser({ id: userId, role: userRole, canViewAllProjects, overseesDepartment });
 
-  // Sayaç kartları: görünürlük filtresi + kişisel filtre (assignedToId)
-  // Böylece kullanıcı yalnızca GÖREBİLECEĞİ projeler içindeki kendi görevlerini sayar.
-  const myVisibleTasks = { ...(visibilityWhere as any), assignedToId: userId };
+  // Sayaç kartları: görünürlük filtresi AND kişisel filtre (assignedToId)
+  // Kullanıcı yalnızca görebildiği ve kendisine atanmış görevleri sayar.
+  const myVisibleTasks = { AND: [visibilityWhere, { assignedToId: userId }] };
 
   const [
     openTasks,

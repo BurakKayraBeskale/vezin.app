@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 import { isManagerOrAdmin } from "@/lib/access";
-import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
+import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 
 const DEPT_LABELS: Record<string, string> = {
   OUTSOURCE:            "Outsource",
@@ -39,18 +39,18 @@ export async function GET(req: NextRequest) {
   }
 
   // Görünürlük filtresi — overseer yalnızca kendi departmanını görür
-  const projectIds = await getVisibleProjectIds({ id: userId, role, canViewAllProjects, overseesDepartment });
-  const visibilityWhere = buildTaskVisibilityWhere(projectIds);
+  const visUser = { id: userId, role, canViewAllProjects, overseesDepartment };
+  const visibilityWhere = buildTaskVisibilityWhereForUser(visUser);
 
   // Görünür görev ID'leri — taskLog filtrelemesi için
-  const visibleTaskIds = projectIds === null
-    ? null  // tüm görevler
-    : projectIds.length === 0
-      ? []
-      : await prisma.task.findMany({
-          where: visibilityWhere as any,
-          select: { id: true },
-        }).then((ts) => ts.map((t) => t.id));
+  // ADMIN ve canViewAllProjects → tüm görevler (null → filtre yok)
+  const isFullAccess = role === "ADMIN" || canViewAllProjects;
+  const visibleTaskIds: string[] | null = isFullAccess
+    ? null
+    : await prisma.task.findMany({
+        where: visibilityWhere as any,
+        select: { id: true },
+      }).then((ts) => ts.map((t) => t.id));
 
   const [tasks, users, leaveBalances, taskLogs] = await Promise.all([
     prisma.task.findMany({

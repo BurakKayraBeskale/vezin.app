@@ -1,12 +1,18 @@
 /**
- * Görev görünürlük sistemi — proje üyeliği modeli.
+ * Görev görünürlük sistemi.
  *
- * Görünürlük sırası:
- *   1. ADMIN veya canViewAllProjects → tüm projeler/görevler
- *   2. overseesDepartment != null → yalnızca o birimin tüm projeleri/görevleri
- *   3. Diğerleri → yalnızca üye olduğu projeler; o projede TÜM görevler görülür
+ * YENİ kural (buildTaskVisibilityWhereForUser):
+ *   Bir görevi yalnızca şunlar görebilir:
+ *   1. Görevin atandığı kişi (assignedToId veya TaskAssignee)
+ *   2. Projeyi oluşturan kişi (project.createdById)
+ *   3. Birimin departman sorumlusu (overseesDepartment === project.department)
+ *   4. ADMIN veya canViewAllProjects=true
+ *   Proje üyesi olmak tek başına başkasının görevini görme hakkı VERMEZ.
  *
- * KRİTİK: Filtre Prisma sorgusunun içinde uygulanır,
+ * Proje görünürlüğü (getVisibleProjectIds) AYRI kurallarla yönetilir;
+ * yalnızca hangi projelerin göründüğünü belirler (üyelik, gözetmen, admin).
+ *
+ * KRİTİK: Tüm filtreler Prisma WHERE koşulunda uygulanır,
  *         frontend .filter() veya tüm görev döndürüp gizleme YAPILMAZ.
  */
 
@@ -43,10 +49,45 @@ export async function getVisibleProjectIds(user: VisibilityUser): Promise<string
 }
 
 /**
+ * YENİ görev görünürlük filtresi — kullanıcıya göre Prisma WHERE üretir.
+ *
+ * Kural:
+ *   ADMIN / canViewAllProjects → {} (tüm görevler)
+ *   Diğerleri → OR[
+ *     assignedToId = user,
+ *     assignees.some.userId = user,
+ *     project.createdById = user,
+ *     (overseesDepartment varsa) project.department = overseesDepartment
+ *   ]
+ */
+export function buildTaskVisibilityWhereForUser(user: {
+  id: string;
+  role: string;
+  canViewAllProjects: boolean;
+  overseesDepartment?: string | null;
+}): object {
+  if (user.role === "ADMIN" || user.canViewAllProjects) return {};
+
+  const conditions: object[] = [
+    { assignedToId: user.id },
+    { assignees: { some: { userId: user.id } } },
+    { project: { createdById: user.id } },
+  ];
+
+  if (user.overseesDepartment) {
+    conditions.push({ project: { department: user.overseesDepartment } });
+  }
+
+  return { OR: conditions };
+}
+
+/**
  * Proje ID listesini → Prisma task where filtresine çevirir.
  * null → {} (filtre yok, tüm görevler)
  * [] → { projectId: "__no_access__" } (SQL'de 0 sonuç döner)
  * [...] → { projectId: { in: [...] } }
+ *
+ * @deprecated Yeni kod buildTaskVisibilityWhereForUser kullanmalı.
  */
 export function buildTaskVisibilityWhere(projectIds: string[] | null): object {
   if (projectIds === null) return {};

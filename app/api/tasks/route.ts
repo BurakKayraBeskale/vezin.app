@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
+import { getVisibleProjectIds, buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -30,8 +30,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const visUser = sessionVisUser(session);
-  const projectIds = await getVisibleProjectIds(visUser);
-  const where = buildTaskVisibilityWhere(projectIds);
+  const where = buildTaskVisibilityWhereForUser(visUser);
 
   const tasks = await prisma.task.findMany({
     where: where as any,
@@ -88,8 +87,6 @@ export async function POST(req: NextRequest) {
   // ── Proje erişim kontrolü ─────────────────────────────────────────────
   if (projectId) {
     const projectIds = await getVisibleProjectIds(visUser);
-    const visWhere = buildTaskVisibilityWhere(projectIds);
-    // Proje görünürlük: projeye erişim varsa görev eklenebilir
     const project = await prisma.project.findFirst({
       where: { AND: [{ id: projectId }, projectIds === null ? {} : { id: { in: projectIds } }] },
       select: { id: true },
@@ -99,8 +96,7 @@ export async function POST(req: NextRequest) {
 
   // ── Alt-görev: üst görevi görebilmeyi kontrol et ───────────────────────
   if (parentTaskId) {
-    const projectIds = await getVisibleProjectIds(visUser);
-    const parentWhere = buildTaskVisibilityWhere(projectIds);
+    const parentWhere = buildTaskVisibilityWhereForUser(visUser);
     const parent = await prisma.task.findFirst({
       where: { AND: [{ id: parentTaskId }, parentWhere as any] },
       select: { id: true },

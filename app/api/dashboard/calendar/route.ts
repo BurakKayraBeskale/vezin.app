@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getVisibleProjectIds, buildTaskVisibilityWhere } from "@/lib/task-visibility";
+import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -21,8 +21,7 @@ export async function GET(req: NextRequest) {
   const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
 
   // Görünürlük filtresi — takvim de aynı kapsamı kullanır
-  const projectIds = await getVisibleProjectIds({ id: userId, role, canViewAllProjects, overseesDepartment });
-  const visibilityWhere = buildTaskVisibilityWhere(projectIds);
+  const visibilityWhere = buildTaskVisibilityWhereForUser({ id: userId, role, canViewAllProjects, overseesDepartment });
 
   // Takvim: görünürlük kapsamındaki görevler + o aya ait vade tarihi
   const tasks = await prisma.task.findMany({

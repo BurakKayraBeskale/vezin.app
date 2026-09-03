@@ -1,12 +1,12 @@
 /**
- * Proje görünürlüğü entegrasyon testleri — proje üyeliği modeli
+ * Proje görünürlüğü entegrasyon testleri — kişiye özgü görev görünürlük modeli
  *
  * Gerçek Prisma (dev.db) ve gerçek route handler'ları kullanır.
  * next-auth session/token katmanı mock'lanır; geri kalan her şey gerçek.
  *
  * Senaryolar:
- *   T1   BD projesinin üyesi, aynı projedeki TÜM görevleri görür (kendi + diğer üyenin)
- *   T2   BD üyesi, yalnızca üyesi olduğu projenin görevlerini görür (diğer BD projesini değil)
+ *   T1   BD üyesi 1 yalnızca kendine atanmış görevleri görür (üye olduğu projedeki başka üyenin görevi GÖRÜNMEz)
+ *   T2   BD üyesi 2 yalnızca kendine atanmış görevi görür
  *   T3   BD üyesi, Vergi projesinin görevlerini API'de GÖRMEZ
  *   T4   Vergi üyesi, BD görevlerini GÖRMEZ
  *   T5   Proje dışı kullanıcı → hiçbir görev göremez
@@ -23,6 +23,9 @@
  *   T15  Asistant Manager (level 4) → POST /api/projects → 403
  *   T16  Manager 1 (level 5) → POST /api/projects → 201
  *   T17  Senior 2 (level 3) → level 5 kişiye görev atar → 403
+ *   T-A  A üyesi, B üyesinin görevini ID ile çekemez → 404 (yeni kural)
+ *   T-B  Proje kurucusu, kendi projesindeki başkasına atanan görevi görür → 200
+ *   T-REG Vergi projesi üye listesi → YEMINLI_MALI_MUSAVIR kullanıcıları döner (regresyon)
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -239,26 +242,26 @@ afterAll(async () => {
 // ── Testler ─────────────────────────────────────────────────────────────────
 
 describe("Görev listesi — GET /api/tasks", () => {
-  it("T1: BD üyesi 1 aynı projede her iki üyenin görevini görür", async () => {
+  it("T1: BD üyesi 1 yalnızca kendine atanmış görevleri görür", async () => {
     asUser(bdUser1);
     const res = await tasksGET();
     expect(res.status).toBe(200);
     const tasks = await json(res);
     const ids = tasks.map((t: any) => t.id);
-    expect(ids).toContain(task_bd1_user1);
-    expect(ids).toContain(task_bd1_user2); // BD2'nin de üyesi olduğu için görev de görünür
-    expect(ids).toContain(task_bd2);       // BD proj2 üyesi olduğu için
-    expect(ids).not.toContain(task_vergi1); // Vergi projesinde değil
+    expect(ids).toContain(task_bd1_user1);       // kendine atanmış
+    expect(ids).toContain(task_bd2);              // kendine atanmış (farklı projede)
+    expect(ids).not.toContain(task_bd1_user2);    // aynı projede ama başka üyenin görevi
+    expect(ids).not.toContain(task_vergi1);        // Vergi projesinde değil
   });
 
-  it("T2: BD üyesi 2 yalnızca BD Proje 1 görevlerini görür, BD Proje 2'yi değil", async () => {
+  it("T2: BD üyesi 2 yalnızca kendine atanmış görevi görür", async () => {
     asUser(bdUser2);
     const res = await tasksGET();
     const tasks = await json(res);
     const ids = tasks.map((t: any) => t.id);
-    expect(ids).toContain(task_bd1_user1);
-    expect(ids).toContain(task_bd1_user2);
-    expect(ids).not.toContain(task_bd2);   // BD Proje 2'ye üye değil
+    expect(ids).toContain(task_bd1_user2);         // kendine atanmış
+    expect(ids).not.toContain(task_bd1_user1);     // başka üyenin görevi
+    expect(ids).not.toContain(task_bd2);           // BD Proje 2'ye atanmış ama başkasının görevi
     expect(ids).not.toContain(task_vergi1);
   });
 
@@ -306,12 +309,53 @@ describe("Görev detay — GET /api/tasks/[id]", () => {
     expect(res.status).toBe(404);
   });
 
-  it("BD üyesi → kendi projesinin görevi → 200", async () => {
+  it("BD üyesi → kendi görevi → 200", async () => {
     asUser(bdUser2);
-    const res = await taskByIdGET(fakeReq(), { params: { id: task_bd1_user1 } });
+    const res = await taskByIdGET(fakeReq(), { params: { id: task_bd1_user2 } });
     expect(res.status).toBe(200);
     const task = await json(res);
-    expect(task.id).toBe(task_bd1_user1);
+    expect(task.id).toBe(task_bd1_user2);
+  });
+});
+
+describe("T-A / T-B: Yeni görünürlük modeli — kişiye özgü erişim", () => {
+  it("T-A: A üyesi, B üyesinin görevini ID ile çekemez → 404", async () => {
+    // bdUser1, task_bd1_user2'yi göremez (task_bd1_user2 = bdUser2'ye atanmış)
+    asUser(bdUser1);
+    const res = await taskByIdGET(fakeReq(), { params: { id: task_bd1_user2 } });
+    expect(res.status).toBe(404);
+  });
+
+  it("T-B: Proje kurucusu, kendi projesindeki başkasına atanan görevi görür → 200", async () => {
+    // manager bir proje ve task oluşturuyor; task bdUser1'e atanmış
+    const proj = await prisma.project.create({
+      data: {
+        name: `${PREFIX} Kurucu Görev Test`,
+        department: "BAGIMSIZ_DENETIM",
+        createdById: manager.id,
+      },
+    });
+    createdProjectIds.push(proj.id);
+    const task = await prisma.task.create({
+      data: {
+        title: `${PREFIX} Kurucu Görevi`,
+        projectId: proj.id,
+        assignedToId: bdUser1.id,
+        createdById: manager.id,
+        status: "TODO",
+        priority: "MEDIUM",
+      },
+    });
+    createdTaskIds.push(task.id);
+
+    // manager, projeyi oluşturdu → project.createdById = manager.id koşuluyla görmelidir
+    asUser(manager);
+    const res = await taskByIdGET(fakeReq(`http://localhost/api/tasks/${task.id}`), {
+      params: { id: task.id },
+    });
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    expect(data.id).toBe(task.id);
   });
 });
 
