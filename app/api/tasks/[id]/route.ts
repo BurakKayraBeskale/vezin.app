@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
+import { canDeleteTask } from "@/lib/access";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
   assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
   createdBy: { select: { id: true, name: true } },
+  project: { select: { department: true, createdById: true } },
   parent: { select: { id: true, title: true } },
   children: { select: { id: true, title: true, status: true } },
   files: { include: { uploadedBy: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" as const } },
@@ -203,24 +205,32 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const token = await getSession(req);
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
-  const { isAdmin, canViewAllTasks, overseesDepartment } = sessionFields(token);
+  const fields = sessionFields(token);
+  const visUser = makeVisUser(fields);
 
-  // ADMIN veya canViewAllTasks → her görevi silebilir
-  // Gözetmen → yalnızca kendi departmanındaki görevi silebilir
-  if (!isAdmin && !canViewAllTasks && overseesDepartment == null) {
-    return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
-  }
+  // Önce görünürlük filtresi — kullanıcının göremedeği görevi silemez
+  const taskWhere = buildTaskVisibilityWhereForUser(visUser);
+  const task = await prisma.task.findFirst({
+    where: { AND: [{ id: params.id }, taskWhere as any] },
+    select: {
+      id: true,
+      createdById: true,
+      assignedToId: true,
+      assignees: { select: { userId: true } },
+      project: { select: { department: true, createdById: true } },
+    },
+  });
 
-  if (!isAdmin && !canViewAllTasks && overseesDepartment != null) {
-    // Görevin bağlı olduğu projenin departmanını kontrol et
-    const task = await prisma.task.findUnique({
-      where: { id: params.id },
-      select: { project: { select: { department: true } } },
-    });
-    if (!task || task.project?.department !== overseesDepartment) {
-      return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
-    }
-  }
+  if (!task) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
+
+  // Silme yetkisi kontrolü — canDeleteTask tek doğru kaynak
+  const allowed = canDeleteTask(
+    { id: fields.userId, role: fields.userRole, canViewAllProjects: fields.canViewAllProjects, overseesDepartment: fields.overseesDepartment },
+    { createdById: task.createdById, assignedToId: task.assignedToId, assigneeIds: task.assignees.map((a) => a.userId) },
+    task.project ?? null
+  );
+
+  if (!allowed) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
 
   await prisma.task.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });

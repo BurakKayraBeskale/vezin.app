@@ -175,6 +175,34 @@ export function canAssignTaskInProject(
 }
 
 /**
+ * Görev silme yetkisi (tek doğru kaynak — route ve UI buradan çağırır):
+ *   0. Göreve atanan kişi (assignee) → HİÇBİR DURUMDA silemez (ADMIN dahil)
+ *   1. ADMIN veya canViewAllProjects → her zaman silebilir
+ *   2. Departman gözetmeni → kendi departmanındaki projenin görevini silebilir
+ *   3. Görevi oluşturan kişi (createdById) → kendi oluşturduğu görevi silebilir
+ *   4. Projeyi oluşturan kişi → projesindeki herhangi bir görevi silebilir
+ *   Hiçbiri sağlanmıyorsa → false (route 404 döndürür, buton gizlenir)
+ */
+export function canDeleteTask(
+  user: { id: string; role: string; canViewAllProjects: boolean; overseesDepartment?: string | null },
+  task: { createdById: string; assignedToId?: string | null; assigneeIds?: string[] },
+  project?: { department: string; createdById: string } | null
+): boolean {
+  // Kural 0: Atanan kişi HİÇBİR DURUMDA silemez (ADMIN dahil)
+  const assigneeIds = task.assigneeIds ?? [];
+  if (task.assignedToId === user.id || assigneeIds.includes(user.id)) return false;
+  // Kural 1: ADMIN veya canViewAllProjects → her zaman silebilir
+  if (user.role === "ADMIN" || user.canViewAllProjects) return true;
+  // Kural 2: Departman gözetmeni → kendi departmanındaki proje görevini silebilir
+  if (project != null && user.overseesDepartment != null && user.overseesDepartment === project.department) return true;
+  // Kural 3: Görevi oluşturan kişi → kendi oluşturduğu görevi silebilir
+  if (task.createdById === user.id) return true;
+  // Kural 4: Projeyi oluşturan kişi → projesindeki görevi silebilir
+  if (project != null && project.createdById === user.id) return true;
+  return false;
+}
+
+/**
  * /projeler sayfaları ve /api/projects* uçlarına erişim:
  *   - ADMIN → her zaman erişebilir
  *   - canViewAllProjects=true → erişebilir (İsmail Koş, Murat Özgür)

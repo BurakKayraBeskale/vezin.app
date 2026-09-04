@@ -44,11 +44,12 @@ export interface TaskFull {
   assignedToId: string | null;
   assignees: AssigneeRecord[];
   dueDate: string | null;
-  createdBy: { name: string };
+  createdBy: { id: string; name: string };
   createdAt: string;
   files: FileRecord[];
   feedbacks: FeedbackRecord[];
   logs: LogRecord[];
+  project?: { department: string; createdById: string } | null;
 }
 
 const STATUS_LABELS: Record<Status, string> = {

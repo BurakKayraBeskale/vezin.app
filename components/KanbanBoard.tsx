@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
+import { canDeleteTask } from "@/lib/access";
 import {
   DndContext,
   DragEndEvent,
@@ -131,9 +132,15 @@ function CardContent({ task, selected, onSelect }: { task: TaskFull; selected: b
 
 // ─── Draggable card ───────────────────────────────────────────────────────────
 function DraggableCard({
-  task, onCardClick, anyDragging, selected, onSelect,
+  task, onCardClick, anyDragging, selected, onSelect, canDelete, onDeleteRequest,
 }: {
-  task: TaskFull; onCardClick: (task: TaskFull) => void; anyDragging: boolean; selected: boolean; onSelect: (id: string) => void;
+  task: TaskFull;
+  onCardClick: (task: TaskFull) => void;
+  anyDragging: boolean;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  canDelete: boolean;
+  onDeleteRequest: (task: TaskFull) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
@@ -152,7 +159,7 @@ function DraggableCard({
       {...attributes}
       onClick={() => onCardClick(task)}
       className={clsx(
-        "bg-white rounded-xl border p-3.5 transition-all select-none touch-none",
+        "group relative bg-white rounded-xl border p-3.5 transition-all select-none touch-none",
         isDragging
           ? "opacity-30 border-gray-200 shadow-none"
           : selected
@@ -162,13 +169,25 @@ function DraggableCard({
       )}
     >
       <CardContent task={task} selected={selected} onSelect={(e) => { e.stopPropagation(); onSelect(task.id); }} />
+      {canDelete && (
+        <div
+          onClick={(e) => { e.stopPropagation(); onDeleteRequest(task); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-gray-300 hover:text-red-400 cursor-pointer"
+          title="Görevi sil"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Droppable column ─────────────────────────────────────────────────────────
 function DroppableColumn({
-  col, tasks, onCardClick, anyDragging, isDark, selectedIds, onSelect,
+  col, tasks, onCardClick, anyDragging, isDark, selectedIds, onSelect, canDeleteFn, onDeleteRequest,
 }: {
   col: typeof COLUMNS[number];
   tasks: TaskFull[];
@@ -177,6 +196,8 @@ function DroppableColumn({
   isDark: boolean;
   selectedIds: Set<string>;
   onSelect: (id: string) => void;
+  canDeleteFn: (task: TaskFull) => boolean;
+  onDeleteRequest: (task: TaskFull) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.id });
 
@@ -208,6 +229,8 @@ function DroppableColumn({
             anyDragging={anyDragging}
             selected={selectedIds.has(task.id)}
             onSelect={onSelect}
+            canDelete={canDeleteFn(task)}
+            onDeleteRequest={onDeleteRequest}
           />
         ))}
         {tasks.length === 0 && (
@@ -227,6 +250,13 @@ function DroppableColumn({
 }
 
 // ─── Board ────────────────────────────────────────────────────────────────────
+interface UserIdentity {
+  id: string;
+  role: string;
+  canViewAllProjects: boolean;
+  overseesDepartment: string | null;
+}
+
 interface Props {
   initialTasks: TaskFull[];
   users: User[];
@@ -234,9 +264,10 @@ interface Props {
   currentUserId: string;
   canDeleteFiles: boolean;
   templates?: Template[];
+  userIdentity?: UserIdentity;
 }
 
-export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserId, canDeleteFiles, templates }: Props) {
+export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserId, canDeleteFiles, templates, userIdentity }: Props) {
   const router = useRouter();
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -251,6 +282,9 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserI
   const [bulkAssignId, setBulkAssignId] = useState("");
   const [bulkStatus, setBulkStatus] = useState<Status>("TODO");
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState<TaskFull | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const wasDragged = useRef(false);
 
@@ -351,6 +385,36 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserI
   function handleModalUpdate(updated: TaskFull) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     setSelectedTask(updated);
+  }
+
+  function canDeleteForUser(task: TaskFull): boolean {
+    if (!userIdentity) return false;
+    return canDeleteTask(
+      userIdentity,
+      {
+        createdById: task.createdBy.id,
+        assignedToId: task.assignedToId,
+        assigneeIds: task.assignees.map((a) => a.userId),
+      },
+      task.project ?? null
+    );
+  }
+
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/tasks/${deleteTarget.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setTasks((prev) => prev.filter((t) => t.id !== deleteTarget.id));
+        if (selectedTask?.id === deleteTarget.id) setSelectedTask(null);
+        setDeleteTarget(null);
+        setToast("Görev silindi");
+        setTimeout(() => setToast(null), 2500);
+      }
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function handleCreate(created: TaskFull) {
@@ -474,6 +538,8 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserI
               isDark={isDark}
               selectedIds={selectedIds}
               onSelect={toggleSelect}
+              canDeleteFn={canDeleteForUser}
+              onDeleteRequest={setDeleteTarget}
             />
           ))}
         </div>
@@ -506,6 +572,33 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserI
           onClose={() => setShowCreate(false)}
           onCreate={handleCreate}
         />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-base font-semibold text-gray-900 mb-2">Görevi Sil</h3>
+            <p className="text-sm text-gray-500 mb-5">
+              <span className="font-medium text-gray-800">"{deleteTarget.title}"</span> görevi kalıcı olarak silinecek. Bu işlem geri alınamaz.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+                className="flex-1 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+              >
+                {deleting ? "Siliniyor..." : "Sil"}
+              </button>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium py-2 rounded-lg transition-colors"
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

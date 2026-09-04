@@ -14,6 +14,8 @@ export default async function BoardPage() {
   const userId = session!.user.id;
   const role = session!.user.role;
   const canViewAllTasks = (session!.user as any).canViewAllTasks ?? false;
+  const canViewAllProjects = (session!.user as any).canViewAllProjects ?? false;
+  const overseesDepartment = (session!.user as any).overseesDepartment as string | null ?? null;
   const canManage = isAdmin || canViewAllTasks;
 
   // ── Görünür görevler — kıdem+atama zinciri modeli ─────────────────────────
@@ -34,6 +36,7 @@ export default async function BoardPage() {
         assignedTo: { select: { id: true, name: true, email: true } },
         assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
         createdBy: { select: { id: true, name: true } },
+        project: { select: { department: true, createdById: true } },
         parent: { select: { id: true, title: true } },
         children: { select: { id: true, title: true, status: true } },
         files: {
@@ -110,6 +113,7 @@ export default async function BoardPage() {
         currentUserId={userId}
         canDeleteFiles={canManage}
         templates={JSON.parse(JSON.stringify(templates))}
+        userIdentity={{ id: userId, role, canViewAllProjects, overseesDepartment }}
       />
     </div>
   );

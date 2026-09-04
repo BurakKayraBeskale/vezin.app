@@ -1189,3 +1189,124 @@ describe("Proje endDate doğrulama — POST /api/projects", () => {
     createdProjectIds.pop();
   });
 });
+
+// ── canDeleteTask — görev silme yetkisi ──────────────────────────────────────
+
+describe("Görev silme yetkisi — DELETE /api/tasks/[id]", () => {
+  let delProj: string;
+  let task_creator: string;  // created by manager, assigned to bdUser1
+  let task_projcreator: string; // created by adminLow, assigned to bdUser2, proj by manager
+
+  beforeAll(async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} Del Yetki Projesi`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+    delProj = proj.id;
+
+    const t1 = await prisma.task.create({
+      data: {
+        title: `${PREFIX} Del Kurucu Görevi`,
+        projectId: delProj,
+        assignedToId: bdUser1.id,
+        createdById: manager.id,
+        status: "TODO",
+        priority: "MEDIUM",
+      },
+    });
+    createdTaskIds.push(t1.id);
+    task_creator = t1.id;
+
+    const t2 = await prisma.task.create({
+      data: {
+        title: `${PREFIX} Del ProjKurucu Görevi`,
+        projectId: delProj,
+        assignedToId: bdUser2.id,
+        createdById: adminLow.id,
+        status: "TODO",
+        priority: "MEDIUM",
+      },
+    });
+    createdTaskIds.push(t2.id);
+    task_projcreator = t2.id;
+  });
+
+  it("TD1: Görevi oluşturan kişi silebilir → 200", async () => {
+    asUser(manager); // manager created task_creator
+    const req = fakeReq(`http://localhost/api/tasks/${task_creator}`);
+    const res = await tasksDELETE(req, { params: { id: task_creator } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    const gone = await prisma.task.findUnique({ where: { id: task_creator } });
+    expect(gone).toBeNull();
+    const idx = createdTaskIds.indexOf(task_creator);
+    if (idx > -1) createdTaskIds.splice(idx, 1);
+  });
+
+  it("TD2: Göreve atanan kişi silemez → 404", async () => {
+    // task_projcreator assigned to bdUser2
+    asUser(bdUser2);
+    const req = fakeReq(`http://localhost/api/tasks/${task_projcreator}`);
+    const res = await tasksDELETE(req, { params: { id: task_projcreator } });
+    expect(res.status).toBe(404);
+    const still = await prisma.task.findUnique({ where: { id: task_projcreator } });
+    expect(still).not.toBeNull();
+  });
+
+  it("TD3: Projeyi oluşturan kişi silebilir → 200", async () => {
+    // task_projcreator: proj by manager, task by adminLow, assigned to bdUser2
+    asUser(manager); // project creator
+    const req = fakeReq(`http://localhost/api/tasks/${task_projcreator}`);
+    const res = await tasksDELETE(req, { params: { id: task_projcreator } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    const gone = await prisma.task.findUnique({ where: { id: task_projcreator } });
+    expect(gone).toBeNull();
+    const idx = createdTaskIds.indexOf(task_projcreator);
+    if (idx > -1) createdTaskIds.splice(idx, 1);
+  });
+
+  it("TD4: Gözetmen (kendi birimi BD) BD görevi silebilir → 200", async () => {
+    const t = await prisma.task.create({
+      data: {
+        title: `${PREFIX} Del Overseer Görevi`,
+        projectId: delProj,
+        assignedToId: bdUser1.id,
+        createdById: adminLow.id,
+        status: "TODO",
+        priority: "MEDIUM",
+      },
+    });
+    asUser(ahmetOruc); // overseesDept=BAGIMSIZ_DENETIM, not the assignee
+    const req = fakeReq(`http://localhost/api/tasks/${t.id}`);
+    const res = await tasksDELETE(req, { params: { id: t.id } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    const gone = await prisma.task.findUnique({ where: { id: t.id } });
+    expect(gone).toBeNull();
+  });
+
+  it("TD5: ADMIN silebilir → 200", async () => {
+    const t = await prisma.task.create({
+      data: {
+        title: `${PREFIX} Del Admin Görevi`,
+        projectId: delProj,
+        assignedToId: bdUser1.id,
+        createdById: manager.id,
+        status: "TODO",
+        priority: "MEDIUM",
+      },
+    });
+    asUser(adminLow); // role=ADMIN, not the assignee
+    const req = fakeReq(`http://localhost/api/tasks/${t.id}`);
+    const res = await tasksDELETE(req, { params: { id: t.id } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    const gone = await prisma.task.findUnique({ where: { id: t.id } });
+    expect(gone).toBeNull();
+  });
+});
