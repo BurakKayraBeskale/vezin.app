@@ -30,6 +30,7 @@ export default function ProjeDetayClient({
   canEdit,
   canAssignBase,
   assignerSeniorityLevel,
+  bypassSeniority,
   projectId,
 }: {
   tasks: Task[];
@@ -37,6 +38,7 @@ export default function ProjeDetayClient({
   canEdit: boolean;
   canAssignBase: boolean;
   assignerSeniorityLevel: number;
+  bypassSeniority: boolean;
   projectId: string;
 }) {
   const [tasks, setTasks] = useState(initialTasks);
@@ -54,11 +56,11 @@ export default function ProjeDetayClient({
   const selectedMember = members.find((m) => m.user.id === selectedMemberId);
 
   // canAssignBase = project authority (ADMIN | canViewAllProjects | overseer | creator)
-  // combined with seniority check
+  // ADMIN / canViewAllProjects: kıdem koşulu uygulanmaz (bypassSeniority)
   const canAssignToSelected =
     canAssignBase &&
     selectedMember != null &&
-    assignerSeniorityLevel > selectedMember.user.seniorityLevel;
+    (bypassSeniority || assignerSeniorityLevel > selectedMember.user.seniorityLevel);
 
   const visibleTasks = selectedMemberId
     ? tasks.filter((t) => t.assignedTo?.id === selectedMemberId)

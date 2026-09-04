@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getVisibleProjectIds, buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
+import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
+import { canAssignTaskInProject } from "@/lib/access";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -57,28 +58,68 @@ export async function POST(req: NextRequest) {
 
   const primaryAssignee = assigneeIds[0] ?? assignedToId ?? null;
 
-  // ── Atama yetkisi kontrolü ──────────────────────────────────────────────
-  if (primaryAssignee && primaryAssignee !== userId) {
-    const [assigner, assignee] = await Promise.all([
-      prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } }),
-      prisma.user.findUnique({ where: { id: primaryAssignee }, select: { seniorityLevel: true } }),
+  if (projectId) {
+    // ── Proje görevi: yetki + kıdem tek noktadan (canAssignTaskInProject) ──
+    const [project, assigner] = await Promise.all([
+      prisma.project.findUnique({
+        where: { id: projectId },
+        select: { id: true, createdById: true, department: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { seniorityLevel: true, canViewAllProjects: true, role: true },
+      }),
     ]);
-    if (!assigner || !assignee) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
-    const assignerCanAll = assigner.canViewAllProjects || assigner.role === "ADMIN";
-    if (!assignerCanAll && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
-      return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
-    }
-  }
+    if (!project) return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
+    if (!assigner) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
 
-  if (assigneeIds.length > 1) {
-    const assigner = await prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } });
-    const assignerCanAll = assigner ? (assigner.canViewAllProjects || assigner.role === "ADMIN") : false;
-    if (!assignerCanAll && assigner) {
-      for (const aid of assigneeIds) {
-        if (aid === userId) continue;
-        const assignee = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true } });
-        if (assignee && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
-          return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
+    const assignerArg = {
+      id: userId,
+      role: assigner.role,
+      canViewAllProjects: assigner.canViewAllProjects,
+      overseesDepartment: visUser.overseesDepartment,
+      seniorityLevel: assigner.seniorityLevel,
+    };
+
+    // Proje otoritesi kontrolü (hedef olmadan): ADMIN/canViewAll geçer, diğerleri overseer/kurucu olmalı
+    if (!canAssignTaskInProject(assignerArg, project)) {
+      return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
+    }
+
+    // Her atanan için kıdem kontrolü (ADMIN/canViewAll canAssignTaskInProject içinde bypass edilir)
+    const idsToCheck = assigneeIds.length > 0 ? assigneeIds : (primaryAssignee ? [primaryAssignee] : []);
+    for (const aid of idsToCheck) {
+      if (aid === userId) continue;
+      const target = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true } });
+      if (!target) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
+      if (!canAssignTaskInProject(assignerArg, project, target)) {
+        return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
+      }
+    }
+  } else {
+    // ── Proje dışı görev: kıdem kontrolü ─────────────────────────────────
+    if (primaryAssignee && primaryAssignee !== userId) {
+      const [assigner, assignee] = await Promise.all([
+        prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } }),
+        prisma.user.findUnique({ where: { id: primaryAssignee }, select: { seniorityLevel: true } }),
+      ]);
+      if (!assigner || !assignee) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
+      const assignerCanAll = assigner.canViewAllProjects || assigner.role === "ADMIN";
+      if (!assignerCanAll && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
+        return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
+      }
+    }
+
+    if (assigneeIds.length > 1) {
+      const assigner = await prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } });
+      const assignerCanAll = assigner ? (assigner.canViewAllProjects || assigner.role === "ADMIN") : false;
+      if (!assignerCanAll && assigner) {
+        for (const aid of assigneeIds) {
+          if (aid === userId) continue;
+          const assignee = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true } });
+          if (assignee && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
+            return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
+          }
         }
       }
     }
@@ -87,26 +128,6 @@ export async function POST(req: NextRequest) {
   // ── Son tarih zorunlu ─────────────────────────────────────────────────
   if (!body.dueDate) {
     return NextResponse.json({ error: "Son tarih zorunludur" }, { status: 400 });
-  }
-
-  // ── Proje erişim + atama yetkisi kontrolü ────────────────────────────
-  if (projectId) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: { id: true, createdById: true, department: true },
-    });
-    if (!project) return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
-
-    // Proje içinde görev atama yetkisi: ADMIN | canViewAllProjects | overseer | kurucu
-    const hasProjectAuthority =
-      userRole === "ADMIN" ||
-      visUser.canViewAllProjects ||
-      (visUser.overseesDepartment != null && visUser.overseesDepartment === project.department) ||
-      userId === project.createdById;
-
-    if (!hasProjectAuthority) {
-      return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
-    }
   }
 
   // ── Alt-görev: üst görevi görebilmeyi kontrol et ───────────────────────

@@ -123,6 +123,10 @@ let ebubekirTest: TestUser;   // overseesDepartment=VERGI, canViewAllProjects=fa
 let muratViewAll: TestUser;   // canViewAllProjects=true, overseesDepartment=null (gerçek Murat davranışı)
 let assistantManager: TestUser; // seniorityLevel = 4, proje oluşturamaz
 let senior2User: TestUser;    // seniorityLevel = 3, yüksek kıdemliye atama yapamaz
+// ADMIN/canViewAll seniority bypass testleri için
+let adminLow: TestUser;       // role=ADMIN, seniorityLevel=0
+let canViewAllLow: TestUser;  // canViewAllProjects=true, seniorityLevel=0
+let highTarget: TestUser;     // seniorityLevel=9, yüksek kıdemli hedef
 
 let bdProj1Id: string;
 let bdProj2Id: string;
@@ -180,6 +184,25 @@ beforeAll(async () => {
   muratViewAll    = await mkUser("mrvw",  100, true,  null,               `${PREFIX} Murat ViewAll`);
   assistantManager= await mkUser("amgr",  4,   false, null,               `${PREFIX} Asistan Müdür`);
   senior2User     = await mkUser("sr2",   3,   false, null,               `${PREFIX} Senior 2`);
+  highTarget      = await mkUser("htgt",  9,   false, null,               `${PREFIX} High Target`);
+  canViewAllLow   = await mkUser("cvla",  0,   true,  null,               `${PREFIX} CanViewAll Low`);
+
+  // ADMIN (low seniority) — mkUser "EMPLOYEE" atar, doğrudan oluştur
+  const adminLowDb = await prisma.user.create({
+    data: {
+      name: `${PREFIX} Admin Low`,
+      email: email("adminlow"),
+      password: await hash("test123"),
+      role: "ADMIN",
+      department: "ADMIN",
+      seniorityLevel: 0,
+      canViewAllProjects: false,
+      overseesDepartment: null,
+      canViewAllTasks: false,
+    },
+  });
+  createdUserIds.push(adminLowDb.id);
+  adminLow = { id: adminLowDb.id, email: adminLowDb.email, name: adminLowDb.name, role: "ADMIN", seniorityLevel: 0, canViewAllProjects: false, overseesDepartment: null };
 
   // Admin hesabı (proje oluşturmak için)
   const adminUser = await prisma.user.create({
@@ -933,6 +956,108 @@ describe("Proje içi görev atama — POST /api/tasks (projectId + yetki)", () =
     const res = await tasksPOST(req as any);
     expect(res.status).toBe(400);
     const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} DueDate Eksik` } });
+    expect(leaked).toBeNull();
+  });
+});
+
+// ── ADMIN / canViewAll kıdem bypass regresyon testleri ────────────────────────
+
+describe("ADMIN/canViewAll kıdem bypass — POST /api/tasks (projectId)", () => {
+  const futureDate = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  it("ADMIN (seniorityLevel=0) → yüksek kıdemli üyeye (level 9) proje görevi atayabilir → 201", async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} AdminBypass-201`, department: "BAGIMSIZ_DENETIM", createdById: adminLow.id },
+    });
+    createdProjectIds.push(proj.id);
+
+    asUser(adminLow); // role=ADMIN, seniorityLevel=0
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} AdminBypass Görevi`,
+        projectId: proj.id,
+        assigneeIds: [highTarget.id], // seniorityLevel=9 > 0 — kıdem bypass ile geçmeli
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    createdTaskIds.push(data.id);
+  });
+
+  it("canViewAllProjects=true (seniorityLevel=0) → yüksek kıdemli üyeye proje görevi atayabilir → 201", async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} ViewAllBypass-201`, department: "BAGIMSIZ_DENETIM", createdById: canViewAllLow.id },
+    });
+    createdProjectIds.push(proj.id);
+
+    asUser(canViewAllLow); // canViewAllProjects=true, seniorityLevel=0
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} ViewAllBypass Görevi`,
+        projectId: proj.id,
+        assigneeIds: [highTarget.id], // seniorityLevel=9 > 0 — kıdem bypass ile geçmeli
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    createdTaskIds.push(data.id);
+  });
+
+  it("Regresyon — overseer (level 8) → daha yüksek kıdemliye (level 9) atayamaz → 403", async () => {
+    // ahmetOruc: overseesDept=BAGIMSIZ_DENETIM, seniorityLevel=8
+    // highTarget: seniorityLevel=9 → kıdem koşulu başarısız (8 > 9 = false)
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} OverseerSeniority-403`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+
+    asUser(ahmetOruc); // level=8, overseer BD
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} Overseer Kıdem 403`,
+        projectId: proj.id,
+        assigneeIds: [highTarget.id], // seniorityLevel=9 — kıdem yetersiz
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(403);
+    const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} Overseer Kıdem 403` } });
+    expect(leaked).toBeNull();
+  });
+
+  it("Regresyon — kurucu (level 5) → daha yüksek kıdemliye (level 9) atayamaz → 403", async () => {
+    // manager: seniorityLevel=5, proje kurucusu
+    // highTarget: seniorityLevel=9 → kıdem koşulu başarısız (5 > 9 = false)
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} CreatorSeniority-403`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+
+    asUser(manager); // level=5, proje kurucusu
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} Kurucu Kıdem 403`,
+        projectId: proj.id,
+        assigneeIds: [highTarget.id], // seniorityLevel=9 — kıdem yetersiz
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(403);
+    const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} Kurucu Kıdem 403` } });
     expect(leaked).toBeNull();
   });
 });

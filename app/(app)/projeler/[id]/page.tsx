@@ -85,6 +85,8 @@ export default async function ProjeDetayPage({
 
   // canAssignBase: proje otoritesi — canViewAllProjects da dahil (canEditProject içermez)
   const canAssignBase = canViewAllProjects || canEdit;
+  // bypassSeniority: ADMIN ve canViewAllProjects kıdem koşulunu atlar
+  const bypassSeniority = userRole === "ADMIN" || canViewAllProjects;
 
   // Tasks — new per-user visibility model
   const taskWhere = buildTaskVisibilityWhereForUser(visUser);
@@ -176,6 +178,7 @@ export default async function ProjeDetayPage({
         canEdit={canEdit}
         canAssignBase={canAssignBase}
         assignerSeniorityLevel={assignerSeniorityLevel}
+        bypassSeniority={bypassSeniority}
         projectId={project.id}
       />
     </div>

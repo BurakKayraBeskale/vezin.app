@@ -139,11 +139,14 @@ export function canEditProject(
 /**
  * Proje içinde görev atama yetkisi — tek doğru kaynak (UI ve API kullanır).
  *
- * İki koşul birlikte sağlanmalıdır:
- *   A) Proje otoritesi: ADMIN | canViewAllProjects | overseer | proje kurucusu
- *   B) Kıdem: assigner.seniorityLevel > target.seniorityLevel (kesin büyük)
+ * Kural:
+ *   ADMIN veya canViewAllProjects → kıdem koşulu uygulanmaz, doğrudan true.
+ *   Diğerleri (overseer / proje kurucusu):
+ *     A) Proje otoritesi sağlanmalı (overseer VEYA kurucu)
+ *     B) assigner.seniorityLevel > target.seniorityLevel (kesin büyük)
  *
- * Her ikisi de gereklidir; biri sağlanmazsa false döner.
+ * target isteğe bağlıdır; verilmezse yalnızca otorite kontrolü yapılır
+ * (UI'dan "bu kişiye görev atama butonu gösterilsin mi?" sorusu için).
  */
 export function canAssignTaskInProject(
   assigner: {
@@ -154,15 +157,19 @@ export function canAssignTaskInProject(
     seniorityLevel: number;
   },
   project: { department: string; createdById: string },
-  target: { seniorityLevel: number }
+  target?: { seniorityLevel: number }
 ): boolean {
-  // B) Kıdem koşulu — her zaman zorunlu
-  if (assigner.seniorityLevel <= target.seniorityLevel) return false;
-  // A) Proje otoritesi — en az birini sağlamalı
+  // ADMIN / canViewAllProjects → kıdem koşulu HİÇ uygulanmaz
   if (assigner.role === "ADMIN" || assigner.canViewAllProjects) return true;
-  if (assigner.overseesDepartment != null && assigner.overseesDepartment === project.department) return true;
-  if (assigner.id === project.createdById) return true;
-  return false;
+  // Proje otoritesi (overseer veya kurucu)
+  const hasProjectAuthority =
+    (assigner.overseesDepartment != null && assigner.overseesDepartment === project.department) ||
+    assigner.id === project.createdById;
+  if (!hasProjectAuthority) return false;
+  // Yalnızca otorite soruluyorsa (target yok) → yeterli
+  if (!target) return true;
+  // Kıdem koşulu — overseer ve kurucu için zorunlu
+  return assigner.seniorityLevel > target.seniorityLevel;
 }
 
 /**
