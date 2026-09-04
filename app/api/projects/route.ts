@@ -80,11 +80,16 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, department, taxNumber, sector, startDate, notes, about, memberIds } = body;
+  const { name, department, taxNumber, sector, startDate, endDate, notes, about, memberIds } = body;
 
   if (!name?.trim()) return NextResponse.json({ error: "Proje adı zorunlu" }, { status: 400 });
   if (!department || !["BAGIMSIZ_DENETIM", "VERGI"].includes(department)) {
     return NextResponse.json({ error: "Geçerli birim: BAGIMSIZ_DENETIM veya VERGI" }, { status: 400 });
+  }
+
+  // Bitiş tarihi başlangıçtan önce olamaz
+  if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
+    return NextResponse.json({ error: "Bitiş tarihi başlangıç tarihinden önce olamaz" }, { status: 400 });
   }
 
   const newMemberIds: string[] = Array.isArray(memberIds) ? memberIds.filter(Boolean) : [];
@@ -111,6 +116,7 @@ export async function POST(req: NextRequest) {
       taxNumber: taxNumber?.trim() || null,
       sector: sector?.trim() || null,
       startDate: startDate ? new Date(startDate) : null,
+      endDate: endDate ? new Date(endDate) : null,
       notes: notes?.trim() || null,
       about: about?.trim() || null,
       createdById: userId,

@@ -86,24 +86,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
     }
 
-    // Her atanan için kıdem kontrolü (ADMIN/canViewAll canAssignTaskInProject içinde bypass edilir)
+    // Her atanan için canBeAssignedTasks + kıdem kontrolü
+    // (canAssignTaskInProject canBeAssignedTasks'ı da kontrol eder; self-skip seniority-only)
     const idsToCheck = assigneeIds.length > 0 ? assigneeIds : (primaryAssignee ? [primaryAssignee] : []);
     for (const aid of idsToCheck) {
-      if (aid === userId) continue;
-      const target = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true } });
+      const target = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true, canBeAssignedTasks: true } });
       if (!target) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
+      // canBeAssignedTasks=false → her zaman engel (self-assignment dahil)
+      if (!target.canBeAssignedTasks) {
+        return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
+      }
+      if (aid === userId) continue; // self: seniority atlanır
       if (!canAssignTaskInProject(assignerArg, project, target)) {
         return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
       }
     }
   } else {
-    // ── Proje dışı görev: kıdem kontrolü ─────────────────────────────────
+    // ── Proje dışı görev: canBeAssignedTasks + kıdem kontrolü ────────────
     if (primaryAssignee && primaryAssignee !== userId) {
       const [assigner, assignee] = await Promise.all([
         prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } }),
-        prisma.user.findUnique({ where: { id: primaryAssignee }, select: { seniorityLevel: true } }),
+        prisma.user.findUnique({ where: { id: primaryAssignee }, select: { seniorityLevel: true, canBeAssignedTasks: true } }),
       ]);
       if (!assigner || !assignee) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
+      if (!assignee.canBeAssignedTasks) {
+        return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
+      }
       const assignerCanAll = assigner.canViewAllProjects || assigner.role === "ADMIN";
       if (!assignerCanAll && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
         return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
@@ -113,13 +121,16 @@ export async function POST(req: NextRequest) {
     if (assigneeIds.length > 1) {
       const assigner = await prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } });
       const assignerCanAll = assigner ? (assigner.canViewAllProjects || assigner.role === "ADMIN") : false;
-      if (!assignerCanAll && assigner) {
-        for (const aid of assigneeIds) {
-          if (aid === userId) continue;
-          const assignee = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true } });
-          if (assignee && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
-            return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
-          }
+      for (const aid of assigneeIds) {
+        if (aid === userId) continue;
+        const assignee = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true, canBeAssignedTasks: true } });
+        if (!assignee) continue;
+        // canBeAssignedTasks=false → ADMIN dahil herkese engel
+        if (!assignee.canBeAssignedTasks) {
+          return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
+        }
+        if (!assignerCanAll && assigner && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
+          return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
         }
       }
     }

@@ -68,6 +68,7 @@ export default async function ProjeDetayPage({
               email: true,
               seniorityLevel: true,
               title: true,
+              canBeAssignedTasks: true,
             },
           },
         },
@@ -104,6 +105,11 @@ export default async function ProjeDetayPage({
     orderBy: { createdAt: "desc" },
   });
 
+  const now = new Date();
+  const endDate = project.endDate ? (project.endDate as Date) : null;
+  const isOverdue = endDate != null && endDate < now;
+  const hasOpenTasks = tasks.some((t) => t.status !== "DONE");
+
   return (
     <div className="max-w-5xl mx-auto">
       {/* Breadcrumb */}
@@ -121,10 +127,14 @@ export default async function ProjeDetayPage({
       </div>
 
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
+      <div className={`bg-white dark:bg-gray-800 rounded-xl border p-6 mb-6 ${
+        isOverdue && hasOpenTasks
+          ? "border-red-300 dark:border-red-700"
+          : "border-gray-200 dark:border-gray-700"
+      }`}>
         <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
+          <div className="flex-1 min-w-0 mr-6">
+            <div className="flex items-center gap-3 mb-2 flex-wrap">
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 {project.name}
               </h1>
@@ -137,9 +147,45 @@ export default async function ProjeDetayPage({
               >
                 {DEPT_LABELS[project.department] ?? project.department}
               </span>
+              {isOverdue && hasOpenTasks && (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                  Süresi Geçmiş
+                </span>
+              )}
             </div>
+
+            {/* Tarih ve bilgi alanları */}
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-500 dark:text-gray-400 mt-2">
+              {project.startDate && (
+                <span>
+                  Başlangıç:{" "}
+                  <span className="text-gray-700 dark:text-gray-300 font-medium">
+                    {(project.startDate as Date).toLocaleDateString("tr-TR")}
+                  </span>
+                </span>
+              )}
+              {endDate && (
+                <span>
+                  Bitiş:{" "}
+                  <span className={`font-medium ${isOverdue && hasOpenTasks ? "text-red-600 dark:text-red-400" : "text-gray-700 dark:text-gray-300"}`}>
+                    {endDate.toLocaleDateString("tr-TR")}
+                  </span>
+                </span>
+              )}
+            </div>
+
+            {project.about && (
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 leading-relaxed">
+                {project.about}
+              </p>
+            )}
+            {project.notes && (
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 italic">
+                Not: {project.notes}
+              </p>
+            )}
           </div>
-          <div className="text-right text-sm text-gray-500 flex flex-col items-end gap-2">
+          <div className="text-right text-sm text-gray-500 flex flex-col items-end gap-2 flex-shrink-0">
             <p>{tasks.length} görev</p>
             <p>{project.members.length} üye</p>
             <ProjeEditForm
@@ -150,6 +196,7 @@ export default async function ProjeDetayPage({
                 startDate: project.startDate
                   ? (project.startDate as Date).toISOString()
                   : null,
+                endDate: endDate ? endDate.toISOString() : null,
                 notes: project.notes,
                 about: project.about,
               }}
@@ -173,6 +220,7 @@ export default async function ProjeDetayPage({
             name: m.user.name,
             title: m.user.title ?? null,
             seniorityLevel: m.user.seniorityLevel,
+            canBeAssignedTasks: m.user.canBeAssignedTasks,
           },
         }))}
         canEdit={canEdit}

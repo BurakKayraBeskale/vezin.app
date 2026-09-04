@@ -10,6 +10,7 @@ type ProjectEditData = {
   name: string;
   department: string;
   startDate?: string | null;
+  endDate?: string | null;
   notes?: string | null;
   about?: string | null;
 };
@@ -36,6 +37,9 @@ export default function ProjeEditForm({
     name: project.name,
     startDate: project.startDate
       ? new Date(project.startDate).toISOString().split("T")[0]
+      : "",
+    endDate: project.endDate
+      ? new Date(project.endDate).toISOString().split("T")[0]
       : "",
     notes: project.notes ?? "",
     about: project.about ?? "",
@@ -77,12 +81,17 @@ export default function ProjeEditForm({
     setSaving(true);
     setError("");
     try {
+      if (form.endDate && form.startDate && form.endDate < form.startDate) {
+        setError("Bitiş tarihi başlangıç tarihinden önce olamaz");
+        return;
+      }
       const res = await fetch(`/api/projects/${project.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.name,
           startDate: form.startDate || null,
+          endDate: form.endDate || null,
           notes: form.notes || null,
           about: form.about || null,
         }),
@@ -184,18 +193,33 @@ export default function ProjeEditForm({
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Başlangıç Tarihi
-                </label>
-                <input
-                  type="date"
-                  value={form.startDate}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, startDate: e.target.value }))
-                  }
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Başlangıç Tarihi
+                  </label>
+                  <input
+                    type="date"
+                    value={form.startDate}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, startDate: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Bitiş Tarihi
+                  </label>
+                  <input
+                    type="date"
+                    value={form.endDate}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, endDate: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
               </div>
 
               <div>

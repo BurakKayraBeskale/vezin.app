@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
 
   const where: Record<string, unknown> = {
     email: { notIn: HIDDEN_ACCOUNT_EMAILS },
+    canBeAssignedTasks: true,
     ...(!canAssignAll && { seniorityLevel: { lt: assigner.seniorityLevel } }),
     // Departman filtresi verilmişse Prisma WHERE'e eklenir (server-side)
     ...(userDeptFilter !== null && { department: userDeptFilter }),

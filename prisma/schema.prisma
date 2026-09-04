@@ -27,6 +27,7 @@ model User {
   canViewAllProjects  Boolean  @default(false)
   overseesDepartment  String?  // "BAGIMSIZ_DENETIM" | "VERGI" | null
   canManageCompanies  Boolean  @default(false)
+  canBeAssignedTasks  Boolean  @default(true)
   createdAt           DateTime @default(now())
   assignedTasks       Task[]            @relation("AssignedTo")
   createdTasks        Task[]            @relation("CreatedBy")
@@ -277,6 +278,7 @@ model Project {
   taxNumber   String?
   sector      String?
   startDate   DateTime?
+  endDate     DateTime?
   notes       String?
   about       String?
   createdById String

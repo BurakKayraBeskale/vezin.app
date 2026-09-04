@@ -9,7 +9,9 @@ type Project = {
   name: string;
   department: string;
   startDate?: string | null;
+  endDate?: string | null;
   notes?: string | null;
+  about?: string | null;
   createdAt: string;
   createdBy: { id: string; name: string };
   members: { user: ProjectUser; assignedAt: string }[];
@@ -62,6 +64,8 @@ export default function ProjectList({
     name: "",
     department: activeDept,
     startDate: "",
+    endDate: "",
+    about: "",
     notes: "",
     memberIds: [] as string[],
   });
@@ -82,6 +86,8 @@ export default function ProjectList({
       name: "",
       department: activeDept,
       startDate: "",
+      endDate: "",
+      about: "",
       notes: "",
       memberIds: [],
     });
@@ -91,6 +97,10 @@ export default function ProjectList({
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    if (form.endDate && form.startDate && form.endDate < form.startDate) {
+      setError("Bitiş tarihi başlangıç tarihinden önce olamaz");
+      return;
+    }
     setCreating(true);
     setError("");
     try {
@@ -101,6 +111,8 @@ export default function ProjectList({
           name: form.name,
           department: form.department,
           startDate: form.startDate || null,
+          endDate: form.endDate || null,
+          about: form.about || null,
           notes: form.notes || null,
           memberIds: form.memberIds,
         }),
@@ -203,11 +215,17 @@ export default function ProjectList({
               { id: userId, role: userRole, overseesDepartment },
               { createdById: project.createdBy.id, department: project.department }
             );
+            const projEndDate = project.endDate ? new Date(project.endDate) : null;
+            const projOverdue = projEndDate != null && projEndDate < new Date();
             return (
               <a
                 key={project.id}
                 href={`/projeler/${project.id}`}
-                className="block bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 hover:border-[#F57C28] hover:shadow-md transition-all"
+                className={`block bg-white dark:bg-gray-800 rounded-xl border p-5 hover:border-[#F57C28] hover:shadow-md transition-all ${
+                  projOverdue
+                    ? "border-red-200 dark:border-red-800"
+                    : "border-gray-200 dark:border-gray-700"
+                }`}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
@@ -347,17 +365,60 @@ export default function ProjectList({
                   ))}
                 </select>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Başlangıç Tarihi
+                  </label>
+                  <input
+                    type="date"
+                    value={form.startDate}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, startDate: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Bitiş Tarihi
+                  </label>
+                  <input
+                    type="date"
+                    value={form.endDate}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, endDate: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Başlangıç Tarihi
+                  Genel Bilgilendirme
                 </label>
-                <input
-                  type="date"
-                  value={form.startDate}
+                <textarea
+                  value={form.about}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, startDate: e.target.value }))
+                    setForm((f) => ({ ...f, about: e.target.value }))
                   }
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  rows={2}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
+                  placeholder="Proje hakkında genel bilgi"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Not
+                </label>
+                <textarea
+                  value={form.notes}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, notes: e.target.value }))
+                  }
+                  rows={2}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
+                  placeholder="İç notlar"
                 />
               </div>
               {((usersByDept[form.department as keyof typeof usersByDept]) ?? [])

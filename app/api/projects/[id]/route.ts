@@ -59,7 +59,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const existing = await prisma.project.findFirst({
     where: { AND: [{ id: params.id }, visWhere as any] },
-    select: { id: true, createdById: true, department: true },
+    select: { id: true, createdById: true, department: true, startDate: true, endDate: true },
   });
   if (!existing) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
 
@@ -69,14 +69,23 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const body = await req.json();
+
+  // Bitiş tarihi başlangıçtan önce olamaz
+  const patchStart = body.startDate !== undefined ? body.startDate : existing.startDate;
+  const patchEnd   = body.endDate   !== undefined ? body.endDate   : existing.endDate;
+  if (patchStart && patchEnd && new Date(patchEnd) < new Date(patchStart)) {
+    return NextResponse.json({ error: "Bitiş tarihi başlangıç tarihinden önce olamaz" }, { status: 400 });
+  }
+
   // department değiştirilemez — üyelik ve görünürlük tutarsızlığını önler
   const updated = await prisma.project.update({
     where: { id: params.id },
     data: {
-      ...(body.name !== undefined && { name: body.name.trim() }),
+      ...(body.name     !== undefined && { name:      body.name.trim() }),
       ...(body.taxNumber !== undefined && { taxNumber: body.taxNumber?.trim() || null }),
-      ...(body.sector !== undefined && { sector: body.sector?.trim() || null }),
+      ...(body.sector    !== undefined && { sector:    body.sector?.trim() || null }),
       ...(body.startDate !== undefined && { startDate: body.startDate ? new Date(body.startDate) : null }),
+      ...(body.endDate   !== undefined && { endDate:   body.endDate   ? new Date(body.endDate)   : null }),
       ...(body.notes !== undefined && { notes: body.notes?.trim() || null }),
       ...(body.about !== undefined && { about: body.about?.trim() || null }),
     },

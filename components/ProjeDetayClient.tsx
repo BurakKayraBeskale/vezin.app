@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 
 type Member = {
-  user: { id: string; name: string; title?: string | null; seniorityLevel: number };
+  user: { id: string; name: string; title?: string | null; seniorityLevel: number; canBeAssignedTasks: boolean };
 };
 
 type Task = {
@@ -57,9 +57,11 @@ export default function ProjeDetayClient({
 
   // canAssignBase = project authority (ADMIN | canViewAllProjects | overseer | creator)
   // ADMIN / canViewAllProjects: kıdem koşulu uygulanmaz (bypassSeniority)
+  // canBeAssignedTasks=false: hiçbir durumda atama yapılamaz
   const canAssignToSelected =
     canAssignBase &&
     selectedMember != null &&
+    selectedMember.user.canBeAssignedTasks !== false &&
     (bypassSeniority || assignerSeniorityLevel > selectedMember.user.seniorityLevel);
 
   const visibleTasks = selectedMemberId

@@ -286,13 +286,14 @@ async function main() {
     canViewAllTasks?: boolean;
     canViewAllProjects?: boolean;
     overseesDepartment?: string | null;
+    canBeAssignedTasks?: boolean;
   }[] = [
-    // YMM Ortaklar — tüm birimleri görür, herkese görev atayabilir
-    { email: "ismailkos@vezin.com.tr",      title: "YMM",               seniorityLevel: 100, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null },
-    { email: "muratozgur@vezin.com.tr",     title: "YMM",               seniorityLevel: 100, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null },
-    // Departman gözetmenleri — yalnızca kendi birimi (canViewAllProjects=false)
-    { email: "ahmetoruc@vezin.com.tr",      title: "Partner",           seniorityLevel: 14,  canViewAllProjects: false, overseesDepartment: "BAGIMSIZ_DENETIM" },
-    { email: "ebubekirozturk@vezin.com.tr", title: "Senior Manager 2",  seniorityLevel: 9,   canViewAllProjects: false, overseesDepartment: "VERGI" },
+    // YMM Ortaklar — tüm birimleri görür, herkese görev atayabilir; kendilerine görev ATANAMAZ
+    { email: "ismailkos@vezin.com.tr",      title: "YMM",               seniorityLevel: 100, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null,               canBeAssignedTasks: false },
+    { email: "muratozgur@vezin.com.tr",     title: "YMM",               seniorityLevel: 100, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null,               canBeAssignedTasks: false },
+    // Departman gözetmenleri — yalnızca kendi birimi (canViewAllProjects=false); kendilerine görev ATANAMAZ
+    { email: "ahmetoruc@vezin.com.tr",      title: "Partner",           seniorityLevel: 14,  canViewAllProjects: false, overseesDepartment: "BAGIMSIZ_DENETIM", canBeAssignedTasks: false },
+    { email: "ebubekirozturk@vezin.com.tr", title: "Senior Manager 2",  seniorityLevel: 9,   canViewAllProjects: false, overseesDepartment: "VERGI",            canBeAssignedTasks: false },
     // TODO: İcmal listesindeki diğer kişileri buraya ekleyin
     // Örnek: { email: "...", title: "Senior 1", seniorityLevel: 2, canViewAllProjects: false, overseesDepartment: null },
   ];

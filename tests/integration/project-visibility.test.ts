@@ -127,6 +127,8 @@ let senior2User: TestUser;    // seniorityLevel = 3, yüksek kıdemliye atama ya
 let adminLow: TestUser;       // role=ADMIN, seniorityLevel=0
 let canViewAllLow: TestUser;  // canViewAllProjects=true, seniorityLevel=0
 let highTarget: TestUser;     // seniorityLevel=9, yüksek kıdemli hedef
+// canBeAssignedTasks testleri için
+let notAssignable: TestUser;  // canBeAssignedTasks=false, seniorityLevel=8 (görev atayabilir, kendisine atanamaz)
 
 let bdProj1Id: string;
 let bdProj2Id: string;
@@ -203,6 +205,32 @@ beforeAll(async () => {
   });
   createdUserIds.push(adminLowDb.id);
   adminLow = { id: adminLowDb.id, email: adminLowDb.email, name: adminLowDb.name, role: "ADMIN", seniorityLevel: 0, canViewAllProjects: false, overseesDepartment: null };
+
+  // canBeAssignedTasks=false kullanıcı
+  const notAssignableDb = await prisma.user.create({
+    data: {
+      name: `${PREFIX} Atanamaz`,
+      email: email("notassign"),
+      password: await hash("test123"),
+      role: "EMPLOYEE",
+      department: "OUTSOURCE",
+      seniorityLevel: 8,
+      canViewAllProjects: false,
+      canBeAssignedTasks: false,
+      overseesDepartment: null,
+      canViewAllTasks: false,
+    },
+  });
+  createdUserIds.push(notAssignableDb.id);
+  notAssignable = {
+    id: notAssignableDb.id,
+    email: notAssignableDb.email,
+    name: notAssignableDb.name,
+    role: notAssignableDb.role,
+    seniorityLevel: 8,
+    canViewAllProjects: false,
+    overseesDepartment: null,
+  };
 
   // Admin hesabı (proje oluşturmak için)
   const adminUser = await prisma.user.create({
@@ -1059,5 +1087,105 @@ describe("ADMIN/canViewAll kıdem bypass — POST /api/tasks (projectId)", () =>
     expect(res.status).toBe(403);
     const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} Kurucu Kıdem 403` } });
     expect(leaked).toBeNull();
+  });
+});
+
+// ── canBeAssignedTasks testleri ───────────────────────────────────────────────
+
+describe("canBeAssignedTasks — görev atama engeli", () => {
+  const futureDate = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  it("ADMIN, canBeAssignedTasks=false olan kişiye görev atayamıyor → 403", async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} NotAssign-Admin`, department: "BAGIMSIZ_DENETIM", createdById: adminLow.id },
+    });
+    createdProjectIds.push(proj.id);
+
+    asUser(adminLow); // role=ADMIN
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} Admin→Atanamaz`,
+        projectId: proj.id,
+        assigneeIds: [notAssignable.id], // canBeAssignedTasks=false
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(403);
+    const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} Admin→Atanamaz` } });
+    expect(leaked).toBeNull();
+  });
+
+  it("/api/users/assignable yanıtında canBeAssignedTasks=false kullanıcı dönmüyor", async () => {
+    asUser(ismailKos); // canViewAllProjects=true → tüm kıdemlileri görebilir
+    const req = new Request("http://localhost/api/users/assignable");
+    const res = await assignableGET(req as any);
+    expect(res.status).toBe(200);
+    const users = await json(res);
+    const ids = users.map((u: any) => u.id);
+    expect(ids).not.toContain(notAssignable.id); // canBeAssignedTasks=false → listede olmamalı
+  });
+
+  it("canBeAssignedTasks=false olan kişi, başkasına görev atayabiliyor → 201", async () => {
+    // notAssignable (level=8), bdUser1 (level=2)'e atıyor — ATAYAN olarak geçerli
+    asUser(notAssignable);
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} Atanamaz Atayan 201`,
+        assigneeIds: [bdUser1.id], // bdUser1 level=2, canBeAssignedTasks=true
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    createdTaskIds.push(data.id);
+  });
+});
+
+// ── endDate doğrulama testleri ────────────────────────────────────────────────
+
+describe("Proje endDate doğrulama — POST /api/projects", () => {
+  it("endDate < startDate ise proje oluşturulamaz → 400", async () => {
+    asUser(manager); // level=5, proje oluşturabilir
+    const postReq = new Request("http://localhost/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `${PREFIX} EndDate Hatalı`,
+        department: "BAGIMSIZ_DENETIM",
+        startDate: "2026-09-10",
+        endDate: "2026-09-01", // bitiş başlangıçtan önce → hata
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await projectsPOST(postReq as any);
+    expect(res.status).toBe(400);
+    const leaked = await prisma.project.findFirst({ where: { name: `${PREFIX} EndDate Hatalı` } });
+    expect(leaked).toBeNull();
+  });
+
+  it("endDate >= startDate ise proje oluşturulur → 201", async () => {
+    asUser(manager);
+    const postReq = new Request("http://localhost/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `${PREFIX} EndDate Geçerli`,
+        department: "BAGIMSIZ_DENETIM",
+        startDate: "2026-09-01",
+        endDate: "2026-12-31",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await projectsPOST(postReq as any);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    createdProjectIds.push(data.id);
+    await prisma.projectMember.deleteMany({ where: { projectId: data.id } });
+    await prisma.project.delete({ where: { id: data.id } });
+    createdProjectIds.pop();
   });
 });

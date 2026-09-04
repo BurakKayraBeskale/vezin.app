@@ -157,8 +157,10 @@ export function canAssignTaskInProject(
     seniorityLevel: number;
   },
   project: { department: string; createdById: string },
-  target?: { seniorityLevel: number }
+  target?: { seniorityLevel: number; canBeAssignedTasks?: boolean }
 ): boolean {
+  // canBeAssignedTasks=false → HİÇBİR DURUMDA atama yapılamaz (ADMIN dahil)
+  if (target && target.canBeAssignedTasks === false) return false;
   // ADMIN / canViewAllProjects → kıdem koşulu HİÇ uygulanmaz
   if (assigner.role === "ADMIN" || assigner.canViewAllProjects) return true;
   // Proje otoritesi (overseer veya kurucu)
