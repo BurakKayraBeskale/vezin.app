@@ -32,6 +32,8 @@ export default async function ProjeDetayPage({
     (session.user as any).canViewAllProjects as boolean ?? false;
   const overseesDepartment =
     (session.user as any).overseesDepartment as string | null ?? null;
+  const assignerSeniorityLevel =
+    (session.user as any).seniorityLevel as number ?? 0;
 
   if (
     !canAccessProjects({
@@ -80,6 +82,9 @@ export default async function ProjeDetayPage({
     { id: userId, role: userRole, overseesDepartment },
     { createdById: project.createdBy.id, department: project.department }
   );
+
+  // canAssignBase: proje otoritesi — canViewAllProjects da dahil (canEditProject içermez)
+  const canAssignBase = canViewAllProjects || canEdit;
 
   // Tasks — new per-user visibility model
   const taskWhere = buildTaskVisibilityWhereForUser(visUser);
@@ -165,9 +170,13 @@ export default async function ProjeDetayPage({
             id: m.user.id,
             name: m.user.name,
             title: m.user.title ?? null,
+            seniorityLevel: m.user.seniorityLevel,
           },
         }))}
         canEdit={canEdit}
+        canAssignBase={canAssignBase}
+        assignerSeniorityLevel={assignerSeniorityLevel}
+        projectId={project.id}
       />
     </div>
   );

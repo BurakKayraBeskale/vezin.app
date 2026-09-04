@@ -813,6 +813,7 @@ describe("T17: Görev atama — kıdem kontrolü", () => {
       body: JSON.stringify({
         title: `${PREFIX} Geçerli Atama Görevi`,
         assigneeIds: [bdUser2.id], // bdUser2 seniorityLevel=1
+        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       }),
       headers: { "Content-Type": "application/json" },
     });
@@ -822,5 +823,116 @@ describe("T17: Görev atama — kıdem kontrolü", () => {
     // Temizlik
     await prisma.taskAssignee.deleteMany({ where: { taskId: data.id } });
     await prisma.task.delete({ where: { id: data.id } });
+  });
+});
+
+// ── Proje içi görev atama — yeni testler ─────────────────────────────────────
+
+describe("Proje içi görev atama — POST /api/tasks (projectId + yetki)", () => {
+  const futureDate = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  it("Projeyi oluşturan kişi (manager), kendinden düşük kıdemli üyeye görev atayabilir → 201", async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} Proje-Atama-201`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+    await prisma.projectMember.create({ data: { projectId: proj.id, userId: bdUser1.id, assignedBy: manager.id } });
+
+    asUser(manager); // level 5, proje kurucusu
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} Atama 201 Görevi`,
+        projectId: proj.id,
+        assigneeIds: [bdUser1.id], // bdUser1 = level 2
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(201);
+    const data = await json(res);
+    createdTaskIds.push(data.id);
+    expect(data.assignedToId).toBe(bdUser1.id);
+  });
+
+  it("Eşit kıdemdeki kişiye atayamıyor → 403", async () => {
+    // manager (level 5) eşit kıdemli bir kullanıcıya atama yapıyor
+    const sameLevel = await prisma.user.create({
+      data: {
+        name: `${PREFIX} Eşit Kıdem`,
+        email: email("eq-level"),
+        password: await hash("test"),
+        role: "EMPLOYEE",
+        department: "OUTSOURCE",
+        seniorityLevel: 5,
+        canViewAllProjects: false,
+        overseesDepartment: null,
+        canViewAllTasks: false,
+      },
+    });
+    createdUserIds.push(sameLevel.id);
+
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} Proje-Atama-403`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+
+    asUser(manager); // level 5, sameLevel de level 5 → seniority eşit → 403
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} Eşit Kıdem Görevi`,
+        projectId: proj.id,
+        assigneeIds: [sameLevel.id],
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(403);
+    const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} Eşit Kıdem Görevi` } });
+    expect(leaked).toBeNull();
+  });
+
+  it("Projeyle ilgisi olmayan biri bu projeye görev ekleyemiyor → 404", async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} Proje-Atama-404`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+
+    // bdUser1: proje kurucusu değil, gözetmen değil, ADMIN değil, canViewAllProjects değil
+    asUser(bdUser1); // level 2, bu projenin üyesi/kurucusu/gözetmeni değil
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} Yetkisiz Proje Görevi`,
+        projectId: proj.id,
+        assigneeIds: [bdUser2.id],
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(404);
+    const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} Yetkisiz Proje Görevi` } });
+    expect(leaked).toBeNull();
+  });
+
+  it("dueDate boş gönderilirse hata dönüyor → 400", async () => {
+    asUser(manager); // seniority geçecek, ama dueDate yok
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} DueDate Eksik`,
+        assigneeIds: [bdUser1.id],
+        // dueDate kasıtlı olarak yok
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(400);
+    const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} DueDate Eksik` } });
+    expect(leaked).toBeNull();
   });
 });

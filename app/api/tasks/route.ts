@@ -84,14 +84,29 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Proje erişim kontrolü ─────────────────────────────────────────────
+  // ── Son tarih zorunlu ─────────────────────────────────────────────────
+  if (!body.dueDate) {
+    return NextResponse.json({ error: "Son tarih zorunludur" }, { status: 400 });
+  }
+
+  // ── Proje erişim + atama yetkisi kontrolü ────────────────────────────
   if (projectId) {
-    const projectIds = await getVisibleProjectIds(visUser);
-    const project = await prisma.project.findFirst({
-      where: { AND: [{ id: projectId }, projectIds === null ? {} : { id: { in: projectIds } }] },
-      select: { id: true },
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, createdById: true, department: true },
     });
     if (!project) return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
+
+    // Proje içinde görev atama yetkisi: ADMIN | canViewAllProjects | overseer | kurucu
+    const hasProjectAuthority =
+      userRole === "ADMIN" ||
+      visUser.canViewAllProjects ||
+      (visUser.overseesDepartment != null && visUser.overseesDepartment === project.department) ||
+      userId === project.createdById;
+
+    if (!hasProjectAuthority) {
+      return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
+    }
   }
 
   // ── Alt-görev: üst görevi görebilmeyi kontrol et ───────────────────────
