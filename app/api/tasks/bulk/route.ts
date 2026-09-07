@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { computeCompletedAt } from "@/lib/task-status";
 
 export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
     if (!status) return NextResponse.json({ error: "Durum gerekli" }, { status: 400 });
     await prisma.task.updateMany({
       where: { id: { in: ids } },
-      data: { status },
+      data: { status, completedAt: computeCompletedAt(status) },
     });
   } else {
     return NextResponse.json({ error: "Geçersiz işlem" }, { status: 400 });

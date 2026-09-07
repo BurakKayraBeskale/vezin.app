@@ -203,6 +203,29 @@ export function canDeleteTask(
 }
 
 /**
+ * Performans ekranı erişim kapsamı — e-posta bazlı, canViewAllProjects'ten BAĞIMSIZ.
+ *
+ * "ALL"                  → her iki birimi görebilir (ADMIN + İsmail Koş)
+ * "BAGIMSIZ_DENETIM"     → yalnızca bağımsız denetim birimi (Ahmet Oruç)
+ * "YEMINLI_MALI_MUSAVIR" → yalnızca YMM birimi (Murat Özgür, Ebubekir Öztürk)
+ * null                   → bu bölümü hiç göremez
+ */
+const PERFORMANCE_ACCESS: Record<string, "ALL" | "BAGIMSIZ_DENETIM" | "YEMINLI_MALI_MUSAVIR"> = {
+  "ismailkos@vezin.com.tr":       "ALL",
+  "ahmetoruc@vezin.com.tr":       "BAGIMSIZ_DENETIM",
+  "muratozgur@vezin.com.tr":      "YEMINLI_MALI_MUSAVIR",
+  "ebubekirozturk@vezin.com.tr":  "YEMINLI_MALI_MUSAVIR",
+};
+
+export function getPerformanceScope(user: {
+  role: string;
+  email: string;
+}): "ALL" | "BAGIMSIZ_DENETIM" | "YEMINLI_MALI_MUSAVIR" | null {
+  if (user.role === "ADMIN") return "ALL";
+  return PERFORMANCE_ACCESS[user.email.toLowerCase()] ?? null;
+}
+
+/**
  * /projeler sayfaları ve /api/projects* uçlarına erişim:
  *   - ADMIN → her zaman erişebilir
  *   - canViewAllProjects=true → erişebilir (İsmail Koş, Murat Özgür)

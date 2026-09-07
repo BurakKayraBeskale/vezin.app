@@ -93,6 +93,7 @@ model Task {
   children       Task[]    @relation("TaskHierarchy")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+  completedAt    DateTime?
   isRecurring    Boolean   @default(false)
   recurringType  String?
   recurringDay   Int?

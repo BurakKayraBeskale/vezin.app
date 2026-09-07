@@ -2,9 +2,11 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import KanbanBoard from "@/components/KanbanBoard";
+import PerformancePanel from "@/components/PerformancePanel";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 import { getVisibleTaskIds, buildVisibilityWhere } from "@/lib/task-visibility";
+import { getPerformanceScope } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +19,8 @@ export default async function BoardPage() {
   const canViewAllProjects = (session!.user as any).canViewAllProjects ?? false;
   const overseesDepartment = (session!.user as any).overseesDepartment as string | null ?? null;
   const canManage = isAdmin || canViewAllTasks;
+  const userEmail = session!.user.email ?? "";
+  const performanceScope = getPerformanceScope({ role, email: userEmail });
 
   // ── Görünür görevler — kıdem+atama zinciri modeli ─────────────────────────
   const visibleIds = await getVisibleTaskIds({ id: userId, role, canViewAllTasks });
@@ -115,6 +119,8 @@ export default async function BoardPage() {
         templates={JSON.parse(JSON.stringify(templates))}
         userIdentity={{ id: userId, role, canViewAllProjects, overseesDepartment }}
       />
+
+      {performanceScope && <PerformancePanel />}
     </div>
   );
 }

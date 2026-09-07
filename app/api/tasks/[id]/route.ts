@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 import { canDeleteTask } from "@/lib/access";
+import { computeCompletedAt } from "@/lib/task-status";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -76,7 +77,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (!current) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
 
     const allowed: Record<string, unknown> = {};
-    if (body.status !== undefined) allowed.status = body.status;
+    if (body.status !== undefined) {
+      allowed.status = body.status;
+      allowed.completedAt = computeCompletedAt(body.status as string);
+    }
 
     if (canManage) {
       if (body.title !== undefined) allowed.title = body.title;
