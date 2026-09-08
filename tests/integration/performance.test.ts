@@ -2,15 +2,19 @@
  * Performans API entegrasyon testleri
  *
  * Kapsanan senaryolar:
- *   P1  Ahmet Oruç → yalnızca BAGIMSIZ_DENETIM personeli döner
- *   P2  Murat Özgür → yalnızca YEMINLI_MALI_MUSAVIR (canViewAllProjects'e rağmen)
- *   P3  Sıradan kullanıcı → 404
- *   P4  ADMIN → her iki birimi görür
- *   P5  Zamanında tamamlanan (completedAt <= dueDate sınır durumu dahil)
- *   P6  Geciken: DONE + completedAt > dueDate
- *   P7  Geciken: DONE değil + dueDate geçmiş
- *   P8  Henüz açık (dueDate gelecekte) → hesaba katılmaz
- *   P9  dueDate'i olmayan görev → hesaba katılmaz
+ *   P1   Ahmet Oruç → yalnızca BAGIMSIZ_DENETIM personeli döner
+ *   P2   Murat Özgür → yalnızca YEMINLI_MALI_MUSAVIR (canViewAllProjects'e rağmen)
+ *   P3   Sıradan kullanıcı → 404
+ *   P4   ADMIN → her iki birimi görür
+ *   P5   Zamanında tamamlanan (completedAt <= dueDate sınır durumu dahil)
+ *   P6   Geciken: DONE + completedAt > dueDate
+ *   P7   Geciken: DONE değil + dueDate geçmiş
+ *   P8   Henüz açık (dueDate gelecekte) → hesaba katılmaz
+ *   P9   dueDate'i olmayan görev → hesaba katılmaz
+ *   T-SIP       showInPerformance=false kullanıcı listede görünmez
+ *   T-SCOPE     Ahmet Oruç, YMM kadrosundaki birinin dökümünü isteyince 404
+ *   T-DATERANGE Tarih aralığı dışındaki görevler yüzdeye ve listeye girmiyor
+ *   T-UPCOMING  "Süresi dolmak üzere" grubu yalnızca 7 gün içindeki açık görevleri içeriyor
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -21,6 +25,7 @@ vi.mock("next-auth", () => ({ getServerSession: vi.fn() }));
 vi.mock("next-auth/jwt", () => ({ getToken: vi.fn() }));
 
 import { GET as perfGET } from "../../app/api/performance/route";
+import { GET as breakdownGET } from "../../app/api/performance/[userId]/route";
 import { getToken } from "next-auth/jwt";
 
 const prisma = new PrismaClient();
@@ -52,6 +57,13 @@ function fakeReq(): any {
   return new Request("http://localhost/api/performance");
 }
 
+function fakeBreakdownReq(userId: string, params?: { from?: string; to?: string }): any {
+  const url = new URL(`http://localhost/api/performance/${userId}`);
+  if (params?.from) url.searchParams.set("from", params.from);
+  if (params?.to)   url.searchParams.set("to",   params.to);
+  return new Request(url.toString());
+}
+
 async function json(res: Response) {
   return res.json();
 }
@@ -69,6 +81,15 @@ let gorevGecikti: string;    // DONE + completedAt > dueDate
 let gorevAcikGecmis: string; // TODO + dueDate geçmiş
 let gorevAcikGelecek: string;// TODO + dueDate gelecekte
 let gorevDueDateYok: string; // DONE + dueDate yok
+
+// T-SIP: showInPerformance=false kullanıcı
+let hiddenBdUser: string;
+
+// T-DATERANGE: tarih aralığı içindeki görev (bd1'e)
+let gorevInRange: string;   // DONE, dueDate = 2026-07-01 (FROM_RANGE > PAST)
+// T-UPCOMING: yaklaşan görevler
+let gorevYaklasan3: string; // TODO + dueDate = now+3 gün → upcoming'e girmeli
+let gorevYaklasan10: string;// TODO + dueDate = now+10 gün → upcoming'e girmemeli
 
 // Sahte çağrı yapacak kullanıcılar (sadece token için, gerçek DB kaydı)
 let adminUser: TokenUser;
@@ -268,6 +289,66 @@ beforeAll(async () => {
   });
   gorevDueDateYok = g5.id;
   createdTaskIds.push(g5.id);
+
+  // T-SIP: showInPerformance=false → listede görünmemeli
+  const hiddenRaw = await prisma.user.create({
+    data: {
+      name: `${PREFIX} hidden`,
+      email: email("hidden"),
+      password: await hash("test123"),
+      role: "EMPLOYEE",
+      department: "BAGIMSIZ_DENETIM",
+      canBeAssignedTasks: true,
+      showInPerformance: false,
+    },
+  });
+  hiddenBdUser = hiddenRaw.id;
+  createdUserIds.push(hiddenRaw.id);
+
+  // T-DATERANGE: 2026-07-01 tarihli zamanında görev (PAST=2026-01-01 dışında)
+  const IN_RANGE_DATE = new Date("2026-07-01T00:00:00Z");
+  const g6 = await prisma.task.create({
+    data: {
+      title: `${PREFIX} in-range`,
+      status: "DONE",
+      priority: "MEDIUM",
+      dueDate: IN_RANGE_DATE,
+      completedAt: new Date("2026-06-30T12:00:00Z"), // dueDate'den önce → zamanında
+      assignedToId: bdPersonel1,
+      createdById: admin.id,
+    },
+  });
+  gorevInRange = g6.id;
+  createdTaskIds.push(g6.id);
+
+  // T-UPCOMING: önümüzdeki 3 gün → upcoming olmalı
+  const nowForUpcoming = new Date();
+  const g7 = await prisma.task.create({
+    data: {
+      title: `${PREFIX} yaklasan-3gun`,
+      status: "TODO",
+      priority: "LOW",
+      dueDate: new Date(nowForUpcoming.getTime() + 3 * 24 * 60 * 60 * 1000),
+      assignedToId: bdPersonel1,
+      createdById: admin.id,
+    },
+  });
+  gorevYaklasan3 = g7.id;
+  createdTaskIds.push(g7.id);
+
+  // T-UPCOMING: önümüzdeki 10 gün → upcoming'e GİRMEMELİ
+  const g8 = await prisma.task.create({
+    data: {
+      title: `${PREFIX} yaklasan-10gun`,
+      status: "TODO",
+      priority: "LOW",
+      dueDate: new Date(nowForUpcoming.getTime() + 10 * 24 * 60 * 60 * 1000),
+      assignedToId: bdPersonel1,
+      createdById: admin.id,
+    },
+  });
+  gorevYaklasan10 = g8.id;
+  createdTaskIds.push(g8.id);
 });
 
 afterAll(async () => {
@@ -363,13 +444,9 @@ describe("GET /api/performance — hesap doğruluğu (bd1 kullanıcısı)", () =
     const res = await perfGET(fakeReq());
     const data = await json(res);
     const person = data.find((p: any) => p.id === bdPersonel1);
-    // g4 (TODO + FUTURE) total'a dahil edilmemeli
-    // onTime(2) + late(>=2) = total; g4 eklenirse total 1 daha fazla olurdu
-    // Dolaylı kontrol: total = onTime + late
+    // g4 (TODO + FUTURE) total'a dahil edilmemeli.
+    // Doğrulama: total == onTime + late (açık gelecek görev eklenmeyince bu eşitlik bozulmaz)
     expect(person.total).toBe(person.onTime + person.late);
-    // g4 FUTURE yüzünden total artmamış olmalı (2+2=4 değil 2+2+1=5 OLMAZ)
-    const expectedTotal = person.onTime + person.late;
-    expect(expectedTotal).toBeLessThanOrEqual(4); // 2 onTime + 2 late
   });
 
   it("P9: dueDate'i olmayan görev hesaba katılmaz", async () => {
@@ -391,5 +468,130 @@ describe("GET /api/performance — hesap doğruluğu (bd1 kullanıcısı)", () =
     expect(person).toBeDefined();
     expect(person.total).toBe(0);
     expect(person.pct).toBeNull();
+  });
+});
+
+// ── T-SIP: showInPerformance filtresi ────────────────────────────────────────
+
+describe("GET /api/performance — showInPerformance filtresi", () => {
+  it("T-SIP: showInPerformance=false kullanıcı listede görünmez", async () => {
+    asToken(ahmetOrucUser);
+    const res = await perfGET(fakeReq());
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const ids: string[] = data.map((p: any) => p.id);
+    // hiddenBdUser BAGIMSIZ_DENETIM'de ve canBeAssignedTasks=true,
+    // ama showInPerformance=false olduğu için listede OLMAMALI
+    expect(ids).not.toContain(hiddenBdUser);
+  });
+});
+
+// ── T-SCOPE: döküm kapsam kontrolü ───────────────────────────────────────────
+
+describe("GET /api/performance/[userId] — kapsam kontrolü", () => {
+  it("T-SCOPE: Ahmet Oruç, YMM kadrosundaki birinin dökümünü isteyince 404 alır", async () => {
+    asToken(ahmetOrucUser);
+    const res = await breakdownGET(
+      fakeBreakdownReq(ymmPersonel1),
+      { params: { userId: ymmPersonel1 } }
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("T-SCOPE: Ahmet Oruç, BD kadrosundaki birinin dökümüne erişebilir", async () => {
+    asToken(ahmetOrucUser);
+    const res = await breakdownGET(
+      fakeBreakdownReq(bdPersonel1),
+      { params: { userId: bdPersonel1 } }
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+// ── T-DATERANGE: tarih aralığı filtresi ──────────────────────────────────────
+
+describe("GET /api/performance/[userId] — tarih aralığı filtresi", () => {
+  // bdPersonel1'in görevleri:
+  //   PAST = 2026-01-01 → g1, g1b (zamanında), g2 (gecikmeli), g3 (acik-gecmis gecikmeli)
+  //   IN_RANGE_DATE = 2026-07-01 → g6 (zamanında)
+  // FROM_RANGE = 2026-06-01 olunca PAST görevleri dışarıda kalır, g6 içeride
+
+  const FROM_RANGE = "2026-06-01";
+  const TO_RANGE   = "2026-12-31";
+
+  it("T-DATERANGE: aralık dışındaki görevler onTime/late listesine girmiyor", async () => {
+    asToken(ahmetOrucUser);
+    const res = await breakdownGET(
+      fakeBreakdownReq(bdPersonel1, { from: FROM_RANGE, to: TO_RANGE }),
+      { params: { userId: bdPersonel1 } }
+    );
+    expect(res.status).toBe(200);
+    const bd = await json(res);
+
+    // PAST (2026-01-01) görevleri aralık dışında → onTime/late'de id'leri olmamalı
+    const allIds = [
+      ...bd.onTime.map((t: any) => t.id),
+      ...bd.late.map((t: any) => t.id),
+    ];
+    // g1 ve g2 aralık dışı olduğu için listede olmamalı
+    const pastTaskIds = [gorevZamaninda, gorevGecikti, gorevAcikGecmis];
+    for (const tid of pastTaskIds) {
+      expect(allIds).not.toContain(tid);
+    }
+  });
+
+  it("T-DATERANGE: aralık içindeki görev onTime listesinde görünür", async () => {
+    asToken(ahmetOrucUser);
+    const res = await breakdownGET(
+      fakeBreakdownReq(bdPersonel1, { from: FROM_RANGE, to: TO_RANGE }),
+      { params: { userId: bdPersonel1 } }
+    );
+    const bd = await json(res);
+    // gorevInRange dueDate=2026-07-01, FROM_RANGE=2026-06-01 → aralık içinde
+    const onTimeIds: string[] = bd.onTime.map((t: any) => t.id);
+    expect(onTimeIds).toContain(gorevInRange);
+  });
+
+  it("T-DATERANGE: yüzde yalnızca aralık içindeki görevlerden hesaplanır", async () => {
+    asToken(ahmetOrucUser);
+    // Dar aralık: sadece gorevInRange (zamanında) → pct=100
+    const res = await breakdownGET(
+      fakeBreakdownReq(bdPersonel1, { from: FROM_RANGE, to: TO_RANGE }),
+      { params: { userId: bdPersonel1 } }
+    );
+    const bd = await json(res);
+    // sadece g6 zamanında, başka görev yok aralıkta → pct=100
+    expect(bd.onTimeCount).toBe(1);
+    expect(bd.lateCount).toBe(0);
+    expect(bd.pct).toBe(100);
+  });
+});
+
+// ── T-UPCOMING: süresi dolmak üzere grubu ────────────────────────────────────
+
+describe("GET /api/performance/[userId] — süresi dolmak üzere", () => {
+  it("T-UPCOMING: 7 gün içindeki açık görev upcoming grubuna girer", async () => {
+    asToken(ahmetOrucUser);
+    const res = await breakdownGET(
+      fakeBreakdownReq(bdPersonel1),
+      { params: { userId: bdPersonel1 } }
+    );
+    expect(res.status).toBe(200);
+    const bd = await json(res);
+    const upcomingIds: string[] = bd.upcoming.map((t: any) => t.id);
+    // gorevYaklasan3 (now+3 gün) upcoming'de olmalı
+    expect(upcomingIds).toContain(gorevYaklasan3);
+  });
+
+  it("T-UPCOMING: 7 günden uzak açık görev upcoming grubuna girmez", async () => {
+    asToken(ahmetOrucUser);
+    const res = await breakdownGET(
+      fakeBreakdownReq(bdPersonel1),
+      { params: { userId: bdPersonel1 } }
+    );
+    const bd = await json(res);
+    const upcomingIds: string[] = bd.upcoming.map((t: any) => t.id);
+    // gorevYaklasan10 (now+10 gün) upcoming'de OLMAMALI
+    expect(upcomingIds).not.toContain(gorevYaklasan10);
   });
 });

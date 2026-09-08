@@ -310,6 +310,38 @@ async function main() {
 
   console.log("✔ Kıdem seviyeleri ve görünürlük rolleri güncellendi");
 
+  // ── showInPerformance=false — bu hesaplar performans listesinde görünmez ──
+  const HIDE_FROM_PERFORMANCE = [
+    "admin@vezin.com",
+    "ahmetsaitkos@vezin.com.tr",
+    "alikayas@vezin.com.tr",
+    "ayse.kaya@vezin.com",
+    "bagimsiz@vezin.com",
+    "berkkaranfil@vezin.com.tr",
+    "ececoskun@vezin.com.tr",
+    "gulsengulyilmaz@vezin.com.tr",
+    "ktopodasi@vezin.com.tr",
+    "murat.demir@vezin.com",
+    "selmanyalvac@vezin.com.tr",
+    "yusufcankabay@vezin.com.tr",
+    "zeynep.celik@vezin.com",
+    "muhasebe@vezin.com",
+    "ymm@vezin.com",
+    "omerduman@vezin.com.tr",
+    "ikosbtoplodasi@vezin.com.tr",
+    "ismailkostelsiz@vezin.com.tr",
+  ];
+
+  for (const em of HIDE_FROM_PERFORMANCE) {
+    const u = await prisma.user.findUnique({ where: { email: em } });
+    if (!u) {
+      console.warn(`⚠ showInPerformance=false: kullanıcı bulunamadı: ${em}`);
+      continue;
+    }
+    await prisma.user.update({ where: { email: em }, data: { showInPerformance: false } });
+  }
+  console.log("✔ showInPerformance=false uygulandı");
+
   // ── LeaveBalance (2026) ──────────────────────────────────
   for (const emp of [ayse, murat, zeynep]) {
     await prisma.leaveBalance.upsert({

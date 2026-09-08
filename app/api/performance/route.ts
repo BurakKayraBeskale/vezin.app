@@ -25,9 +25,9 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   const userFilter = deptWhere(scope);
 
-  // Scope dahilindeki atanabilir personel
+  // Scope dahilindeki atanabilir personel (performans listesinde görünecek olanlar)
   const scopeUsers = await prisma.user.findMany({
-    where: { ...userFilter, canBeAssignedTasks: true },
+    where: { ...userFilter, canBeAssignedTasks: true, showInPerformance: true },
     select: { id: true, name: true, email: true, department: true },
     orderBy: { name: "asc" },
   });
