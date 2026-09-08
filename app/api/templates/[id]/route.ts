@@ -9,10 +9,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const role = (session.user as any).role;
   const userDept = (session.user as any).department as string;
-  if (role === "EMPLOYEE") return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  const seniorityLevel = (session.user as any).seniorityLevel as number ?? 0;
 
-  // MANAGER can only edit templates belonging to their own department
-  if (role === "MANAGER") {
+  if (role !== "ADMIN" && seniorityLevel < 8) {
+    return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  }
+
+  // ADMIN olmayan kullanıcılar yalnızca kendi departmanlarının şablonlarını düzenleyebilir
+  if (role !== "ADMIN") {
     const existing = await prisma.taskTemplate.findUnique({ where: { id: params.id } });
     if (!existing || existing.department !== userDept) {
       return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
@@ -44,10 +48,13 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
 
   const role = (session.user as any).role;
   const userDept = (session.user as any).department as string;
-  if (role === "EMPLOYEE") return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  const seniorityLevel = (session.user as any).seniorityLevel as number ?? 0;
 
-  // MANAGER can only delete templates belonging to their own department
-  if (role === "MANAGER") {
+  if (role !== "ADMIN" && seniorityLevel < 8) {
+    return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  }
+
+  if (role !== "ADMIN") {
     const existing = await prisma.taskTemplate.findUnique({ where: { id: params.id } });
     if (!existing || existing.department !== userDept) {
       return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });

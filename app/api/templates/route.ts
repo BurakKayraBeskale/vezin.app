@@ -32,13 +32,18 @@ export async function POST(req: NextRequest) {
 
   const role = (session.user as any).role;
   const userDept = (session.user as any).department as string;
-  if (role === "EMPLOYEE") return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  const seniorityLevel = (session.user as any).seniorityLevel as number ?? 0;
+
+  // Manager 1 (seviye >= 8) ve ADMIN şablon oluşturabilir
+  if (role !== "ADMIN" && seniorityLevel < 8) {
+    return NextResponse.json({ error: "Yetki gerekli" }, { status: 403 });
+  }
 
   const body = await req.json();
   const { title, description, priority, estimatedDays, department } = body;
   if (!title?.trim()) return NextResponse.json({ error: "Başlık zorunlu" }, { status: 400 });
 
-  // MANAGER can only create for own department
+  // ADMIN isteğe bağlı departman seçebilir; diğerleri kendi departmanına kilitlidir
   const templateDept = role === "ADMIN" ? (department || null) : userDept;
 
   const template = await prisma.taskTemplate.create({

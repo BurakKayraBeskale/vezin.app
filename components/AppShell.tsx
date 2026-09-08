@@ -10,7 +10,7 @@ interface AppShellProps {
   children: React.ReactNode;
   userName: string;
   userEmail: string;
-  userRole: "ADMIN" | "MANAGER" | "EMPLOYEE";
+  userRole: "ADMIN" | "EMPLOYEE";
   userDepartment: string;
   canViewAllTasks: boolean;
   canViewAllProjects: boolean;

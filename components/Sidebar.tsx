@@ -11,7 +11,7 @@ import { isManagerOrAdmin, canAccessProjects } from "@/lib/access";
 interface SidebarProps {
   userName: string;
   userEmail: string;
-  userRole: "ADMIN" | "MANAGER" | "EMPLOYEE";
+  userRole: "ADMIN" | "EMPLOYEE";
   userDepartment: string;
   canViewAllTasks: boolean;
   canViewAllProjects: boolean;
@@ -450,7 +450,7 @@ export default function Sidebar({
                 : userDepartment === "BAGIMSIZ_DENETIM" ? "Bağımsız Denetim"
                 : userDepartment === "MUHASEBE" ? "Muhasebe"
                 : userDepartment === "YEMINLI_MALI_MUSAVIR" ? "YMM"
-                : userDepartment === "ADMIN" ? "Yönetim"
+                : userDepartment === "ADMIN" ? "Tüm Sistem"
                 : userDepartment}
             </p>
           </div>

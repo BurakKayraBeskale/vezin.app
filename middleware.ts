@@ -28,7 +28,13 @@ export default withAuth(
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ token }) => {
+        if (!token) return false;
+        const status = (token as any).status;
+        // Pasif veya silinmiş hesaplar oturum açamaz
+        if (status === "INACTIVE" || status === "DELETED") return false;
+        return true;
+      },
     },
   }
 );

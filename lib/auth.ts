@@ -29,6 +29,14 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
+        // Pasif veya silinmiş hesaplar giriş yapamaz
+        if (user.status === "INACTIVE" || user.status === "DELETED") {
+          try {
+            await prisma.loginLog.create({ data: { userId: user.id, ip, userAgent, success: false } });
+          } catch { /* ignore */ }
+          return null;
+        }
+
         const valid = await bcrypt.compare(credentials.password, user.password);
 
         try {
@@ -43,11 +51,12 @@ export const authOptions: NextAuthOptions = {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role as "ADMIN" | "MANAGER" | "EMPLOYEE",
+          role: user.role as "ADMIN" | "EMPLOYEE",
           department: user.department,
           mustChangePassword: user.mustChangePassword,
           canViewAllTasks: user.canViewAllTasks,
           seniorityLevel: user.seniorityLevel,
+          status: user.status,
         };
       },
     }),
@@ -64,10 +73,10 @@ export const authOptions: NextAuthOptions = {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: { role: true, department: true, mustChangePassword: true, canViewAllTasks: true, seniorityLevel: true, canViewAllProjects: true, overseesDepartment: true, canManageCompanies: true },
+            select: { role: true, department: true, mustChangePassword: true, canViewAllTasks: true, seniorityLevel: true, canViewAllProjects: true, overseesDepartment: true, canManageCompanies: true, status: true },
           });
           if (dbUser) {
-            token.role = dbUser.role as "ADMIN" | "MANAGER" | "EMPLOYEE";
+            token.role = dbUser.role as "ADMIN" | "EMPLOYEE";
             token.department = dbUser.department as typeof token.department;
             token.mustChangePassword = dbUser.mustChangePassword ?? false;
             token.canViewAllTasks = dbUser.canViewAllTasks ?? false;
@@ -75,6 +84,10 @@ export const authOptions: NextAuthOptions = {
             token.canViewAllProjects = dbUser.canViewAllProjects ?? false;
             token.overseesDepartment = dbUser.overseesDepartment ?? null;
             token.canManageCompanies = dbUser.canManageCompanies ?? false;
+            token.status = dbUser.status ?? "ACTIVE";
+          } else {
+            // Kullanıcı DB'den silinmişse oturumu geçersiz say
+            token.status = "DELETED";
           }
         } catch {
           // DB erişim hatası olursa mevcut token değerleri korunur

@@ -13,8 +13,11 @@ export async function DELETE(
 
   const role = (session.user as any).role as string;
   const department = (session.user as any).department as string;
+  const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
+  const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
+  const isElevated = canViewAllProjects || overseesDepartment != null;
 
-  if (role !== "ADMIN" && department !== "MUHASEBE") {
+  if (role !== "ADMIN" && department !== "MUHASEBE" && !isElevated) {
     return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
   }
 
@@ -47,12 +50,14 @@ export async function PATCH(
 
   const role = (session.user as any).role as string;
   const department = (session.user as any).department as string;
+  const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
+  const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
 
   const isAdmin = role === "ADMIN";
   const isMuhasebe = department === "MUHASEBE";
-  const isManager = role === "MANAGER";
+  const isElevated = canViewAllProjects || overseesDepartment != null;
 
-  if (!isAdmin && !isMuhasebe && !isManager) {
+  if (!isAdmin && !isMuhasebe && !isElevated) {
     return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
   }
 
@@ -67,8 +72,8 @@ export async function PATCH(
   });
   if (!existing) return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
 
-  // Manager sadece kendi departmanını onaylayabilir
-  if (isManager && !isAdmin && !isMuhasebe) {
+  // Departman gözetmenleri sadece kendi departmanlarını onaylayabilir
+  if (isElevated && !isAdmin && !isMuhasebe) {
     if ((existing as any).user?.department !== department) {
       return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
     }

@@ -3,7 +3,6 @@ import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import UsersPageClient from "./UsersPageClient";
-import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +17,10 @@ export default async function UsersPage() {
       email: true,
       role: true,
       department: true,
+      title: true,
+      seniorityLevel: true,
+      status: true,
       createdAt: true,
-      _count: { select: { assignedTasks: true } },
-      manages: { select: { subordinateId: true, relationType: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -29,22 +29,23 @@ export default async function UsersPage() {
     id: u.id,
     name: u.name,
     email: u.email,
-    role: u.role as "ADMIN" | "MANAGER" | "EMPLOYEE",
+    role: u.role as "ADMIN" | "EMPLOYEE",
     department: u.department,
+    title: u.title,
+    seniorityLevel: u.seniorityLevel,
+    status: u.status,
     createdAt: u.createdAt.toISOString(),
-    taskCount: u._count.assignedTasks,
-    // OrgChart: sadece SUBORDINATE tipi
-    subordinateIds: u.manages.filter((r) => r.relationType === "SUBORDINATE").map((r) => r.subordinateId),
-    // UserTable RelationsEditor: tüm ilişkiler
-    relations: u.manages.map((r) => ({ userId: r.subordinateId, relationType: r.relationType })),
   }));
+
+  const activeCount = mapped.filter((u) => u.status === "ACTIVE").length;
+  const adminCount = mapped.filter((u) => u.role === "ADMIN").length;
 
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Kullanıcı Yönetimi</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">Kullanıcı Yönetimi</h1>
         <p className="text-sm text-gray-400 mt-1">
-          {users.length} kullanıcı · {users.filter((u) => u.role === "ADMIN").length} admin
+          {activeCount} aktif kullanıcı · {adminCount} admin
         </p>
       </div>
 

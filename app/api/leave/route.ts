@@ -10,14 +10,17 @@ export async function GET() {
   const userId = (session.user as any).id as string;
   const role = (session.user as any).role as string;
   const department = (session.user as any).department as string;
+  const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
+  const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
 
   const isAdmin = role === "ADMIN";
   const isMuhasebe = department === "MUHASEBE";
-  const isManager = role === "MANAGER";
+  // Departman gözetmeni: canViewAllProjects=true VEYA overseesDepartment!=null
+  const isElevated = canViewAllProjects || overseesDepartment != null;
 
   let whereClause: object = { userId };
   if (isAdmin || isMuhasebe) whereClause = {};
-  else if (isManager) whereClause = { user: { department } };
+  else if (isElevated) whereClause = { user: { department } };
 
   const requests = await prisma.leaveRequest.findMany({
     where: whereClause,
@@ -27,8 +30,8 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  // Admin, muhasebe ve manager düz array alır; çalışanlar balance ile birlikte alır
-  if (isAdmin || isMuhasebe || isManager) {
+  // Admin, muhasebe ve gözetmenler düz array alır; çalışanlar balance ile birlikte alır
+  if (isAdmin || isMuhasebe || isElevated) {
     return NextResponse.json(requests);
   }
 

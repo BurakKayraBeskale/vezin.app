@@ -14,15 +14,15 @@
  *   T6   Ahmet Oruç (overseesDept=BAGIMSIZ_DENETIM) → tüm BD görevlerini görür, Vergi'yi GÖRMEZ
  *   T7   Murat Özgür (overseesDept=VERGI) → tüm Vergi görevlerini görür, BD'yi GÖRMEZ
  *   T8   İsmail Koş (canViewAllProjects) → her iki birimin görevlerini de görür
- *   T9   seniorityLevel < 5 → POST /api/projects → 403
+ *   T9   seniorityLevel < 8 → POST /api/projects → 403
  *   T10  level 2 → level 4'e üye ekleme → 403
  *   T11  Vergi üyesi (Senior 1) → GET /api/projects/[bdProj] → 404
  *   T12  Ebubekir (overseesDept=VERGI, canViewAllProjects=false) → BD projesini göremez → 404
  *   T13  canViewAllProjects=true → her iki birimi görür (Murat Özgür gerçek davranışı)
  *   T14  Ahmet Oruç → Vergi görevini silmeye çalışır → 404
  *   T15  Asistant Manager (level 4) → POST /api/projects → 403
- *   T16  Manager 1 (level 5) → POST /api/projects → 201
- *   T17  Senior 2 (level 3) → level 5 kişiye görev atar → 403
+ *   T16  Manager 1 (level 8) → POST /api/projects → 201
+ *   T17  Senior 2 (level 3) → level 8 kişiye görev atar → 403
  *   T-A  A üyesi, B üyesinin görevini ID ile çekemez → 404 (yeni kural)
  *   T-B  Proje kurucusu, kendi projesindeki başkasına atanan görevi görür → 200
  *   T-REG Vergi projesi üye listesi → YEMINLI_MALI_MUSAVIR kullanıcıları döner (regresyon)
@@ -115,7 +115,7 @@ let outsider: TestUser;    // Hiçbir projeye üye değil
 let ahmetOruc: TestUser;   // overseesDepartment = BAGIMSIZ_DENETIM
 let muratOzgur: TestUser;  // overseesDepartment = VERGI (eski davranış — T7 için)
 let ismailKos: TestUser;   // canViewAllProjects = true
-let manager: TestUser;     // seniorityLevel = 5, proje oluşturabilir
+let manager: TestUser;     // seniorityLevel = 8 (Manager 1), proje oluşturabilir
 let junior: TestUser;      // seniorityLevel = 2, proje oluşturamaz
 let midLevel: TestUser;    // seniorityLevel = 4, üye olunabilir ama junior (2) ekleyemez
 // Yeni test kullanıcıları
@@ -178,7 +178,7 @@ beforeAll(async () => {
   ahmetOruc       = await mkUser("ahmet", 8,   false, "BAGIMSIZ_DENETIM", `${PREFIX} Ahmet Oruç`);
   muratOzgur      = await mkUser("murat", 100, false, "VERGI",            `${PREFIX} Murat Özgür`);
   ismailKos       = await mkUser("ismail",100, true,  null,               `${PREFIX} İsmail Koş`);
-  manager         = await mkUser("mgr",   5,   false, null,               `${PREFIX} Müdür`);
+  manager         = await mkUser("mgr",   8,   false, null,               `${PREFIX} Müdür`);
   junior          = await mkUser("jnr",   2,   false, null,               `${PREFIX} Junior`);
   midLevel        = await mkUser("mid",   4,   false, null,               `${PREFIX} MidLevel`);
   // Yeni kullanıcılar
@@ -446,7 +446,7 @@ describe("Gözetmen erişimi", () => {
 });
 
 describe("Proje oluşturma — POST /api/projects", () => {
-  it("T9: seniorityLevel < 5 proje oluşturamaz → 403", async () => {
+  it("T9: seniorityLevel < 8 proje oluşturamaz → 403", async () => {
     asUser(junior); // level 2
 
     const postReq = new Request("http://localhost/api/projects", {
@@ -462,8 +462,8 @@ describe("Proje oluşturma — POST /api/projects", () => {
     expect(leaked).toBeNull();
   });
 
-  it("seniorityLevel >= 5 proje oluşturabilir → 201", async () => {
-    asUser(manager); // level 5
+  it("seniorityLevel >= 8 proje oluşturabilir → 201", async () => {
+    asUser(manager); // level 8
 
     const postReq = new Request("http://localhost/api/projects", {
       method: "POST",
@@ -598,8 +598,8 @@ describe("T15/T16: Proje oluşturma — kıdem sınırı", () => {
     expect(leaked).toBeNull();
   });
 
-  it("T16: Manager 1 (level 5) proje oluşturabilir → 201", async () => {
-    asUser(manager); // level 5
+  it("T16: Manager 1 (level 8) proje oluşturabilir → 201", async () => {
+    asUser(manager); // level 8
     const postReq = new Request("http://localhost/api/projects", {
       method: "POST",
       body: JSON.stringify({ name: `${PREFIX} Mgr1 Projesi`, department: "VERGI" }),
@@ -620,7 +620,7 @@ describe("T18/T19/T20: Proje silme yetkisi — DELETE /api/projects/[id]", () =>
   // T18 projeyi gerçekten siler → listeden çıkar; T19/T20 siler olmaz → listede kalır.
 
   it("T19: Aynı projedeki başka bir üye silemiyor → 404", async () => {
-    // manager (level 5) proje oluşturuyor, bdUser1 sadece üye
+    // manager (level 8) proje oluşturuyor, bdUser1 sadece üye
     const proj = await prisma.project.create({
       data: { name: `${PREFIX} Silme T19`, department: "BAGIMSIZ_DENETIM", createdById: manager.id },
     });
@@ -840,13 +840,13 @@ describe("Proje güncelleme — PATCH /api/projects/[id]", () => {
 });
 
 describe("T17: Görev atama — kıdem kontrolü", () => {
-  it("Senior 2 (level 3), Manager 1 (level 5) kişiye görev atayamaz → 403", async () => {
+  it("Senior 2 (level 3), Manager 1 (level 8) kişiye görev atayamaz → 403", async () => {
     asUser(senior2User); // seniorityLevel=3
     const postReq = new Request("http://localhost/api/tasks", {
       method: "POST",
       body: JSON.stringify({
         title: `${PREFIX} Kıdem Test Görevi`,
-        assigneeIds: [manager.id], // manager seniorityLevel=5
+        assigneeIds: [manager.id], // manager seniorityLevel=8
       }),
       headers: { "Content-Type": "application/json" },
     });
@@ -889,7 +889,7 @@ describe("Proje içi görev atama — POST /api/tasks (projectId + yetki)", () =
     createdProjectIds.push(proj.id);
     await prisma.projectMember.create({ data: { projectId: proj.id, userId: bdUser1.id, assignedBy: manager.id } });
 
-    asUser(manager); // level 5, proje kurucusu
+    asUser(manager); // level 8, proje kurucusu
     const req = new Request("http://localhost/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -908,7 +908,7 @@ describe("Proje içi görev atama — POST /api/tasks (projectId + yetki)", () =
   });
 
   it("Eşit kıdemdeki kişiye atayamıyor → 403", async () => {
-    // manager (level 5) eşit kıdemli bir kullanıcıya atama yapıyor
+    // manager (level 8) eşit kıdemli bir kullanıcıya atama yapıyor
     const sameLevel = await prisma.user.create({
       data: {
         name: `${PREFIX} Eşit Kıdem`,
@@ -916,7 +916,7 @@ describe("Proje içi görev atama — POST /api/tasks (projectId + yetki)", () =
         password: await hash("test"),
         role: "EMPLOYEE",
         department: "OUTSOURCE",
-        seniorityLevel: 5,
+        seniorityLevel: 8,
         canViewAllProjects: false,
         overseesDepartment: null,
         canViewAllTasks: false,
@@ -929,7 +929,7 @@ describe("Proje içi görev atama — POST /api/tasks (projectId + yetki)", () =
     });
     createdProjectIds.push(proj.id);
 
-    asUser(manager); // level 5, sameLevel de level 5 → seniority eşit → 403
+    asUser(manager); // level 8, sameLevel de level 8 → seniority eşit → 403
     const req = new Request("http://localhost/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1064,7 +1064,7 @@ describe("ADMIN/canViewAll kıdem bypass — POST /api/tasks (projectId)", () =>
     expect(leaked).toBeNull();
   });
 
-  it("Regresyon — kurucu (level 5) → daha yüksek kıdemliye (level 9) atayamaz → 403", async () => {
+  it("Regresyon — kurucu (level 8) → daha yüksek kıdemliye (level 9) atayamaz → 403", async () => {
     // manager: seniorityLevel=5, proje kurucusu
     // highTarget: seniorityLevel=9 → kıdem koşulu başarısız (5 > 9 = false)
     const proj = await prisma.project.create({
@@ -1072,7 +1072,7 @@ describe("ADMIN/canViewAll kıdem bypass — POST /api/tasks (projectId)", () =>
     });
     createdProjectIds.push(proj.id);
 
-    asUser(manager); // level=5, proje kurucusu
+    asUser(manager); // level=8, proje kurucusu
     const req = new Request("http://localhost/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1151,7 +1151,7 @@ describe("canBeAssignedTasks — görev atama engeli", () => {
 
 describe("Proje endDate doğrulama — POST /api/projects", () => {
   it("endDate < startDate ise proje oluşturulamaz → 400", async () => {
-    asUser(manager); // level=5, proje oluşturabilir
+    asUser(manager); // level=8, proje oluşturabilir
     const postReq = new Request("http://localhost/api/projects", {
       method: "POST",
       body: JSON.stringify({

@@ -4,9 +4,9 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
-import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { TITLE_TO_SENIORITY } from "@/lib/access";
 
-const VALID_DEPARTMENTS = ["OUTSOURCE", "BAGIMSIZ_DENETIM", "MUHASEBE", "YEMINLI_MALI_MUSAVIR", "ADMIN"];
+const VALID_DEPARTMENTS = ["OUTSOURCE", "BAGIMSIZ_DENETIM", "MUHASEBE", "YEMINLI_MALI_MUSAVIR"];
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -15,7 +15,11 @@ export async function GET() {
 
   const users = await prisma.user.findMany({
     where: { email: { notIn: HIDDEN_ACCOUNT_EMAILS } },
-    select: { id: true, name: true, email: true, role: true, department: true, createdAt: true },
+    select: {
+      id: true, name: true, email: true, role: true,
+      department: true, title: true, seniorityLevel: true,
+      status: true, createdAt: true,
+    },
     orderBy: { createdAt: "asc" },
   });
 
@@ -27,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
   if (session.user.role !== "ADMIN") return NextResponse.json({ error: "Sadece admin" }, { status: 403 });
 
-  const { name, email, password, role, department } = await req.json();
+  const { name, email, password, role, department, title } = await req.json();
   if (!name?.trim() || !email?.trim() || !password) {
     return NextResponse.json({ error: "İsim, e-posta ve şifre zorunlu" }, { status: 400 });
   }
@@ -35,18 +39,37 @@ export async function POST(req: NextRequest) {
   const exists = await prisma.user.findUnique({ where: { email } });
   if (exists) return NextResponse.json({ error: "Bu e-posta zaten kayıtlı" }, { status: 409 });
 
-  const dept = department && VALID_DEPARTMENTS.includes(department) ? department : "OUTSOURCE";
+  const userRole = role === "ADMIN" ? "ADMIN" : "EMPLOYEE";
+
+  // Admin kullanıcının departmanı "ADMIN" olur; diğerleri için doğrulama yap
+  let dept: string;
+  if (userRole === "ADMIN") {
+    dept = "ADMIN";
+  } else {
+    dept = department && VALID_DEPARTMENTS.includes(department) ? department : "OUTSOURCE";
+  }
+
+  // Unvandan kıdem seviyesi türet; Admin için Partner (14)
+  const userTitle = userRole === "ADMIN" ? "Partner" : (title || "");
+  const seniorityLevel = TITLE_TO_SENIORITY[userTitle] ?? 0;
 
   const user = await prisma.user.create({
     data: {
       name: name.trim(),
       email: email.trim().toLowerCase(),
       password: await bcrypt.hash(password, 10),
-      role: role || "EMPLOYEE",
+      role: userRole,
       department: dept,
+      title: userTitle,
+      seniorityLevel,
       mustChangePassword: true,
+      status: "ACTIVE",
     },
-    select: { id: true, name: true, email: true, role: true, department: true, createdAt: true },
+    select: {
+      id: true, name: true, email: true, role: true,
+      department: true, title: true, seniorityLevel: true,
+      status: true, createdAt: true,
+    },
   });
 
   return NextResponse.json(user, { status: 201 });

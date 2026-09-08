@@ -2,20 +2,20 @@
 
 import UserTable from "@/components/UserTable";
 
-interface UserForList {
+export interface UserRecord {
   id: string;
   name: string;
   email: string;
-  role: "ADMIN" | "MANAGER" | "EMPLOYEE";
+  role: "ADMIN" | "EMPLOYEE";
   department: string;
+  title: string;
+  seniorityLevel: number;
+  status: string;
   createdAt: string;
-  taskCount?: number;
-  subordinateIds: string[];
-  relations: Array<{ userId: string; relationType: string }>;
 }
 
 interface Props {
-  initialUsers: UserForList[];
+  initialUsers: UserRecord[];
   currentUserId: string;
 }
 

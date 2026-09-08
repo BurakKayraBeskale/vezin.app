@@ -264,21 +264,21 @@ async function main() {
   // canViewAllProjects ASLA unvandan türetilmez; yalnızca burada açıkça belirtilen
   // kişiler bu yetkiyi alır (Ebubekir Öztürk SM2 olsa da canViewAllProjects=false).
   //
-  // Seviye haritası:
-  //   Asistant                       = 0
-  //   Experienced Assistant 1/2      = 1
-  //   Experienced Audit Assistant 1  = 1
-  //   Senior 1                       = 2
-  //   Senior 2                       = 3
-  //   Asistant Manager               = 4
-  //   Manager 1                      = 5
-  //   Manager 2                      = 6
-  //   Manager 3                      = 7
-  //   Senior Manager 1               = 8
-  //   Senior Manager 2               = 9
-  //   Senior Manager 3               = 10
+  // 14-seviyeli unvan sistemi (lib/hierarchy.ts → TITLE_TO_LEVEL):
+  //   Stajyer                        = 1
+  //   Assistant                      = 2
+  //   Experienced Assistant 1        = 3
+  //   Experienced Assistant 2        = 4
+  //   Senior 1                       = 5
+  //   Senior 2                       = 6
+  //   Assistant Manager              = 7
+  //   Manager 1                      = 8
+  //   Manager 2                      = 9
+  //   Manager 3                      = 10
+  //   Senior Manager 1               = 11
+  //   Senior Manager 2               = 12
+  //   Senior Manager 3               = 13
   //   Partner                        = 14
-  //   YMM (ortak)                    = 100
   const EMAIL_MAP: {
     email: string;
     title: string;
@@ -288,14 +288,14 @@ async function main() {
     overseesDepartment?: string | null;
     canBeAssignedTasks?: boolean;
   }[] = [
-    // YMM Ortaklar — tüm birimleri görür, herkese görev atayabilir; kendilerine görev ATANAMAZ
-    { email: "ismailkos@vezin.com.tr",      title: "YMM",               seniorityLevel: 100, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null,               canBeAssignedTasks: false },
-    { email: "muratozgur@vezin.com.tr",     title: "YMM",               seniorityLevel: 100, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null,               canBeAssignedTasks: false },
+    // Ortaklar — tüm birimleri görür, herkese görev atayabilir; kendilerine görev ATANAMAZ
+    { email: "ismailkos@vezin.com.tr",      title: "Partner",           seniorityLevel: 14, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null,               canBeAssignedTasks: false },
+    { email: "muratozgur@vezin.com.tr",     title: "Partner",           seniorityLevel: 14, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null,               canBeAssignedTasks: false },
     // Departman gözetmenleri — yalnızca kendi birimi (canViewAllProjects=false); kendilerine görev ATANAMAZ
-    { email: "ahmetoruc@vezin.com.tr",      title: "Partner",           seniorityLevel: 14,  canViewAllProjects: false, overseesDepartment: "BAGIMSIZ_DENETIM", canBeAssignedTasks: false },
-    { email: "ebubekirozturk@vezin.com.tr", title: "Senior Manager 2",  seniorityLevel: 9,   canViewAllProjects: false, overseesDepartment: "VERGI",            canBeAssignedTasks: false },
+    { email: "ahmetoruc@vezin.com.tr",      title: "Partner",           seniorityLevel: 14, canViewAllProjects: false, overseesDepartment: "BAGIMSIZ_DENETIM", canBeAssignedTasks: false },
+    { email: "ebubekirozturk@vezin.com.tr", title: "Senior Manager 2",  seniorityLevel: 12, canViewAllProjects: false, overseesDepartment: "VERGI",            canBeAssignedTasks: false },
     // TODO: İcmal listesindeki diğer kişileri buraya ekleyin
-    // Örnek: { email: "...", title: "Senior 1", seniorityLevel: 2, canViewAllProjects: false, overseesDepartment: null },
+    // Örnek: { email: "...", title: "Senior 1", seniorityLevel: 5, canViewAllProjects: false, overseesDepartment: null },
   ];
 
   for (const entry of EMAIL_MAP) {

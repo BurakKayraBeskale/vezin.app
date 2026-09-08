@@ -14,10 +14,9 @@ export function isAdminOnly(pathname: string): boolean {
   return ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
-/** ADMIN veya MANAGER mı? */
+/** ADMIN mı? (MANAGER rolü kaldırıldı; bu fonksiyon geriye dönük uyumluluk için korunuyor) */
 export function isManagerOrAdmin(role: string): boolean {
-  const r = role.toUpperCase();
-  return r === "ADMIN" || r === "MANAGER";
+  return role.toUpperCase() === "ADMIN";
 }
 
 /** Departman kısıtı olan kurallar — EMPLOYEE rolü için geçerlidir */
@@ -53,33 +52,36 @@ export function canAccessCompanies(user: { role: string; canManageCompanies?: bo
  * bu tablodan türetme yapılmaz — canViewAllProjects ve overseesDepartment
  * yalnızca DB'deki boolean/string alandan okunur.
  */
+/**
+ * Tek doğru kaynak: unvan → kıdem seviyesi (14-seviyeli sistem).
+ * Seed'de ve API'de seniorityLevel ataması buraya göre yapılır.
+ */
 export const TITLE_TO_SENIORITY: Record<string, number> = {
-  "Asistant": 0,
-  "Experienced Assistant 1": 1,
-  "Experienced Assistant 2": 1,
-  "Experienced Audit Assistant 1": 1,
-  "Senior 1": 2,
-  "Senior 2": 3,
-  "Asistant Manager": 4,
-  "Manager 1": 5,
-  "Manager 2": 6,
-  "Manager 3": 7,
-  "Senior Manager 1": 8,
-  "Senior Manager 2": 9,
-  "Senior Manager 3": 10,
-  "Partner": 14,
-  "YMM": 100,
+  "Stajyer":                 1,
+  "Assistant":               2,
+  "Experienced Assistant 1": 3,
+  "Experienced Assistant 2": 4,
+  "Senior 1":                5,
+  "Senior 2":                6,
+  "Assistant Manager":       7,
+  "Manager 1":               8,
+  "Manager 2":               9,
+  "Manager 3":               10,
+  "Senior Manager 1":        11,
+  "Senior Manager 2":        12,
+  "Senior Manager 3":        13,
+  "Partner":                 14,
 };
 
 /**
  * Proje açma yetkisi:
- *   seniorityLevel >= 5 (Manager 1 ve üstü) VEYA overseesDepartment != null
+ *   seniorityLevel >= 8 (Manager 1 ve üstü) VEYA overseesDepartment != null
  */
 export function canCreateProject(user: {
   seniorityLevel: number;
   overseesDepartment?: string | null;
 }): boolean {
-  return user.seniorityLevel >= 5 || user.overseesDepartment != null;
+  return user.seniorityLevel >= 8 || user.overseesDepartment != null;
 }
 
 /**
@@ -267,9 +269,6 @@ export function canAccess(role: string, department: string, pathname: string): b
 
   // Admin-only path'lere ADMIN dışı kimse giremez
   if (isAdminOnly(pathname)) return false;
-
-  // MANAGER: admin-only dışı her şeye erişir (departmana bakılmaz)
-  if (r === "MANAGER") return true;
 
   // EMPLOYEE: departman kurallarına bak
   const rule = DEPT_GATED_RULES.find((rr) => !rr.strictDept && pathname.startsWith(rr.pathPrefix));

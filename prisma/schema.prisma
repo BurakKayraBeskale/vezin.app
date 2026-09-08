@@ -7,8 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Role: "ADMIN" | "MANAGER" | "EMPLOYEE"
-// Status: "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE"
+// Role: "ADMIN" | "EMPLOYEE"
+// User Status: "ACTIVE" | "INACTIVE" | "DELETED"
+// Task Status: "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE"
 // Priority: "LOW" | "MEDIUM" | "HIGH"
 // Department (user): "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YEMINLI_MALI_MUSAVIR" | "ADMIN"
 // Project department: "BAGIMSIZ_DENETIM" | "VERGI"
@@ -29,6 +30,7 @@ model User {
   canManageCompanies  Boolean  @default(false)
   canBeAssignedTasks  Boolean  @default(true)
   showInPerformance   Boolean  @default(true)
+  status              String   @default("ACTIVE")
   createdAt           DateTime @default(now())
   assignedTasks       Task[]            @relation("AssignedTo")
   createdTasks        Task[]            @relation("CreatedBy")
