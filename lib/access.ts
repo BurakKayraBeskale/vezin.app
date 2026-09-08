@@ -139,6 +139,16 @@ export function canEditProject(
 }
 
 /**
+ * Atama istisnası: belirli atayan → hedef e-posta çiftlerine,
+ * canBeAssignedTasks=false kuralının uygulanmadığı istisnalar.
+ *
+ * Kural: ASSIGN_EXCEPTIONS[atayan.email] içinde hedef.email varsa atamaya izin ver.
+ */
+export const ASSIGN_EXCEPTIONS: Record<string, string[]> = {
+  "muratozgur@vezin.com.tr": ["ebubekirozturk@vezin.com.tr"],
+};
+
+/**
  * Proje içinde görev atama yetkisi — tek doğru kaynak (UI ve API kullanır).
  *
  * Kural:
@@ -157,12 +167,17 @@ export function canAssignTaskInProject(
     canViewAllProjects: boolean;
     overseesDepartment?: string | null;
     seniorityLevel: number;
+    email?: string;
   },
   project: { department: string; createdById: string },
-  target?: { seniorityLevel: number; canBeAssignedTasks?: boolean }
+  target?: { seniorityLevel: number; canBeAssignedTasks?: boolean; email?: string }
 ): boolean {
   // canBeAssignedTasks=false → HİÇBİR DURUMDA atama yapılamaz (ADMIN dahil)
-  if (target && target.canBeAssignedTasks === false) return false;
+  // İstisna: ASSIGN_EXCEPTIONS'da tanımlı atayan→hedef e-posta ikilisi
+  if (target && target.canBeAssignedTasks === false) {
+    const exceptions = ASSIGN_EXCEPTIONS[assigner.email?.toLowerCase() ?? ""] ?? [];
+    if (!exceptions.includes(target.email?.toLowerCase() ?? "")) return false;
+  }
   // ADMIN / canViewAllProjects → kıdem koşulu HİÇ uygulanmaz
   if (assigner.role === "ADMIN" || assigner.canViewAllProjects) return true;
   // Proje otoritesi (overseer veya kurucu)

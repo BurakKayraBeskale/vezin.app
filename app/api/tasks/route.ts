@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
-import { canAssignTaskInProject } from "@/lib/access";
+import { canAssignTaskInProject, ASSIGN_EXCEPTIONS } from "@/lib/access";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       }),
       prisma.user.findUnique({
         where: { id: userId },
-        select: { seniorityLevel: true, canViewAllProjects: true, role: true },
+        select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true },
       }),
     ]);
     if (!project) return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
       canViewAllProjects: assigner.canViewAllProjects,
       overseesDepartment: visUser.overseesDepartment,
       seniorityLevel: assigner.seniorityLevel,
+      email: assigner.email,
     };
 
     // Proje otoritesi kontrolü (hedef olmadan): ADMIN/canViewAll geçer, diğerleri overseer/kurucu olmalı
@@ -90,11 +91,15 @@ export async function POST(req: NextRequest) {
     // (canAssignTaskInProject canBeAssignedTasks'ı da kontrol eder; self-skip seniority-only)
     const idsToCheck = assigneeIds.length > 0 ? assigneeIds : (primaryAssignee ? [primaryAssignee] : []);
     for (const aid of idsToCheck) {
-      const target = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true, canBeAssignedTasks: true } });
+      const target = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true, canBeAssignedTasks: true, email: true } });
       if (!target) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
       // canBeAssignedTasks=false → her zaman engel (self-assignment dahil)
+      // İstisna: ASSIGN_EXCEPTIONS'da tanımlı atayan→hedef çifti
       if (!target.canBeAssignedTasks) {
-        return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
+        const assignerExceptions = ASSIGN_EXCEPTIONS[assigner.email?.toLowerCase() ?? ""] ?? [];
+        if (!assignerExceptions.includes(target.email.toLowerCase())) {
+          return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
+        }
       }
       if (aid === userId) continue; // self: seniority atlanır
       if (!canAssignTaskInProject(assignerArg, project, target)) {
@@ -105,12 +110,15 @@ export async function POST(req: NextRequest) {
     // ── Proje dışı görev: canBeAssignedTasks + kıdem kontrolü ────────────
     if (primaryAssignee && primaryAssignee !== userId) {
       const [assigner, assignee] = await Promise.all([
-        prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } }),
-        prisma.user.findUnique({ where: { id: primaryAssignee }, select: { seniorityLevel: true, canBeAssignedTasks: true } }),
+        prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true } }),
+        prisma.user.findUnique({ where: { id: primaryAssignee }, select: { seniorityLevel: true, canBeAssignedTasks: true, email: true } }),
       ]);
       if (!assigner || !assignee) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
       if (!assignee.canBeAssignedTasks) {
-        return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
+        const assignerExceptions = ASSIGN_EXCEPTIONS[assigner.email?.toLowerCase() ?? ""] ?? [];
+        if (!assignerExceptions.includes(assignee.email.toLowerCase())) {
+          return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
+        }
       }
       const assignerCanAll = assigner.canViewAllProjects || assigner.role === "ADMIN";
       if (!assignerCanAll && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
@@ -119,15 +127,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (assigneeIds.length > 1) {
-      const assigner = await prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } });
+      const assigner = await prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true } });
       const assignerCanAll = assigner ? (assigner.canViewAllProjects || assigner.role === "ADMIN") : false;
       for (const aid of assigneeIds) {
         if (aid === userId) continue;
-        const assignee = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true, canBeAssignedTasks: true } });
+        const assignee = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true, canBeAssignedTasks: true, email: true } });
         if (!assignee) continue;
-        // canBeAssignedTasks=false → ADMIN dahil herkese engel
+        // canBeAssignedTasks=false → ADMIN dahil herkese engel (istisna hariç)
         if (!assignee.canBeAssignedTasks) {
-          return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
+          const assignerExceptions = ASSIGN_EXCEPTIONS[assigner?.email?.toLowerCase() ?? ""] ?? [];
+          if (!assignerExceptions.includes(assignee.email.toLowerCase())) {
+            return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
+          }
         }
         if (!assignerCanAll && assigner && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
           return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });

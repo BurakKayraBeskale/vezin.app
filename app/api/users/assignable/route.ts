@@ -19,7 +19,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
-import { projectDeptToUserDept } from "@/lib/access";
+import { projectDeptToUserDept, ASSIGN_EXCEPTIONS } from "@/lib/access";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
   const assigner = await prisma.user.findUnique({
     where: { id: userId },
-    select: { seniorityLevel: true, canViewAllTasks: true, role: true },
+    select: { seniorityLevel: true, canViewAllTasks: true, role: true, email: true },
   });
   if (!assigner) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
 
@@ -38,6 +38,15 @@ export async function GET(req: NextRequest) {
   // İsteğe bağlı proje departman filtresi
   const projectDept = new URL(req.url).searchParams.get("projectDept");
   const userDeptFilter = projectDept ? projectDeptToUserDept(projectDept) : null;
+
+  const userSelect = {
+    id: true,
+    name: true,
+    email: true,
+    department: true,
+    title: true,
+    seniorityLevel: true,
+  } as const;
 
   const where: Record<string, unknown> = {
     email: { notIn: HIDDEN_ACCOUNT_EMAILS },
@@ -49,16 +58,31 @@ export async function GET(req: NextRequest) {
 
   const users = await prisma.user.findMany({
     where,
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      department: true,
-      title: true,
-      seniorityLevel: true,
-    },
+    select: userSelect,
     orderBy: [{ seniorityLevel: "desc" }, { name: "asc" }],
   });
+
+  // ASSIGN_EXCEPTIONS: atayan için tanımlı istisna kullanıcıları ekle
+  // (canBeAssignedTasks=false olsalar bile listeye dahil edilir)
+  const assignerEmail = assigner.email?.toLowerCase() ?? "";
+  const exceptionEmails = ASSIGN_EXCEPTIONS[assignerEmail] ?? [];
+  if (exceptionEmails.length > 0) {
+    const exceptionWhere: Record<string, unknown> = {
+      email: { in: exceptionEmails },
+      ...(userDeptFilter !== null && { department: userDeptFilter }),
+    };
+    const exceptionUsers = await prisma.user.findMany({
+      where: exceptionWhere,
+      select: userSelect,
+    });
+    const existingIds = new Set(users.map((u) => u.id));
+    for (const eu of exceptionUsers) {
+      if (!existingIds.has(eu.id)) users.push(eu);
+    }
+    users.sort(
+      (a, b) => b.seniorityLevel - a.seniorityLevel || a.name.localeCompare(b.name, "tr")
+    );
+  }
 
   return NextResponse.json(users);
 }

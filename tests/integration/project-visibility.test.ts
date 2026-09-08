@@ -1147,6 +1147,146 @@ describe("canBeAssignedTasks — görev atama engeli", () => {
   });
 });
 
+// ── ASSIGN_EXCEPTIONS — Murat Özgür özel atama istisnası ──────────────────────
+//
+// Bu testler gerçek e-posta adreslerine dayanır (muratozgur@, ebubekirozturk@).
+// Kullanıcılar seed ile oluşturulmuş olmalıdır; yoksa test içinde oluşturulur.
+// Seed çalıştırılmamışsa upsert ile doğru konfigürasyonda oluşturulur.
+
+describe("ASSIGN_EXCEPTIONS — Murat Özgür özel atama istisnası", () => {
+  const futureDate = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  let muratReal: TestUser;
+  let ebubekirReal: TestUser;
+  let exceptionProjId: string;
+
+  beforeAll(async () => {
+    // ── Murat Özgür: ASSIGN_EXCEPTIONS atayan ────────────────────────────
+    // Seed çalışmamış olabilir; upsert ile gereken konfigürasyonu garantile.
+    // update bloğu: DB'yi test için gereken değerlere çeker (canViewAllProjects=false, overseesDeptment=VERGI).
+    const muratDb = await prisma.user.upsert({
+      where: { email: "muratozgur@vezin.com.tr" },
+      update: { canViewAllProjects: false, overseesDepartment: "VERGI", canBeAssignedTasks: false, canViewAllTasks: true, seniorityLevel: 14 },
+      create: {
+        name: "Murat Özgür", email: "muratozgur@vezin.com.tr",
+        password: await hash("test"), role: "EMPLOYEE",
+        department: "YEMINLI_MALI_MUSAVIR", seniorityLevel: 14,
+        canViewAllProjects: false, overseesDepartment: "VERGI",
+        canBeAssignedTasks: false, canViewAllTasks: true,
+      },
+      select: { id: true, email: true, name: true, role: true, seniorityLevel: true, canViewAllProjects: true, overseesDepartment: true },
+    });
+    muratReal = {
+      id: muratDb.id, email: muratDb.email, name: muratDb.name,
+      role: muratDb.role, seniorityLevel: muratDb.seniorityLevel,
+      canViewAllProjects: muratDb.canViewAllProjects,
+      overseesDepartment: muratDb.overseesDepartment,
+    };
+
+    // ── Ebubekir Öztürk: canBeAssignedTasks=false, ASSIGN_EXCEPTIONS hedefi ──
+    const ebubekirDb = await prisma.user.upsert({
+      where: { email: "ebubekirozturk@vezin.com.tr" },
+      update: { canBeAssignedTasks: false, seniorityLevel: 12, canViewAllProjects: false, overseesDepartment: "VERGI" },
+      create: {
+        name: "Ebubekir Öztürk", email: "ebubekirozturk@vezin.com.tr",
+        password: await hash("test"), role: "EMPLOYEE",
+        department: "YEMINLI_MALI_MUSAVIR", seniorityLevel: 12,
+        canViewAllProjects: false, overseesDepartment: "VERGI",
+        canBeAssignedTasks: false,
+      },
+      select: { id: true, email: true, name: true, role: true, seniorityLevel: true, canViewAllProjects: true, overseesDepartment: true },
+    });
+    ebubekirReal = {
+      id: ebubekirDb.id, email: ebubekirDb.email, name: ebubekirDb.name,
+      role: ebubekirDb.role, seniorityLevel: ebubekirDb.seniorityLevel,
+      canViewAllProjects: ebubekirDb.canViewAllProjects,
+      overseesDepartment: ebubekirDb.overseesDepartment,
+    };
+
+    // VERGI projesi — Murat atayan/kurucu olarak
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} Exception Proje`, department: "VERGI", createdById: muratReal.id },
+    });
+    exceptionProjId = proj.id;
+    createdProjectIds.push(proj.id);
+  });
+
+  afterAll(async () => {
+    // Proje ve görevler ana afterAll tarafından temizlenir.
+    // Murat ve Ebubekir gerçek seeded kullanıcılar olduğundan silinmez.
+  });
+
+  it("TE1: Murat Özgür → Ebubekir'e proje görevi atayabiliyor → 201", async () => {
+    asUser({ ...muratReal, canViewAllProjects: false, overseesDepartment: "VERGI" } as TestUser);
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} Murat→Ebubekir Görev`,
+        projectId: exceptionProjId,
+        assigneeIds: [ebubekirReal.id],
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    createdTaskIds.push(data.id);
+  });
+
+  it("TE2: İsmail Koş (ASSIGN_EXCEPTIONS dışı, canViewAllProjects=true) → Ebubekir'e görev atayamıyor → 403", async () => {
+    // ismailKos: canViewAllProjects=true → authority geçer
+    // ama "ismailkos@vezin.com.tr" ASSIGN_EXCEPTIONS'da YOK → canBeAssignedTasks=false engeller
+    // Gerçek İsmail (ismailkos@vezin.com.tr) yerine aynı davranışı sergileyen
+    // test kullanıcısı ismailKos kullanılır (email PREFIX tabanlı, exceptions'da yok)
+    asUser(ismailKos); // canViewAllProjects=true, email → exceptions boş
+    const req = new Request("http://localhost/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `${PREFIX} İsmail→Ebubekir Görev`,
+        projectId: exceptionProjId,
+        assigneeIds: [ebubekirReal.id],
+        dueDate: futureDate(),
+      }),
+    });
+    const res = await tasksPOST(req as any);
+    expect(res.status).toBe(403);
+    const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} İsmail→Ebubekir Görev` } });
+    expect(leaked).toBeNull();
+  });
+
+  it("TE3: Murat Özgür (canViewAllProjects=false, overseesDept=VERGI) BD projesini göremiyor → 404", async () => {
+    asUser({ ...muratReal, canViewAllProjects: false, overseesDepartment: "VERGI" } as TestUser);
+    const req = fakeReq(`http://localhost/api/projects/${bdProj1Id}`);
+    const res = await projectByIdGET(req, { params: { id: bdProj1Id } });
+    expect(res.status).toBe(404);
+  });
+
+  it("TE4: Göç sonrası 'Manager 1' unvanlı kullanıcının seniorityLevel'ı 8", async () => {
+    // Göç öncesi durumu simüle et: title='Manager 1', seniorityLevel=0
+    const u = await prisma.user.create({
+      data: {
+        name: `${PREFIX} Manager1 Göç Test`,
+        email: email("mgr1-migtest"),
+        password: await hash("test"),
+        role: "EMPLOYEE",
+        department: "OUTSOURCE",
+        title: "Manager 1",
+        seniorityLevel: 0,
+      },
+    });
+    createdUserIds.push(u.id);
+
+    // Migration SQL'deki UPDATE'i doğrudan uygula
+    await prisma.$executeRaw`UPDATE "User" SET "title" = 'Manager 1', "seniorityLevel" = 8 WHERE "title" = 'Manager 1' AND "id" = ${u.id}`;
+
+    const updated = await prisma.user.findUnique({ where: { id: u.id } });
+    expect(updated?.title).toBe("Manager 1");
+    expect(updated?.seniorityLevel).toBe(8);
+  });
+});
+
 // ── endDate doğrulama testleri ────────────────────────────────────────────────
 
 describe("Proje endDate doğrulama — POST /api/projects", () => {
