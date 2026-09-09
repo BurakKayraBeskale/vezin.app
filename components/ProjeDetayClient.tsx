@@ -32,6 +32,7 @@ export default function ProjeDetayClient({
   assignerSeniorityLevel,
   bypassSeniority,
   projectId,
+  projectStatus = "ACTIVE",
 }: {
   tasks: Task[];
   members: Member[];
@@ -40,6 +41,7 @@ export default function ProjeDetayClient({
   assignerSeniorityLevel: number;
   bypassSeniority: boolean;
   projectId: string;
+  projectStatus?: string;
 }) {
   const [tasks, setTasks] = useState(initialTasks);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
@@ -230,8 +232,8 @@ export default function ProjeDetayClient({
         </div>
       </div>
 
-      {/* Task assignment form — only shown when a member is selected and assigner has authority */}
-      {selectedMemberId && canAssignToSelected && (
+      {/* Task assignment form — only shown when a member is selected and assigner has authority and project is active */}
+      {selectedMemberId && canAssignToSelected && projectStatus === "ACTIVE" && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 mb-4">
           {!showAddTask ? (
             <div className="px-5 py-3">

@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { canAccessProjects, projectDeptToUserDept } from "@/lib/access";
+import { canAccessProjects, canManageProject, projectDeptToUserDept } from "@/lib/access";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const userId = token.id as string;
-  const userRole = (token as any).role as string;
-  const userDept = (token as any).department as string ?? "";
-  const canViewAllProjects = (token as any).canViewAllProjects as boolean ?? false;
-  const overseesDepartment = (token as any).overseesDepartment as string | null ?? null;
+  const userRole = (token.role ?? "EMPLOYEE") as string;
+  const userDept = (token.department ?? "") as string;
+  const userSeniorityLevel = (token.seniorityLevel ?? 0) as number;
+  const canViewAllProjects = (token.canViewAllProjects ?? false) as boolean;
+  const overseesDepartment = (token.overseesDepartment ?? null) as string | null;
 
   if (!canAccessProjects({ role: userRole, department: userDept, canViewAllProjects, overseesDepartment })) {
     return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
@@ -19,55 +20,63 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const project = await prisma.project.findUnique({
     where: { id: params.id },
-    select: { id: true, createdById: true, department: true },
+    select: {
+      id: true, createdById: true, department: true, status: true,
+      members: { select: { userId: true } },
+    },
   });
   if (!project) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
 
-  // Üye yönetimi: kurucu, gözetmen (kendi departmanı), admin veya canViewAllProjects
-  const canManage =
-    userRole === "ADMIN" ||
-    canViewAllProjects ||
-    (overseesDepartment != null && project.department === overseesDepartment) ||
-    project.createdById === userId;
-  if (!canManage) return NextResponse.json({ error: "Üye yönetimi yetkiniz yok" }, { status: 403 });
+  // Arşivlenmiş/silinmiş projede üye yönetimi yapılamaz
+  if (project.status === "ARCHIVED" || project.status === "DELETED") {
+    return NextResponse.json({ error: "Arşivlenmiş veya silinmiş projede üye yönetimi yapılamaz" }, { status: 403 });
+  }
+
+  const isMember = project.members.some((m) => m.userId === userId);
+  const userObj = {
+    id: userId,
+    role: userRole,
+    department: userDept,
+    seniorityLevel: userSeniorityLevel,
+    canViewAllProjects,
+    overseesDepartment,
+  };
+
+  if (!canManageProject(userObj, project, isMember)) {
+    return NextResponse.json({ error: "Üye yönetimi yetkiniz yok" }, { status: 403 });
+  }
 
   const body = await req.json();
   const addUserIds: string[] = Array.isArray(body.addUserIds) ? body.addUserIds.filter(Boolean) : [];
   const removeUserIds: string[] = Array.isArray(body.removeUserIds) ? body.removeUserIds.filter(Boolean) : [];
 
-  // Ekleme: departman + kıdem kontrolü
+  // ── Ekleme ──────────────────────────────────────────────────────────────────
   if (addUserIds.length > 0) {
-    // Departman filtresi: proje birimi → beklenen kullanıcı departmanı
+    // Departman filtresi: yalnızca aynı departmandan aktif kullanıcılar
     const targetDept = projectDeptToUserDept(project.department);
     if (targetDept !== null) {
       const wrongDeptUser = await prisma.user.findFirst({
         where: { id: { in: addUserIds }, NOT: { department: targetDept } },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       if (wrongDeptUser) {
         return NextResponse.json(
-          { error: "Bu projeye sadece ilgili birim kadrosundan üye eklenebilir" },
+          { error: "Bu projeye sadece ilgili departman kadrosundan üye eklenebilir" },
           { status: 403 }
         );
       }
     }
 
-    const assigner = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { seniorityLevel: true, canViewAllProjects: true, role: true },
+    // Aktif kullanıcı kontrolü
+    const inactiveUser = await prisma.user.findFirst({
+      where: { id: { in: addUserIds }, NOT: { status: "ACTIVE" } },
+      select: { id: true, name: true },
     });
-    const assignerCanAll = assigner ? (assigner.canViewAllProjects || assigner.role === "ADMIN") : false;
-    if (!assignerCanAll && assigner) {
-      for (const mid of addUserIds) {
-        if (mid === userId) continue;
-        const member = await prisma.user.findUnique({ where: { id: mid }, select: { seniorityLevel: true } });
-        if (member && !(assigner.seniorityLevel > member.seniorityLevel)) {
-          return NextResponse.json(
-            { error: "Sadece kendinizden düşük kıdemlilere üye ekleyebilirsiniz" },
-            { status: 403 }
-          );
-        }
-      }
+    if (inactiveUser) {
+      return NextResponse.json(
+        { error: "Yalnızca aktif kullanıcılar proje üyesi yapılabilir" },
+        { status: 403 }
+      );
     }
 
     // SQLite: skipDuplicates desteklenmez — mevcut üyeleri filtrele
@@ -84,7 +93,31 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
   }
 
+  // ── Çıkarma ─────────────────────────────────────────────────────────────────
   if (removeUserIds.length > 0) {
+    // Açık görev kontrolü: TODO, IN_PROGRESS, REVIEW durumundaki görevler varsa çıkarılamaz
+    for (const removeUserId of removeUserIds) {
+      const openTaskCount = await prisma.task.count({
+        where: {
+          projectId: params.id,
+          assignedToId: removeUserId,
+          status: { in: ["TODO", "IN_PROGRESS", "REVIEW"] },
+        },
+      });
+      if (openTaskCount > 0) {
+        const targetUser = await prisma.user.findUnique({
+          where: { id: removeUserId },
+          select: { name: true },
+        });
+        return NextResponse.json(
+          {
+            error: `${targetUser?.name ?? "Bu kullanıcı"}'nın projede ${openTaskCount} açık görevi bulunmaktadır. Kullanıcıyı projeden çıkarmadan önce görevleri tamamlayın veya uygun başka bir proje üyesine devredin.`,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     await prisma.projectMember.deleteMany({
       where: { projectId: params.id, userId: { in: removeUserIds } },
     });

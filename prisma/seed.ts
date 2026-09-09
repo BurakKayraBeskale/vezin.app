@@ -290,10 +290,10 @@ async function main() {
   }[] = [
     // Ortaklar — tüm birimleri görür, herkese görev atayabilir; kendilerine görev ATANAMAZ
     { email: "ismailkos@vezin.com.tr",      title: "Partner",           seniorityLevel: 14, canViewAllTasks: true,  canViewAllProjects: true,  overseesDepartment: null,               canBeAssignedTasks: false },
-    { email: "muratozgur@vezin.com.tr",     title: "Partner",           seniorityLevel: 14, canViewAllTasks: true,  canViewAllProjects: false, overseesDepartment: "VERGI",            canBeAssignedTasks: false },
+    { email: "muratozgur@vezin.com.tr",     title: "Partner",           seniorityLevel: 14, canViewAllTasks: true,  canViewAllProjects: false, overseesDepartment: "YMM",              canBeAssignedTasks: false },
     // Departman gözetmenleri — yalnızca kendi birimi (canViewAllProjects=false); kendilerine görev ATANAMAZ
     { email: "ahmetoruc@vezin.com.tr",      title: "Partner",           seniorityLevel: 14, canViewAllProjects: false, overseesDepartment: "BAGIMSIZ_DENETIM", canBeAssignedTasks: false },
-    { email: "ebubekirozturk@vezin.com.tr", title: "Senior Manager 2",  seniorityLevel: 12, canViewAllProjects: false, overseesDepartment: "VERGI",            canBeAssignedTasks: false },
+    { email: "ebubekirozturk@vezin.com.tr", title: "Senior Manager 2",  seniorityLevel: 12, canViewAllProjects: false, overseesDepartment: "YMM",              canBeAssignedTasks: false },
     // TODO: İcmal listesindeki diğer kişileri buraya ekleyin
     // Örnek: { email: "...", title: "Senior 1", seniorityLevel: 5, canViewAllProjects: false, overseesDepartment: null },
   ];

@@ -12,7 +12,7 @@ datasource db {
 // Task Status: "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE"
 // Priority: "LOW" | "MEDIUM" | "HIGH"
 // Department (user): "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YEMINLI_MALI_MUSAVIR" | "ADMIN"
-// Project department: "BAGIMSIZ_DENETIM" | "VERGI"
+// Project department: "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YMM"
 
 model User {
   id                  String   @id @default(cuid())
@@ -274,11 +274,14 @@ model Company {
   tasks       Task[]
 }
 
-// department: "BAGIMSIZ_DENETIM" | "VERGI"
+// department: "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YMM"
+// status: "ACTIVE" | "DONE" | "ARCHIVED" | "DELETED"
 model Project {
   id          String    @id @default(cuid())
   name        String
-  department  String    // "BAGIMSIZ_DENETIM" | "VERGI"
+  department  String    // "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YMM"
+  status      String    @default("ACTIVE") // "ACTIVE" | "DONE" | "ARCHIVED" | "DELETED"
+  deletedAt   DateTime?
   taxNumber   String?
   sector      String?
   startDate   DateTime?

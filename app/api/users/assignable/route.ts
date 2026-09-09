@@ -7,9 +7,11 @@
  * İstisna: canViewAllTasks || ADMIN → herkese atayabilir.
  *
  * İsteğe bağlı sorgu parametresi:
- *   ?projectDept=BAGIMSIZ_DENETIM | VERGI
+ *   ?projectDept=BAGIMSIZ_DENETIM | YMM | MUHASEBE | OUTSOURCE
  *   Verildiğinde Prisma WHERE'e departman filtresi eklenir (server-side).
- *   ADMIN/MUHASEBE/IDARI_ISLER/OUTSOURCE kadroları bu filtre kapsamında hiç dönmez.
+ *
+ *   ?purpose=member
+ *   Proje üyelik yönetimi için: kıdem kısıtı uygulanmaz, tüm aktif kullanıcılar listelenir.
  *
  * UI bu endpoint'i kullanarak atanabilecekler listesini filtreler.
  * Sunucu da POST/PATCH /api/tasks sırasında bağımsız kontrol yapar.
@@ -35,9 +37,12 @@ export async function GET(req: NextRequest) {
 
   const canAssignAll = assigner.canViewAllTasks || assigner.role === "ADMIN";
 
+  const searchParams = new URL(req.url).searchParams;
   // İsteğe bağlı proje departman filtresi
-  const projectDept = new URL(req.url).searchParams.get("projectDept");
+  const projectDept = searchParams.get("projectDept");
   const userDeptFilter = projectDept ? projectDeptToUserDept(projectDept) : null;
+  // purpose=member → proje üyelik yönetimi için kıdem kısıtı kaldırılır
+  const isMemberPurpose = searchParams.get("purpose") === "member";
 
   const userSelect = {
     id: true,
@@ -48,10 +53,12 @@ export async function GET(req: NextRequest) {
     seniorityLevel: true,
   } as const;
 
+  const applySenitoryFilter = !canAssignAll && !isMemberPurpose;
   const where: Record<string, unknown> = {
     email: { notIn: HIDDEN_ACCOUNT_EMAILS },
-    canBeAssignedTasks: true,
-    ...(!canAssignAll && { seniorityLevel: { lt: assigner.seniorityLevel } }),
+    status: "ACTIVE",
+    ...(isMemberPurpose ? {} : { canBeAssignedTasks: true }),
+    ...(applySenitoryFilter && { seniorityLevel: { lt: assigner.seniorityLevel } }),
     // Departman filtresi verilmişse Prisma WHERE'e eklenir (server-side)
     ...(userDeptFilter !== null && { department: userDeptFilter }),
   };

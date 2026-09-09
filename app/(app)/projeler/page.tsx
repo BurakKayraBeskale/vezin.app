@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere } from "@/lib/task-visibility";
-import { canAccessProjects } from "@/lib/access";
+import { canAccessProjects, canCreateProject } from "@/lib/access";
 import ProjectList from "@/components/ProjectList";
 
 export default async function ProjelerPage() {
@@ -21,19 +21,21 @@ export default async function ProjelerPage() {
     notFound();
   }
 
-  const visUser = { id: userId, role: userRole, canViewAllProjects, overseesDepartment };
+  const visUser = {
+    id: userId,
+    role: userRole,
+    department: userDepartment,
+    seniorityLevel,
+    canViewAllProjects,
+    overseesDepartment,
+  };
   const projectIds = await getVisibleProjectIds(visUser);
   const visWhere = buildProjectVisibilityWhere(projectIds);
 
-  // Üye seçimi için departman bazlı filtre — server-side Prisma WHERE
-  // BD projesi → BAGIMSIZ_DENETIM kadrosu; Vergi projesi → YEMINLI_MALI_MUSAVIR kadrosu
-  const seniorityFilter = canViewAllProjects || userRole === "ADMIN"
-    ? {}
-    : { seniorityLevel: { lt: seniorityLevel > 0 ? seniorityLevel : 1 } };
-
-  const [projects, bdUsers, vergiUsers] = await Promise.all([
+  // Proje listesi (varsayılan: aktif)
+  const [projects, outsourceUsers, bdUsers, muhasebeUsers, ymmUsers] = await Promise.all([
     prisma.project.findMany({
-      where: visWhere as any,
+      where: { AND: [visWhere as any, { status: { not: "DELETED" } }] },
       include: {
         createdBy: { select: { id: true, name: true } },
         members: {
@@ -42,34 +44,49 @@ export default async function ProjelerPage() {
           },
           orderBy: { assignedAt: "asc" },
         },
-        _count: { select: { tasks: true } },
       },
       orderBy: { createdAt: "desc" },
     }),
+    // Üye seçimi için departman bazlı aktif kullanıcılar (kıdem kısıtı yok)
     prisma.user.findMany({
-      where: { department: "BAGIMSIZ_DENETIM", ...seniorityFilter },
+      where: { department: "OUTSOURCE", status: "ACTIVE" },
       select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
       orderBy: { name: "asc" },
     }),
     prisma.user.findMany({
-      where: { department: "YEMINLI_MALI_MUSAVIR", ...seniorityFilter },
+      where: { department: "BAGIMSIZ_DENETIM", status: "ACTIVE" },
+      select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.user.findMany({
+      where: { department: "MUHASEBE", status: "ACTIVE" },
+      select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.user.findMany({
+      where: { department: "YEMINLI_MALI_MUSAVIR", status: "ACTIVE" },
       select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
       orderBy: { name: "asc" },
     }),
   ]);
 
-  const canCreate = userRole === "ADMIN" || canViewAllProjects || seniorityLevel >= 5;
+  const canCreate = canCreateProject({ seniorityLevel, role: userRole });
 
   return (
     <ProjectList
       initialProjects={projects as any}
-      usersByDept={{ BAGIMSIZ_DENETIM: bdUsers, VERGI: vergiUsers }}
+      usersByDept={{
+        OUTSOURCE: outsourceUsers,
+        BAGIMSIZ_DENETIM: bdUsers,
+        MUHASEBE: muhasebeUsers,
+        YMM: ymmUsers,
+      }}
       canCreate={canCreate}
       canViewAllProjects={canViewAllProjects}
-      currentDept={null}
       userDepartment={userDepartment}
       userId={userId}
       userRole={userRole}
+      seniorityLevel={seniorityLevel}
       overseesDepartment={overseesDepartment}
     />
   );

@@ -1,43 +1,54 @@
 /**
- * Görev görünürlük sistemi.
+ * Görev ve proje görünürlük sistemi.
  *
- * YENİ kural (buildTaskVisibilityWhereForUser):
- *   Bir görevi yalnızca şunlar görebilir:
- *   1. Görevin atandığı kişi (assignedToId veya TaskAssignee)
- *   2. Projeyi oluşturan kişi (project.createdById)
- *   3. Birimin departman sorumlusu (overseesDepartment === project.department)
- *   4. ADMIN veya canViewAllProjects=true
- *   Proje üyesi olmak tek başına başkasının görevini görme hakkı VERMEZ.
+ * Proje görünürlük kuralları (getVisibleProjectIds):
+ *   1. ADMIN veya canViewAllProjects → tüm projeler (silinmişler hariç)
+ *   2. overseesDepartment set → sadece o departmanın projeleri (backward compat)
+ *   3. seniorityLevel >= 11 (Senior Manager+/Partner) → kendi departmanının projeleri
+ *   4. Diğerleri → yalnızca üye olduğu projeler
  *
- * Proje görünürlüğü (getVisibleProjectIds) AYRI kurallarla yönetilir;
- * yalnızca hangi projelerin göründüğünü belirler (üyelik, gözetmen, admin).
- *
- * KRİTİK: Tüm filtreler Prisma WHERE koşulunda uygulanır,
- *         frontend .filter() veya tüm görev döndürüp gizleme YAPILMAZ.
+ * Görev görünürlüğü (buildTaskVisibilityWhereForUser):
+ *   Proje tabanlı görev sistemi için — detaylı permission ayrı implementasyonda.
  */
 
 import { prisma } from "@/lib/prisma";
+import { userDeptToProjectDept } from "@/lib/access";
 
 export type VisibilityUser = {
   id: string;
   role: string;
+  department?: string;
+  seniorityLevel?: number;
   canViewAllProjects: boolean;
   overseesDepartment?: string | null;
 };
 
 /**
  * null → tüm projeler görülür (ADMIN / canViewAllProjects)
- * string[] → görülebilir proje ID'leri
+ * string[] → görülebilir proje ID'leri (silinmiş projeler dahil edilmez)
  */
 export async function getVisibleProjectIds(user: VisibilityUser): Promise<string[] | null> {
   if (user.role === "ADMIN" || user.canViewAllProjects) return null;
 
+  // overseesDepartment: eski sistem — açıkça belirlenen departman gözetmenleri
   if (user.overseesDepartment) {
     const projects = await prisma.project.findMany({
-      where: { department: user.overseesDepartment },
+      where: { department: user.overseesDepartment, deletedAt: null },
       select: { id: true },
     });
     return projects.map((p) => p.id);
+  }
+
+  // Senior Manager 1+ (seviye >= 11) ve Partner (14): kendi departmanının projeleri
+  if ((user.seniorityLevel ?? 0) >= 11) {
+    const projectDept = userDeptToProjectDept(user.department ?? "");
+    if (projectDept) {
+      const projects = await prisma.project.findMany({
+        where: { department: projectDept, deletedAt: null },
+        select: { id: true },
+      });
+      return projects.map((p) => p.id);
+    }
   }
 
   // Normal kullanıcı: sadece üye olduğu projeler
@@ -46,6 +57,17 @@ export async function getVisibleProjectIds(user: VisibilityUser): Promise<string
     select: { projectId: true },
   });
   return members.map((m) => m.projectId);
+}
+
+/**
+ * Proje ID listesini → Prisma project where filtresine çevirir.
+ * Silinmiş projeler (deletedAt != null) daima hariç tutulur.
+ */
+export function buildProjectVisibilityWhere(projectIds: string[] | null): object {
+  const notDeleted = { deletedAt: null };
+  if (projectIds === null) return notDeleted;
+  if (projectIds.length === 0) return { id: "__no_access__" };
+  return { id: { in: projectIds }, ...notDeleted };
 }
 
 /**
@@ -59,12 +81,17 @@ export async function getVisibleProjectIds(user: VisibilityUser): Promise<string
  *     project.createdById = user,
  *     (overseesDepartment varsa) project.department = overseesDepartment
  *   ]
+ *
+ * NOT: Detaylı task permission sistemi ayrı geliştirme promptunda uygulanacak.
+ * Bu fonksiyon mevcut çalışan davranışı korur.
  */
 export function buildTaskVisibilityWhereForUser(user: {
   id: string;
   role: string;
   canViewAllProjects: boolean;
   overseesDepartment?: string | null;
+  seniorityLevel?: number;
+  department?: string;
 }): object {
   if (user.role === "ADMIN" || user.canViewAllProjects) return {};
 
@@ -78,15 +105,19 @@ export function buildTaskVisibilityWhereForUser(user: {
     conditions.push({ project: { department: user.overseesDepartment } });
   }
 
+  // Senior Manager+ kendi departmanındaki projelerin tüm görevlerini görebilir
+  if (user.seniorityLevel != null && user.seniorityLevel >= 11 && user.department) {
+    const projectDept = userDeptToProjectDept(user.department);
+    if (projectDept) {
+      conditions.push({ project: { department: projectDept } });
+    }
+  }
+
   return { OR: conditions };
 }
 
 /**
  * Proje ID listesini → Prisma task where filtresine çevirir.
- * null → {} (filtre yok, tüm görevler)
- * [] → { projectId: "__no_access__" } (SQL'de 0 sonuç döner)
- * [...] → { projectId: { in: [...] } }
- *
  * @deprecated Yeni kod buildTaskVisibilityWhereForUser kullanmalı.
  */
 export function buildTaskVisibilityWhere(projectIds: string[] | null): object {
@@ -95,21 +126,13 @@ export function buildTaskVisibilityWhere(projectIds: string[] | null): object {
   return { projectId: { in: projectIds } };
 }
 
-/**
- * Proje ID listesini → Prisma project where filtresine çevirir.
- */
-export function buildProjectVisibilityWhere(projectIds: string[] | null): object {
-  if (projectIds === null) return {};
-  if (projectIds.length === 0) return { id: "__no_access__" };
-  return { id: { in: projectIds } };
-}
-
 // ── Backward compat shims ────────────────────────────────────────────────────
-// Eski çağrıcılar için; yeni kod getVisibleProjectIds + buildTaskVisibilityWhere kullanmalı.
 
 export type LegacyVisibilityUser = {
   id: string;
   role: string;
+  department?: string;
+  seniorityLevel?: number;
   canViewAllTasks?: boolean;
   canViewAllProjects?: boolean;
   overseesDepartment?: string | null;
@@ -120,10 +143,12 @@ export async function getVisibleTaskIds(user: LegacyVisibilityUser): Promise<str
   const projectIds = await getVisibleProjectIds({
     id: user.id,
     role: user.role,
+    department: user.department ?? "",
+    seniorityLevel: user.seniorityLevel ?? 0,
     canViewAllProjects: user.canViewAllProjects ?? user.canViewAllTasks ?? false,
     overseesDepartment: user.overseesDepartment,
   });
-  return projectIds; // Now returns project IDs, not task IDs — callers must use buildTaskVisibilityWhere
+  return projectIds;
 }
 
 /** @deprecated Use buildTaskVisibilityWhere */
@@ -143,6 +168,8 @@ export async function getVisibleTaskFilter(user: {
   const projectIds = await getVisibleProjectIds({
     id: user.id,
     role: user.role,
+    department: user.department,
+    seniorityLevel: 0,
     canViewAllProjects: user.canViewAllProjects ?? user.canViewAllTasks ?? false,
     overseesDepartment: user.overseesDepartment,
   });

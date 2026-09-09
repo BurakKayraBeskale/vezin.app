@@ -2,7 +2,6 @@
  * Merkezi yetki kuralları — middleware, Sidebar ve API rotalarında tek kaynak.
  *
  * ADMIN   : her şeye erişir
- * MANAGER : /admin/* path'leri hariç her şeye erişir; departmana bakılmaz
  * EMPLOYEE: departman kısıtlarına tabi (DEPT_GATED_RULES)
  */
 
@@ -14,7 +13,7 @@ export function isAdminOnly(pathname: string): boolean {
   return ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
-/** ADMIN mı? (MANAGER rolü kaldırıldı; bu fonksiyon geriye dönük uyumluluk için korunuyor) */
+/** ADMIN mı? (geriye dönük uyumluluk için korunuyor) */
 export function isManagerOrAdmin(role: string): boolean {
   return role.toUpperCase() === "ADMIN";
 }
@@ -23,7 +22,7 @@ export function isManagerOrAdmin(role: string): boolean {
 export interface DeptRule {
   pathPrefix: string;
   allowedDepts: string[]; // boş = herkese açık
-  /** true ise ADMIN ve MANAGER da departman kısıtına tabidir */
+  /** true ise ADMIN da departman kısıtına tabidir */
   strictDept?: boolean;
 }
 
@@ -33,7 +32,6 @@ export const DEPT_GATED_RULES: DeptRule[] = [
   // KDV İade — rol fark etmeksizin sadece YMM/Muhasebe erişir (ADMIN dahil)
   { pathPrefix: "/kdv-iade",        allowedDepts: ["YEMINLI_MALI_MUSAVIR", "MUHASEBE"], strictDept: true },
   { pathPrefix: "/api/kdv-iade",    allowedDepts: ["YEMINLI_MALI_MUSAVIR", "MUHASEBE"], strictDept: true },
-  // /karsilastirma ve /tarayici herkese açık — kural yok
 ];
 
 /**
@@ -47,14 +45,13 @@ export function canAccessCompanies(user: { role: string; canManageCompanies?: bo
 // ── Kıdem Seviyesi Sistemi ──────────────────────────────────────────────────
 
 /**
- * Tek doğru kaynak: unvan → kıdem seviyesi.
- * Seed'de seniorityLevel ataması buraya göre yapılır; kod içinde
- * bu tablodan türetme yapılmaz — canViewAllProjects ve overseesDepartment
- * yalnızca DB'deki boolean/string alandan okunur.
- */
-/**
  * Tek doğru kaynak: unvan → kıdem seviyesi (14-seviyeli sistem).
  * Seed'de ve API'de seniorityLevel ataması buraya göre yapılır.
+ *
+ * Proje yönetim yetki eşikleri:
+ *   >= 8  → Manager 1+ (proje oluşturabilir; üye ise yönetebilir)
+ *   >= 11 → Senior Manager 1+ (üyelik gerektirmeden kendi departmanını yönetebilir)
+ *   14    → Partner (Senior Manager ile aynı kural)
  */
 export const TITLE_TO_SENIORITY: Record<string, number> = {
   "Stajyer":                 1,
@@ -73,76 +70,132 @@ export const TITLE_TO_SENIORITY: Record<string, number> = {
   "Partner":                 14,
 };
 
+// ── Departman Eşleme ────────────────────────────────────────────────────────
+
 /**
- * Proje açma yetkisi:
- *   seniorityLevel >= 8 (Manager 1 ve üstü) VEYA overseesDepartment != null
+ * Proje departmanı → kullanıcı departmanı eşlemesi.
+ * Bir projeye üye eklenirken hangi kullanıcı departmanından seçileceğini belirler.
+ *
+ * "YMM" projeleri → "YEMINLI_MALI_MUSAVIR" kadrosu
+ */
+export function projectDeptToUserDept(projectDept: string): string | null {
+  if (projectDept === "BAGIMSIZ_DENETIM") return "BAGIMSIZ_DENETIM";
+  if (projectDept === "YMM")             return "YEMINLI_MALI_MUSAVIR";
+  if (projectDept === "MUHASEBE")        return "MUHASEBE";
+  if (projectDept === "OUTSOURCE")       return "OUTSOURCE";
+  return null;
+}
+
+/**
+ * Kullanıcı departmanı → proje departmanı eşlemesi (ters yön).
+ * Bir kullanıcının hangi proje departmanına ait olduğunu belirler.
+ */
+export function userDeptToProjectDept(userDept: string): string | null {
+  if (userDept === "BAGIMSIZ_DENETIM")    return "BAGIMSIZ_DENETIM";
+  if (userDept === "YEMINLI_MALI_MUSAVIR") return "YMM";
+  if (userDept === "MUHASEBE")            return "MUHASEBE";
+  if (userDept === "OUTSOURCE")           return "OUTSOURCE";
+  return null;
+}
+
+/**
+ * Proje oluşturma yetkisi:
+ *   seniorityLevel >= 8 (Manager 1 ve üstü) VEYA ADMIN
+ *   overseesDepartment → artık kullanılmıyor (seniorityLevel >= 11 kural ile kapsandı)
  */
 export function canCreateProject(user: {
   seniorityLevel: number;
-  overseesDepartment?: string | null;
+  role?: string;
 }): boolean {
-  return user.seniorityLevel >= 8 || user.overseesDepartment != null;
+  if (user.role === "ADMIN") return true;
+  return user.seniorityLevel >= 8;
+}
+
+/**
+ * Proje yönetim yetkisi — tek doğru kaynak.
+ *
+ * Kurallar:
+ *   1. ADMIN → her zaman
+ *   2. canViewAllProjects=true → her zaman (admin eşdeğeri kullanıcılar)
+ *   3. seniorityLevel >= 11 (Senior Manager+/Partner) + aynı departman → üyelik gerektirmez
+ *   4. seniorityLevel >= 8 (Manager 1-3) + projeye üye → yönetebilir
+ *   5. Diğerleri → hayır
+ *
+ * "Yönetim": proje düzenleme, üye ekleme/çıkarma, durumu değiştirme, arşivleme, silme.
+ */
+export function canManageProject(
+  user: {
+    id: string;
+    role: string;
+    department: string;
+    seniorityLevel: number;
+    canViewAllProjects: boolean;
+    overseesDepartment?: string | null;
+  },
+  project: { department: string },
+  isMember: boolean
+): boolean {
+  if (user.role === "ADMIN") return true;
+  if (user.canViewAllProjects) return true;
+  // Senior Manager 1+ ve Partner: kendi departmanında üyelik gerekmez
+  const userProjectDept = userDeptToProjectDept(user.department);
+  if (user.seniorityLevel >= 11 && userProjectDept === project.department) return true;
+  // overseesDepartment (eski sistem) — backward compat
+  if (user.overseesDepartment != null && user.overseesDepartment === project.department) return true;
+  // Manager 1-3: projeye üye olmalı
+  if (user.seniorityLevel >= 8 && isMember) return true;
+  return false;
+}
+
+/**
+ * Proje düzenleme yetkisi — canManageProject sarmalayıcısı.
+ * @deprecated Yeni kod canManageProject kullanmalı.
+ */
+export function canEditProject(
+  user: {
+    id: string;
+    role: string;
+    department: string;
+    seniorityLevel: number;
+    canViewAllProjects: boolean;
+    overseesDepartment?: string | null;
+  },
+  project: { createdById: string; department: string },
+  isMember?: boolean
+): boolean {
+  return canManageProject(user, project, isMember ?? (user.id === project.createdById));
+}
+
+/**
+ * Proje silme yetkisi — canManageProject ile aynı kural.
+ * Silme işlemi backend'de ayrıca ARŞİVLENMİŞ durum kontrolü yapar.
+ */
+export function canDeleteProject(
+  user: {
+    id: string;
+    role: string;
+    department: string;
+    seniorityLevel: number;
+    canViewAllProjects: boolean;
+    overseesDepartment?: string | null;
+  },
+  project: { createdById: string; department: string },
+  isMember?: boolean
+): boolean {
+  return canManageProject(user, project, isMember ?? (user.id === project.createdById));
 }
 
 /**
  * Görev atama yetkisi (kıdeme bağlı):
  *   Atayan, hedefin seniorityLevel'ını KESİNLİKLE geçmelidir.
- *   Eşit veya yüksek kıdemliye atama yapılamaz.
  */
 export function canAssignTask(assignerLevel: number, targetLevel: number): boolean {
   return assignerLevel > targetLevel;
 }
 
 /**
- * Proje departmanını kullanıcı departmanına eşler.
- * "VERGI" projelerinde çalışanlar kadro tarafında "YEMINLI_MALI_MUSAVIR" olarak tutulur.
- * ADMIN/MUHASEBE/IDARI_ISLER/OUTSOURCE hiçbir projeye üye olamaz (null döner → filtre geçersiz).
- */
-export function projectDeptToUserDept(projectDept: string): string | null {
-  if (projectDept === "BAGIMSIZ_DENETIM") return "BAGIMSIZ_DENETIM";
-  if (projectDept === "VERGI") return "YEMINLI_MALI_MUSAVIR";
-  return null;
-}
-
-/**
- * Proje silme yetkisi (tek doğru kaynak — route ve UI buradan çağırır):
- *   1. ADMIN → her zaman silebilir
- *   2. Departman gözetmeni (overseesDepartment) → kendi departmanındaki projeyi silebilir
- *   3. Projeyi oluşturan kişi (createdById) → kendi projesini silebilir
- *   Hiçbiri sağlanmıyorsa → false (route 404 döndürür, buton gizlenir)
- */
-export function canDeleteProject(
-  user: { id: string; role: string; overseesDepartment?: string | null },
-  project: { createdById: string; department: string }
-): boolean {
-  if (user.role === "ADMIN") return true;
-  if (user.overseesDepartment != null && project.department === user.overseesDepartment) return true;
-  if (project.createdById === user.id) return true;
-  return false;
-}
-
-/**
- * Proje düzenleme yetkisi — canDeleteProject ile birebir aynı kural:
- *   1. ADMIN → her zaman düzenleyebilir
- *   2. Departman gözetmeni → kendi departmanındaki projeyi düzenleyebilir
- *   3. Projeyi oluşturan kişi → kendi projesini düzenleyebilir
- *   Hiçbiri sağlanmıyorsa → false (route 404 döndürür, buton gizlenir)
- */
-export function canEditProject(
-  user: { id: string; role: string; overseesDepartment?: string | null },
-  project: { createdById: string; department: string }
-): boolean {
-  if (user.role === "ADMIN") return true;
-  if (user.overseesDepartment != null && project.department === user.overseesDepartment) return true;
-  if (project.createdById === user.id) return true;
-  return false;
-}
-
-/**
  * Atama istisnası: belirli atayan → hedef e-posta çiftlerine,
  * canBeAssignedTasks=false kuralının uygulanmadığı istisnalar.
- *
- * Kural: ASSIGN_EXCEPTIONS[atayan.email] içinde hedef.email varsa atamaya izin ver.
  */
 export const ASSIGN_EXCEPTIONS: Record<string, string[]> = {
   "muratozgur@vezin.com.tr": ["ebubekirozturk@vezin.com.tr"],
@@ -150,15 +203,6 @@ export const ASSIGN_EXCEPTIONS: Record<string, string[]> = {
 
 /**
  * Proje içinde görev atama yetkisi — tek doğru kaynak (UI ve API kullanır).
- *
- * Kural:
- *   ADMIN veya canViewAllProjects → kıdem koşulu uygulanmaz, doğrudan true.
- *   Diğerleri (overseer / proje kurucusu):
- *     A) Proje otoritesi sağlanmalı (overseer VEYA kurucu)
- *     B) assigner.seniorityLevel > target.seniorityLevel (kesin büyük)
- *
- * target isteğe bağlıdır; verilmezse yalnızca otorite kontrolü yapılır
- * (UI'dan "bu kişiye görev atama butonu gösterilsin mi?" sorusu için).
  */
 export function canAssignTaskInProject(
   assigner: {
@@ -167,65 +211,51 @@ export function canAssignTaskInProject(
     canViewAllProjects: boolean;
     overseesDepartment?: string | null;
     seniorityLevel: number;
+    department?: string;
     email?: string;
   },
   project: { department: string; createdById: string },
   target?: { seniorityLevel: number; canBeAssignedTasks?: boolean; email?: string }
 ): boolean {
-  // canBeAssignedTasks=false → HİÇBİR DURUMDA atama yapılamaz (ADMIN dahil)
-  // İstisna: ASSIGN_EXCEPTIONS'da tanımlı atayan→hedef e-posta ikilisi
   if (target && target.canBeAssignedTasks === false) {
     const exceptions = ASSIGN_EXCEPTIONS[assigner.email?.toLowerCase() ?? ""] ?? [];
     if (!exceptions.includes(target.email?.toLowerCase() ?? "")) return false;
   }
-  // ADMIN / canViewAllProjects → kıdem koşulu HİÇ uygulanmaz
   if (assigner.role === "ADMIN" || assigner.canViewAllProjects) return true;
-  // Proje otoritesi (overseer veya kurucu)
+  // Proje otoritesi
+  const userProjectDept = userDeptToProjectDept(assigner.department ?? "");
   const hasProjectAuthority =
     (assigner.overseesDepartment != null && assigner.overseesDepartment === project.department) ||
+    (assigner.seniorityLevel >= 11 && userProjectDept === project.department) ||
     assigner.id === project.createdById;
   if (!hasProjectAuthority) return false;
-  // Yalnızca otorite soruluyorsa (target yok) → yeterli
   if (!target) return true;
-  // Kıdem koşulu — overseer ve kurucu için zorunlu
   return assigner.seniorityLevel > target.seniorityLevel;
 }
 
 /**
- * Görev silme yetkisi (tek doğru kaynak — route ve UI buradan çağırır):
- *   0. Göreve atanan kişi (assignee) → HİÇBİR DURUMDA silemez (ADMIN dahil)
- *   1. ADMIN veya canViewAllProjects → her zaman silebilir
- *   2. Departman gözetmeni → kendi departmanındaki projenin görevini silebilir
- *   3. Görevi oluşturan kişi (createdById) → kendi oluşturduğu görevi silebilir
- *   4. Projeyi oluşturan kişi → projesindeki herhangi bir görevi silebilir
- *   Hiçbiri sağlanmıyorsa → false (route 404 döndürür, buton gizlenir)
+ * Görev silme yetkisi.
  */
 export function canDeleteTask(
-  user: { id: string; role: string; canViewAllProjects: boolean; overseesDepartment?: string | null },
+  user: { id: string; role: string; canViewAllProjects: boolean; overseesDepartment?: string | null; department?: string; seniorityLevel?: number },
   task: { createdById: string; assignedToId?: string | null; assigneeIds?: string[] },
   project?: { department: string; createdById: string } | null
 ): boolean {
-  // Kural 0: Atanan kişi HİÇBİR DURUMDA silemez (ADMIN dahil)
   const assigneeIds = task.assigneeIds ?? [];
   if (task.assignedToId === user.id || assigneeIds.includes(user.id)) return false;
-  // Kural 1: ADMIN veya canViewAllProjects → her zaman silebilir
   if (user.role === "ADMIN" || user.canViewAllProjects) return true;
-  // Kural 2: Departman gözetmeni → kendi departmanındaki proje görevini silebilir
-  if (project != null && user.overseesDepartment != null && user.overseesDepartment === project.department) return true;
-  // Kural 3: Görevi oluşturan kişi → kendi oluşturduğu görevi silebilir
+  if (project != null) {
+    const userProjectDept = userDeptToProjectDept(user.department ?? "");
+    if (user.overseesDepartment != null && user.overseesDepartment === project.department) return true;
+    if ((user.seniorityLevel ?? 0) >= 11 && userProjectDept === project.department) return true;
+  }
   if (task.createdById === user.id) return true;
-  // Kural 4: Projeyi oluşturan kişi → projesindeki görevi silebilir
   if (project != null && project.createdById === user.id) return true;
   return false;
 }
 
 /**
- * Performans ekranı erişim kapsamı — e-posta bazlı, canViewAllProjects'ten BAĞIMSIZ.
- *
- * "ALL"                  → her iki birimi görebilir (ADMIN + İsmail Koş)
- * "BAGIMSIZ_DENETIM"     → yalnızca bağımsız denetim birimi (Ahmet Oruç)
- * "YEMINLI_MALI_MUSAVIR" → yalnızca YMM birimi (Murat Özgür, Ebubekir Öztürk)
- * null                   → bu bölümü hiç göremez
+ * Performans ekranı erişim kapsamı.
  */
 const PERFORMANCE_ACCESS: Record<string, "ALL" | "BAGIMSIZ_DENETIM" | "YEMINLI_MALI_MUSAVIR"> = {
   "ismailkos@vezin.com.tr":       "ALL",
@@ -243,12 +273,10 @@ export function getPerformanceScope(user: {
 }
 
 /**
- * /projeler sayfaları ve /api/projects* uçlarına erişim:
- *   - ADMIN → her zaman erişebilir
- *   - canViewAllProjects=true → erişebilir (İsmail Koş, Murat Özgür)
- *   - overseesDepartment != null → erişebilir (Ahmet Oruç, Ebubekir Öztürk)
- *   - MUHASEBE veya IDARI_ISLER departmanı → HAYIR (diğer tüm istisnalar hariç)
- *   - Diğer departmanlar → erişebilir
+ * /projeler sayfaları ve /api/projects* uçlarına erişim.
+ *
+ * Tüm dört departman (OUTSOURCE, BAGIMSIZ_DENETIM, MUHASEBE, YMM) aktiftir.
+ * Yalnızca IDARI_ISLER ve ADMIN departmanı bloklıdır.
  */
 export function canAccessProjects(user: {
   role: string;
@@ -259,19 +287,17 @@ export function canAccessProjects(user: {
   if (user.role === "ADMIN") return true;
   if (user.canViewAllProjects) return true;
   if (user.overseesDepartment != null) return true;
-  const blocked = ["MUHASEBE", "IDARI_ISLER"];
-  return !blocked.includes(user.department.toUpperCase());
+  const blocked = ["IDARI_ISLER", "ADMIN"];
+  return !blocked.includes(user.department?.toUpperCase());
 }
 
 /**
  * Bu rol+departman kombinasyonu verilen pathname'e erişebilir mi?
- * middleware, page guard ve API route'larında birebir aynı mantık.
  */
 export function canAccess(role: string, department: string, pathname: string): boolean {
   const r = role.toUpperCase();
   const d = department.toUpperCase();
 
-  // Önce strictDept kurallarını kontrol et (ADMIN dahil herkese uygulanır)
   const strictRule = DEPT_GATED_RULES.find(
     (rr) => rr.strictDept && pathname.startsWith(rr.pathPrefix)
   );
@@ -279,14 +305,10 @@ export function canAccess(role: string, department: string, pathname: string): b
     return strictRule.allowedDepts.some((dept) => d === dept.toUpperCase());
   }
 
-  // ADMIN: (strictDept dışında) her şeye erişir
   if (r === "ADMIN") return true;
-
-  // Admin-only path'lere ADMIN dışı kimse giremez
   if (isAdminOnly(pathname)) return false;
 
-  // EMPLOYEE: departman kurallarına bak
   const rule = DEPT_GATED_RULES.find((rr) => !rr.strictDept && pathname.startsWith(rr.pathPrefix));
-  if (!rule || rule.allowedDepts.length === 0) return true; // kural yoksa açık
+  if (!rule || rule.allowedDepts.length === 0) return true;
   return rule.allowedDepts.some((dept) => d === dept.toUpperCase());
 }

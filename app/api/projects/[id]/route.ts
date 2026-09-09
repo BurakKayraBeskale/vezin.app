@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere } from "@/lib/task-visibility";
-import { canAccessProjects, canDeleteProject, canEditProject } from "@/lib/access";
+import { canAccessProjects, canManageProject } from "@/lib/access";
 
 const projectInclude = {
   createdBy: { select: { id: true, name: true } },
@@ -12,21 +12,21 @@ const projectInclude = {
     },
     orderBy: { assignedAt: "asc" as const },
   },
-  _count: { select: { tasks: true } },
 };
 
 function getVisUser(token: any) {
   return {
     id: token.id as string,
-    role: (token as any).role as string,
-    department: (token as any).department as string ?? "",
-    canViewAllProjects: (token as any).canViewAllProjects as boolean ?? false,
-    overseesDepartment: (token as any).overseesDepartment as string | null ?? null,
+    role: (token.role ?? "EMPLOYEE") as string,
+    department: (token.department ?? "") as string,
+    seniorityLevel: (token.seniorityLevel ?? 0) as number,
+    canViewAllProjects: (token.canViewAllProjects ?? false) as boolean,
+    overseesDepartment: (token.overseesDepartment ?? null) as string | null,
   };
 }
 
 function checkProjectAccess(user: ReturnType<typeof getVisUser>): boolean {
-  return canAccessProjects({ role: user.role, department: user.department, canViewAllProjects: user.canViewAllProjects, overseesDepartment: user.overseesDepartment });
+  return canAccessProjects(user);
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -59,35 +59,65 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const existing = await prisma.project.findFirst({
     where: { AND: [{ id: params.id }, visWhere as any] },
-    select: { id: true, createdById: true, department: true, startDate: true, endDate: true },
+    select: {
+      id: true, createdById: true, department: true, status: true,
+      startDate: true, endDate: true, name: true,
+      members: { select: { userId: true } },
+    },
   });
   if (!existing) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
 
-  // Düzenleme yetkisi: canDeleteProject ile aynı kural
-  if (!canEditProject(user, existing)) {
-    return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+  // Arşivlenmiş veya silinmiş proje düzenlenemez
+  if (existing.status === "ARCHIVED" || existing.status === "DELETED") {
+    return NextResponse.json({ error: "Arşivlenmiş veya silinmiş proje düzenlenemez" }, { status: 403 });
+  }
+
+  const isMember = existing.members.some((m) => m.userId === user.id);
+  if (!canManageProject(user, existing, isMember)) {
+    return NextResponse.json({ error: "Proje düzenleme yetkiniz yok" }, { status: 403 });
   }
 
   const body = await req.json();
 
-  // Bitiş tarihi başlangıçtan önce olamaz
+  // department değiştirilemez
+  if (body.department !== undefined) {
+    return NextResponse.json({ error: "Proje departmanı değiştirilemez" }, { status: 400 });
+  }
+  // status buradan değiştirilemez — /api/projects/[id]/status kullanılmalı
+  if (body.status !== undefined) {
+    return NextResponse.json({ error: "Proje durumu bu endpoint üzerinden değiştirilemez" }, { status: 400 });
+  }
+
   const patchStart = body.startDate !== undefined ? body.startDate : existing.startDate;
   const patchEnd   = body.endDate   !== undefined ? body.endDate   : existing.endDate;
   if (patchStart && patchEnd && new Date(patchEnd) < new Date(patchStart)) {
     return NextResponse.json({ error: "Bitiş tarihi başlangıç tarihinden önce olamaz" }, { status: 400 });
   }
 
-  // department değiştirilemez — üyelik ve görünürlük tutarsızlığını önler
+  // Proje adı değişiyorsa duplicate kontrolü
+  if (body.name !== undefined && body.name.trim().toLowerCase() !== existing.name.toLowerCase()) {
+    const sameNameProjects = await prisma.project.findMany({
+      where: { department: existing.department, deletedAt: null, NOT: { id: params.id } },
+      select: { name: true },
+    });
+    const isDuplicate = sameNameProjects.some(
+      (p) => p.name.trim().toLowerCase() === body.name.trim().toLowerCase()
+    );
+    if (isDuplicate) {
+      return NextResponse.json(
+        { error: "Bu departmanda aynı isimde bir proje zaten mevcut" },
+        { status: 409 }
+      );
+    }
+  }
+
   const updated = await prisma.project.update({
     where: { id: params.id },
     data: {
-      ...(body.name     !== undefined && { name:      body.name.trim() }),
-      ...(body.taxNumber !== undefined && { taxNumber: body.taxNumber?.trim() || null }),
-      ...(body.sector    !== undefined && { sector:    body.sector?.trim() || null }),
+      ...(body.name      !== undefined && { name:      body.name.trim() }),
       ...(body.startDate !== undefined && { startDate: body.startDate ? new Date(body.startDate) : null }),
       ...(body.endDate   !== undefined && { endDate:   body.endDate   ? new Date(body.endDate)   : null }),
-      ...(body.notes !== undefined && { notes: body.notes?.trim() || null }),
-      ...(body.about !== undefined && { about: body.about?.trim() || null }),
+      ...(body.about     !== undefined && { about:     body.about?.trim() || null }),
     },
     include: projectInclude,
   });
@@ -101,28 +131,32 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const user = getVisUser(token);
   if (!checkProjectAccess(user)) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
 
-  // createdById'yi de çekiyoruz — kurucu silme yetkisine ihtiyaç var
   const project = await prisma.project.findUnique({
     where: { id: params.id },
-    select: { id: true, department: true, createdById: true, _count: { select: { tasks: true } } },
+    select: {
+      id: true, department: true, createdById: true, status: true,
+      members: { select: { userId: true } },
+    },
   });
   if (!project) return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
 
-  // Yetki: ADMIN | kendi departman gözetmeni | projeyi oluşturan kişi
-  if (!canDeleteProject(user, project)) {
-    return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+  const isMember = project.members.some((m) => m.userId === user.id);
+  if (!canManageProject(user, project, isMember)) {
+    return NextResponse.json({ error: "Proje silme yetkiniz yok" }, { status: 403 });
   }
 
-  // Görev cascade kontrolü: görev varsa cascade=true zorunlu
-  const taskCount = project._count.tasks;
-  const cascade = new URL(req.url).searchParams.get("cascade") === "true";
-  if (taskCount > 0 && !cascade) {
+  // Sadece ARŞİVLENMİŞ proje silinebilir (lifecycle kuralı)
+  if (project.status !== "ARCHIVED") {
     return NextResponse.json(
-      { error: "Proje altında görevler var, silmek için cascade=true gönderin", taskCount },
+      { error: "Yalnızca arşivlenmiş projeler silinebilir. Önce projeyi arşivleyin." },
       { status: 409 }
     );
   }
 
-  await prisma.project.delete({ where: { id: params.id } });
+  // Soft delete
+  await prisma.project.update({
+    where: { id: params.id },
+    data: { status: "DELETED", deletedAt: new Date() },
+  });
   return NextResponse.json({ ok: true });
 }

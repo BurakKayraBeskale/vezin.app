@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getVisibleProjectIds, buildProjectVisibilityWhere } from "@/lib/task-visibility";
-import { canCreateProject, canAccessProjects } from "@/lib/access";
+import { canCreateProject, canAccessProjects, projectDeptToUserDept, userDeptToProjectDept } from "@/lib/access";
+
+const VALID_DEPARTMENTS = ["OUTSOURCE", "BAGIMSIZ_DENETIM", "MUHASEBE", "YMM"] as const;
 
 const projectInclude = {
   createdBy: { select: { id: true, name: true } },
@@ -12,15 +14,16 @@ const projectInclude = {
     },
     orderBy: { assignedAt: "asc" as const },
   },
-  _count: { select: { tasks: true } },
 };
 
 function getVisUser(token: any) {
   return {
     id: token.id as string,
-    role: (token as any).role as string,
-    canViewAllProjects: (token as any).canViewAllProjects as boolean ?? false,
-    overseesDepartment: (token as any).overseesDepartment as string | null ?? null,
+    role: (token.role ?? "EMPLOYEE") as string,
+    department: (token.department ?? "") as string,
+    seniorityLevel: (token.seniorityLevel ?? 0) as number,
+    canViewAllProjects: (token.canViewAllProjects ?? false) as boolean,
+    overseesDepartment: (token.overseesDepartment ?? null) as string | null,
   };
 }
 
@@ -29,18 +32,32 @@ export async function GET(req: NextRequest) {
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const user = getVisUser(token);
-  const userDept = (token as any).department as string ?? "";
-  if (!canAccessProjects({ role: user.role, department: userDept, canViewAllProjects: user.canViewAllProjects, overseesDepartment: user.overseesDepartment })) {
+  if (!canAccessProjects(user)) {
     return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
   }
 
   const projectIds = await getVisibleProjectIds(user);
   const visWhere = buildProjectVisibilityWhere(projectIds);
 
-  const dept = new URL(req.url).searchParams.get("department");
-  const finalWhere = dept && ["BAGIMSIZ_DENETIM", "VERGI"].includes(dept)
-    ? { AND: [visWhere, { department: dept }] }
-    : visWhere;
+  const params = new URL(req.url).searchParams;
+  const deptFilter = params.get("department");
+  const statusFilter = params.get("status"); // "ACTIVE" | "DONE" | "ARCHIVED" | "ALL"
+
+  // Departman filtresi — sadece geçerli değerlere izin ver
+  const deptWhere = deptFilter && (VALID_DEPARTMENTS as readonly string[]).includes(deptFilter)
+    ? { department: deptFilter }
+    : {};
+
+  // Durum filtresi — varsayılan: aktif projeler (silinmişler hiç gösterilmez)
+  let statusWhere: object = { status: "ACTIVE" };
+  if (statusFilter === "DONE") statusWhere = { status: "DONE" };
+  else if (statusFilter === "ARCHIVED") statusWhere = { status: "ARCHIVED" };
+  else if (statusFilter === "ALL") statusWhere = { status: { not: "DELETED" } };
+  // else default: ACTIVE
+
+  const finalWhere = {
+    AND: [visWhere, deptWhere, statusWhere],
+  };
 
   const projects = await prisma.project.findMany({
     where: finalWhere as any,
@@ -55,54 +72,98 @@ export async function POST(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
-  const userId = token.id as string;
-  const postRole = (token as any).role as string;
-  const postDept = (token as any).department as string ?? "";
-  const postCanView = (token as any).canViewAllProjects as boolean ?? false;
-  const postOversees = (token as any).overseesDepartment as string | null ?? null;
-  if (!canAccessProjects({ role: postRole, department: postDept, canViewAllProjects: postCanView, overseesDepartment: postOversees })) {
+  const user = getVisUser(token);
+  if (!canAccessProjects(user)) {
     return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
   }
 
-  // Proje açma yetkisi: seniorityLevel >= 5 VEYA overseesDepartment != null VEYA ADMIN/canViewAllProjects
   const creator = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { seniorityLevel: true, canViewAllProjects: true, role: true, overseesDepartment: true },
+    where: { id: user.id },
+    select: { id: true, seniorityLevel: true, canViewAllProjects: true, role: true, department: true },
   });
   if (!creator) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
 
-  const canCreate = creator.role === "ADMIN" || creator.canViewAllProjects || canCreateProject(creator);
-  if (!canCreate) {
+  if (!canCreateProject({ seniorityLevel: creator.seniorityLevel, role: creator.role })) {
     return NextResponse.json(
-      { error: "Proje oluşturmak için Manager 1 veya üstü kıdem gerekli (seviye ≥ 5)" },
+      { error: "Proje oluşturmak için Manager 1 veya üstü kıdem gerekli" },
       { status: 403 }
     );
   }
 
   const body = await req.json();
-  const { name, department, taxNumber, sector, startDate, endDate, notes, about, memberIds } = body;
+  let { name, department, startDate, endDate, about, memberIds } = body;
 
   if (!name?.trim()) return NextResponse.json({ error: "Proje adı zorunlu" }, { status: 400 });
-  if (!department || !["BAGIMSIZ_DENETIM", "VERGI"].includes(department)) {
-    return NextResponse.json({ error: "Geçerli birim: BAGIMSIZ_DENETIM veya VERGI" }, { status: 400 });
+
+  // Admin departman seçer; standart kullanıcı kendi departmanı otomatik atanır
+  const isAdminOrGlobal = creator.role === "ADMIN" || creator.canViewAllProjects;
+  if (!isAdminOrGlobal) {
+    // Standart kullanıcı: departman kendi departmanından türetilir
+    const autoDept = userDeptToProjectDept(creator.department);
+    if (!autoDept) {
+      return NextResponse.json({ error: "Departmanınız proje oluşturmaya uygun değil" }, { status: 403 });
+    }
+    department = autoDept;
   }
 
-  // Bitiş tarihi başlangıçtan önce olamaz
+  if (!department || !(VALID_DEPARTMENTS as readonly string[]).includes(department)) {
+    return NextResponse.json(
+      { error: `Geçerli departmanlar: ${VALID_DEPARTMENTS.join(", ")}` },
+      { status: 400 }
+    );
+  }
+
   if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
     return NextResponse.json({ error: "Bitiş tarihi başlangıç tarihinden önce olamaz" }, { status: 400 });
   }
 
-  const newMemberIds: string[] = Array.isArray(memberIds) ? memberIds.filter(Boolean) : [];
-  const canAssignAll = creator.canViewAllProjects || creator.role === "ADMIN";
+  // Aynı departmanda aynı isimle proje kontrolü (case-insensitive, trim)
+  // SQLite: LIKE case-insensitive değil; uygulama seviyesinde filtrele
+  const normalizedName = name.trim().toLowerCase();
+  const sameNameProjects = await prisma.project.findMany({
+    where: { department, deletedAt: null },
+    select: { id: true, name: true },
+  });
+  const isDuplicate = sameNameProjects.some(
+    (p) => p.name.trim().toLowerCase() === normalizedName
+  );
+  if (isDuplicate) {
+    return NextResponse.json(
+      { error: "Bu departmanda aynı isimde bir proje zaten mevcut" },
+      { status: 409 }
+    );
+  }
 
-  // Kıdem kontrolü: sadece kendinden düşük kıdemliye üye eklenebilir
-  if (!canAssignAll) {
-    for (const mid of newMemberIds) {
-      if (mid === userId) continue;
-      const member = await prisma.user.findUnique({ where: { id: mid }, select: { seniorityLevel: true } });
-      if (member && !(creator.seniorityLevel > member.seniorityLevel)) {
+  const newMemberIds: string[] = Array.isArray(memberIds) ? memberIds.filter(Boolean) : [];
+
+  // Üye departman kontrolü: yalnızca aynı departmandan aktif kullanıcılar
+  if (newMemberIds.length > 0) {
+    const targetUserDept = projectDeptToUserDept(department);
+    if (targetUserDept) {
+      const invalidUser = await prisma.user.findFirst({
+        where: {
+          id: { in: newMemberIds },
+          NOT: { department: targetUserDept },
+        },
+        select: { id: true, name: true },
+      });
+      if (invalidUser) {
         return NextResponse.json(
-          { error: "Sadece kendinizden düşük kıdemlilere üye ekleyebilirsiniz" },
+          { error: "Yalnızca aynı departmandan aktif kullanıcılar proje üyesi yapılabilir" },
+          { status: 403 }
+        );
+      }
+      // Aktif kullanıcı kontrolü
+      const inactiveUser = await prisma.user.findFirst({
+        where: {
+          id: { in: newMemberIds },
+          NOT: { status: "ACTIVE" },
+        },
+        select: { id: true, name: true },
+      });
+      if (inactiveUser) {
+        return NextResponse.json(
+          { error: "Yalnızca aktif kullanıcılar proje üyesi yapılabilir" },
           { status: 403 }
         );
       }
@@ -113,26 +174,27 @@ export async function POST(req: NextRequest) {
     data: {
       name: name.trim(),
       department,
-      taxNumber: taxNumber?.trim() || null,
-      sector: sector?.trim() || null,
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
-      notes: notes?.trim() || null,
       about: about?.trim() || null,
-      createdById: userId,
+      createdById: user.id,
+      status: "ACTIVE",
     },
   });
 
-  // Kurucuyu + istenen üyeleri ekle (SQLite: skipDuplicates yok, Set ile tekilleştir)
-  const allMemberIds = [...new Set([userId, ...newMemberIds])];
+  // Kurucuyu + istenen üyeleri ekle (Set ile tekilleştir)
+  const allMemberIds = [...new Set([user.id, ...newMemberIds])];
   await prisma.projectMember.createMany({
     data: allMemberIds.map((uid) => ({
       projectId: project.id,
       userId: uid,
-      assignedBy: userId,
+      assignedBy: user.id,
     })),
   });
 
-  const full = await prisma.project.findUnique({ where: { id: project.id }, include: projectInclude });
+  const full = await prisma.project.findUnique({
+    where: { id: project.id },
+    include: projectInclude,
+  });
   return NextResponse.json(full, { status: 201 });
 }
