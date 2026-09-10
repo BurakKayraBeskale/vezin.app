@@ -252,17 +252,6 @@ export default function Sidebar({
           active={pathname === "/notifications"}
           badge={unreadNotifications}
         />
-        {/* Toplantılar — her rol */}
-        <NavLink
-          href="/meetings"
-          label="Toplantılar"
-          icon={
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          }
-          active={pathname === "/meetings"}
-        />
         {(BYPASS_AUTH_ROLES || canAccessProjects({ role: userRole, department: userDepartment, canViewAllProjects, overseesDepartment })) && (
           <NavLink
             href="/projeler"
@@ -286,17 +275,6 @@ export default function Sidebar({
             active={pathname === item.href}
           />
         ))}
-
-        <NavLink
-          href="/templates"
-          label="Şablonlar"
-          icon={
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-            </svg>
-          }
-          active={pathname === "/templates" || pathname.startsWith("/admin/templates")}
-        />
 
         {/* YAPAY ZEKA bölümü */}
         <div className="pt-3 pb-1">

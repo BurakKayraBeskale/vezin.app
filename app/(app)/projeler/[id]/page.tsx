@@ -100,6 +100,24 @@ export default async function ProjeDetayPage({
   const isMember = project.members.some((m) => m.user.id === userId);
   const canManage = canManageProject(visUser, project, isMember);
 
+  // Üye ilerleme hesabı — bu projedeki tüm görevler (görünürlük filtresi olmadan)
+  // canManage → tüm üyelerin ilerlemesi; değil → yalnızca kendi ilerlemesi
+  const progressNeededIds = canManage
+    ? project.members.map((m) => m.user.id)
+    : [userId];
+  const progressTasks = await prisma.task.findMany({
+    where: { projectId: params.id, assignedToId: { in: progressNeededIds } },
+    select: { assignedToId: true, status: true },
+  });
+  const progressMap = new Map<string, { done: number; total: number }>();
+  for (const t of progressTasks) {
+    if (!t.assignedToId) continue;
+    const entry = progressMap.get(t.assignedToId) ?? { done: 0, total: 0 };
+    entry.total++;
+    if (t.status === "DONE") entry.done++;
+    progressMap.set(t.assignedToId, entry);
+  }
+
   // canAssignBase: görev atama otoritesi (gelecekteki task permission sistemi için hazır)
   const canAssignBase = canViewAllProjects || canManage;
   const bypassSeniority = userRole === "ADMIN" || canViewAllProjects;
@@ -235,6 +253,10 @@ export default async function ProjeDetayPage({
             title: m.user.title ?? null,
             seniorityLevel: m.user.seniorityLevel,
             canBeAssignedTasks: m.user.canBeAssignedTasks,
+            // canManage → tüm üyelerin ilerlemesi gönderilir; değil → yalnızca kendi
+            taskProgress: progressMap.get(m.user.id) ?? (
+              (canManage || m.user.id === userId) ? { done: 0, total: 0 } : null
+            ),
           },
         }))}
         canEdit={canManage}

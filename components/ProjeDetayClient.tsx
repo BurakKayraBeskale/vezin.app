@@ -4,8 +4,55 @@ import { useState } from "react";
 import Link from "next/link";
 
 type Member = {
-  user: { id: string; name: string; title?: string | null; seniorityLevel: number; canBeAssignedTasks: boolean };
+  user: {
+    id: string;
+    name: string;
+    title?: string | null;
+    seniorityLevel: number;
+    canBeAssignedTasks: boolean;
+    taskProgress?: { done: number; total: number } | null;
+  };
 };
+
+function progressColor(pct: number) {
+  if (pct >= 80) return "bg-green-500";
+  if (pct >= 50) return "bg-amber-500";
+  return "bg-red-500";
+}
+
+function MemberProgress({
+  progress,
+  inverted,
+}: {
+  progress: { done: number; total: number } | null | undefined;
+  inverted?: boolean;
+}) {
+  if (progress == null) return null;
+  const { done, total } = progress;
+  if (total === 0) {
+    return (
+      <p className={`text-[9px] ${inverted ? "text-orange-100" : "text-gray-400"}`}>
+        görev yok
+      </p>
+    );
+  }
+  const pct = Math.round((done / total) * 100);
+  const barBg = inverted ? "bg-orange-300" : "bg-gray-200 dark:bg-gray-600";
+  const barFill = inverted ? "bg-white" : progressColor(pct);
+  return (
+    <div className="w-full min-w-[80px]">
+      <div className={`h-1 rounded-full w-full ${barBg}`}>
+        <div
+          className={`h-1 rounded-full ${barFill} transition-all`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className={`text-[9px] mt-0.5 ${inverted ? "text-orange-100" : "text-gray-400"}`}>
+        %{pct} — {done}/{total}
+      </p>
+    </div>
+  );
+}
 
 type Task = {
   id: string;
@@ -77,7 +124,9 @@ export default function ProjeDetayClient({
     DONE: visibleTasks.filter((t) => t.status === "DONE"),
   };
 
-  function handleMemberClick(memberId: string) {
+  function handleMemberClick(e: React.MouseEvent, memberId: string) {
+    e.preventDefault();
+    e.stopPropagation();
     const isAlreadySelected = selectedMemberId === memberId;
     setSelectedMemberId(isAlreadySelected ? null : memberId);
     setShowAddTask(false);
@@ -172,60 +221,67 @@ export default function ProjeDetayClient({
             if (canEdit) {
               return (
                 <button
+                  type="button"
                   key={m.user.id}
-                  onClick={() => handleMemberClick(m.user.id)}
-                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition-colors ${
+                  onClick={(e) => handleMemberClick(e, m.user.id)}
+                  className={`flex flex-col gap-1 rounded-lg px-2.5 py-2 transition-colors text-left ${
                     isSelected
                       ? "bg-[#F57C28] text-white"
                       : "bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600"
                   }`}
                 >
-                  <div
-                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold flex-shrink-0 ${
-                      isSelected
-                        ? "bg-white text-[#F57C28]"
-                        : "bg-[#F57C28] text-white"
-                    }`}
-                  >
-                    {m.user.name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="text-left">
-                    <p
-                      className={`text-xs font-medium leading-none ${
-                        isSelected ? "text-white" : "text-gray-900 dark:text-white"
+                  <div className="flex items-center gap-1.5">
+                    <div
+                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold flex-shrink-0 ${
+                        isSelected
+                          ? "bg-white text-[#F57C28]"
+                          : "bg-[#F57C28] text-white"
                       }`}
                     >
-                      {m.user.name}
-                    </p>
-                    {m.user.title && (
+                      {m.user.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="text-left">
                       <p
-                        className={`text-[9px] mt-0.5 ${
-                          isSelected ? "text-orange-100" : "text-gray-400"
+                        className={`text-xs font-medium leading-none ${
+                          isSelected ? "text-white" : "text-gray-900 dark:text-white"
                         }`}
                       >
-                        {m.user.title}
+                        {m.user.name}
                       </p>
-                    )}
+                      {m.user.title && (
+                        <p
+                          className={`text-[9px] mt-0.5 ${
+                            isSelected ? "text-orange-100" : "text-gray-400"
+                          }`}
+                        >
+                          {m.user.title}
+                        </p>
+                      )}
+                    </div>
                   </div>
+                  <MemberProgress progress={m.user.taskProgress} inverted={isSelected} />
                 </button>
               );
             }
             return (
               <div
                 key={m.user.id}
-                className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-700 rounded-lg px-2.5 py-1.5"
+                className="flex flex-col gap-1 bg-gray-50 dark:bg-gray-700 rounded-lg px-2.5 py-2"
               >
-                <div className="w-5 h-5 rounded-full bg-[#F57C28] flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0">
-                  {m.user.name.slice(0, 2).toUpperCase()}
+                <div className="flex items-center gap-1.5">
+                  <div className="w-5 h-5 rounded-full bg-[#F57C28] flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0">
+                    {m.user.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-900 dark:text-white leading-none">
+                      {m.user.name}
+                    </p>
+                    {m.user.title && (
+                      <p className="text-[9px] text-gray-400 mt-0.5">{m.user.title}</p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-900 dark:text-white leading-none">
-                    {m.user.name}
-                  </p>
-                  {m.user.title && (
-                    <p className="text-[9px] text-gray-400 mt-0.5">{m.user.title}</p>
-                  )}
-                </div>
+                <MemberProgress progress={m.user.taskProgress} />
               </div>
             );
           })}
@@ -365,19 +421,19 @@ export default function ProjeDetayClient({
                       key={task.id}
                       className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
                     >
-                      <Link
-                        href={`/backlog?task=${task.id}`}
-                        className="flex-1 min-w-0"
-                      >
-                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      <div className="flex-1 min-w-0">
+                        <Link
+                          href={`/backlog?task=${task.id}`}
+                          className="block truncate text-sm font-medium text-gray-900 dark:text-white hover:text-[#F57C28] transition-colors"
+                        >
                           {task.title}
-                        </p>
+                        </Link>
                         {task.assignedTo && (
                           <p className="text-xs text-gray-400 mt-0.5">
                             {task.assignedTo.name}
                           </p>
                         )}
-                      </Link>
+                      </div>
                       <div className="flex items-center gap-2 ml-3 flex-shrink-0">
                         {task.dueDate && (
                           <span
