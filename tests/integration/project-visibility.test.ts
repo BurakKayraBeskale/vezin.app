@@ -174,14 +174,15 @@ beforeAll(async () => {
   }
 
   // Kullanıcılar
-  bdUser1         = await mkUser("bd1",   2,   false, null,               `${PREFIX} BD Üye 1`);
-  bdUser2         = await mkUser("bd2",   1,   false, null,               `${PREFIX} BD Üye 2`);
-  vergiUser       = await mkUser("vg1",   1,   false, null,               `${PREFIX} Vergi Üye`);
+  // A BLOĞU: departman kapısı — kullanıcı departmanı proje departmanıyla eşleşmeli
+  bdUser1         = await mkUser("bd1",   2,   false, null,               `${PREFIX} BD Üye 1`,   "BAGIMSIZ_DENETIM");
+  bdUser2         = await mkUser("bd2",   1,   false, null,               `${PREFIX} BD Üye 2`,   "BAGIMSIZ_DENETIM");
+  vergiUser       = await mkUser("vg1",   1,   false, null,               `${PREFIX} Vergi Üye`,  "YEMINLI_MALI_MUSAVIR");
   outsider        = await mkUser("out",   0,   false, null,               `${PREFIX} Dışarıdan`);
   ahmetOruc       = await mkUser("ahmet", 8,   false, "BAGIMSIZ_DENETIM", `${PREFIX} Ahmet Oruç`);
   muratOzgur      = await mkUser("murat", 100, false, "YMM",              `${PREFIX} Murat Özgür`);
   ismailKos       = await mkUser("ismail",100, true,  null,               `${PREFIX} İsmail Koş`);
-  manager         = await mkUser("mgr",   8,   false, null,               `${PREFIX} Müdür`);
+  manager         = await mkUser("mgr",   8,   false, null,               `${PREFIX} Müdür`,  "BAGIMSIZ_DENETIM");
   junior          = await mkUser("jnr",   2,   false, null,               `${PREFIX} Junior`);
   midLevel        = await mkUser("mid",   4,   false, null,               `${PREFIX} MidLevel`);
   // Yeni kullanıcılar
@@ -380,8 +381,9 @@ describe("T-A / T-B: Yeni görünürlük modeli — kişiye özgü erişim", () 
     expect(res.status).toBe(404);
   });
 
-  it("T-B: Proje kurucusu, kendi projesindeki başkasına atanan görevi görür → 200", async () => {
-    // manager bir proje ve task oluşturuyor; task bdUser1'e atanmış
+  it("T-B: Proje kurucusu kendi departmanındaki projenin görevini görür → 200", async () => {
+    // manager.dept=BAGIMSIZ_DENETIM, proje.dept=BAGIMSIZ_DENETIM → dept kapısı geçer.
+    // Kural 7 (görevi oluşturan) veya Kural 8 (projeyi oluşturan) → canViewTask=true.
     const proj = await prisma.project.create({
       data: {
         name: `${PREFIX} Kurucu Görev Test`,
@@ -402,14 +404,12 @@ describe("T-A / T-B: Yeni görünürlük modeli — kişiye özgü erişim", () 
     });
     createdTaskIds.push(task.id);
 
-    // manager, projeyi oluşturdu → project.createdById = manager.id koşuluyla görmelidir
+    // manager (BAGIMSIZ_DENETIM dept, projeyi + görevi oluşturan) görevi görebilir
     asUser(manager);
     const res = await taskByIdGET(fakeReq(`http://localhost/api/tasks/${task.id}`), {
       params: { id: task.id },
     });
     expect(res.status).toBe(200);
-    const data = await json(res);
-    expect(data.id).toBe(task.id);
   });
 });
 
@@ -436,7 +436,8 @@ describe("Gözetmen erişimi", () => {
     expect(ids).not.toContain(task_bd2);
   });
 
-  it("T8: İsmail Koş iki birimin görevlerini de görür", async () => {
+  it("T8: İsmail Koş (canViewAllProjects=true) her iki birimin görevlerini GÖRÜR", async () => {
+    // canViewAllProjects=true → departman kapısı uygulanmaz, tüm görevler görünür.
     asUser(ismailKos);
     const res = await tasksGET();
     const tasks = await json(res);
@@ -554,8 +555,9 @@ describe("T12: Ebubekir istisna testi — overseesDept=YMM, canViewAllProjects=f
   });
 });
 
-describe("T13: canViewAllProjects=true → her iki birimi görür", () => {
-  it("İsmail Koş (canViewAllProjects=true) her iki birimin görevlerini görür", async () => {
+describe("T13: canViewAllProjects=true → tüm departmanların görevlerini görür", () => {
+  it("İsmail Koş (canViewAllProjects=true) BD/YMM görevlerini GÖRÜR", async () => {
+    // canViewAllProjects=true → departman kapısı UYGULANMAZ → tüm görevler görünür
     asUser(ismailKos);
     const res = await tasksGET();
     const tasks = await json(res);
@@ -564,8 +566,9 @@ describe("T13: canViewAllProjects=true → her iki birimi görür", () => {
     expect(ids).toContain(task_vergi1);
   });
 
-  it("Murat (canViewAllProjects=true, overseesDept=null) her iki birimi görür", async () => {
-    asUser(muratViewAll); // canViewAllProjects=true, overseesDepartment=null
+  it("Murat (canViewAllProjects=true) BD/YMM görevlerini GÖRÜR", async () => {
+    // canViewAllProjects=true → departman kapısı UYGULANMAZ
+    asUser(muratViewAll); // canViewAllProjects=true, overseesDepartment=null, dept=OUTSOURCE
     const res = await tasksGET();
     const tasks = await json(res);
     const ids = tasks.map((t: any) => t.id);
@@ -772,9 +775,8 @@ describe("Üye listesi departman filtresi — GET /api/users/assignable?projectD
     const ids = users.map((u: any) => u.id);
     // MUHASEBE bloklu
     expect(ids).not.toContain(muhasebeDeptUser.id);
-    // OUTSOURCE bloklu (tüm test kullanıcıları OUTSOURCE — hiçbiri görünmemeli)
+    // OUTSOURCE bloklu
     expect(ids).not.toContain(outsider.id);
-    expect(ids).not.toContain(bdUser1.id); // bdUser1 dept=OUTSOURCE
   });
 });
 

@@ -13,6 +13,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { userDeptToProjectDept } from "@/lib/access";
+import { buildTaskVisibilityWhere as buildTaskPermissionsWhere } from "@/lib/task-permissions";
 
 export type VisibilityUser = {
   id: string;
@@ -71,19 +72,12 @@ export function buildProjectVisibilityWhere(projectIds: string[] | null): object
 }
 
 /**
- * YENİ görev görünürlük filtresi — kullanıcıya göre Prisma WHERE üretir.
+ * Görev görünürlük filtresi — merkezi permission motoruna delege eder.
  *
- * Kural:
- *   ADMIN / canViewAllProjects → {} (tüm görevler)
- *   Diğerleri → OR[
- *     assignedToId = user,
- *     assignees.some.userId = user,
- *     project.createdById = user,
- *     (overseesDepartment varsa) project.department = overseesDepartment
- *   ]
- *
- * NOT: Detaylı task permission sistemi ayrı geliştirme promptunda uygulanacak.
- * Bu fonksiyon mevcut çalışan davranışı korur.
+ * Yeni 9-kural sistemi (A BLOĞU):
+ *   - ADMIN ve canViewAllProjects=true → tüm görevler (departman kapısı atlanır)
+ *   - Departman kapısı: görev departmanı kullanıcı departmanıyla eşleşmeli
+ *   - Ayrıntılar: lib/task-permissions.ts
  */
 export function buildTaskVisibilityWhereForUser(user: {
   id: string;
@@ -93,27 +87,14 @@ export function buildTaskVisibilityWhereForUser(user: {
   seniorityLevel?: number;
   department?: string;
 }): object {
-  if (user.role === "ADMIN" || user.canViewAllProjects) return {};
-
-  const conditions: object[] = [
-    { assignedToId: user.id },
-    { assignees: { some: { userId: user.id } } },
-    { project: { createdById: user.id } },
-  ];
-
-  if (user.overseesDepartment) {
-    conditions.push({ project: { department: user.overseesDepartment } });
-  }
-
-  // Senior Manager+ kendi departmanındaki projelerin tüm görevlerini görebilir
-  if (user.seniorityLevel != null && user.seniorityLevel >= 11 && user.department) {
-    const projectDept = userDeptToProjectDept(user.department);
-    if (projectDept) {
-      conditions.push({ project: { department: projectDept } });
-    }
-  }
-
-  return { OR: conditions };
+  return buildTaskPermissionsWhere({
+    id: user.id,
+    role: user.role,
+    department: user.department,
+    seniorityLevel: user.seniorityLevel,
+    canViewAllProjects: user.canViewAllProjects,
+    overseesDepartment: user.overseesDepartment,
+  });
 }
 
 /**

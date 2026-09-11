@@ -394,7 +394,6 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserI
       {
         createdById: task.createdBy.id,
         assignedToId: task.assignedToId,
-        assigneeIds: task.assignees.map((a) => a.userId),
       },
       task.project ?? null
     );
