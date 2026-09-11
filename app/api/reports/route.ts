@@ -38,8 +38,10 @@ export async function GET(req: NextRequest) {
     since = new Date(now.getFullYear(), now.getMonth(), 1);
   }
 
+  const department = (session.user as any).department as string ?? "";
+  const seniorityLevel = (session.user as any).seniorityLevel as number ?? 0;
   // Görünürlük filtresi — overseer yalnızca kendi departmanını görür
-  const visUser = { id: userId, role, canViewAllProjects, overseesDepartment };
+  const visUser = { id: userId, role, canViewAllProjects, overseesDepartment, department, seniorityLevel };
   const visibilityWhere = buildTaskVisibilityWhereForUser(visUser);
 
   // Görünür görev ID'leri — taskLog filtrelemesi için

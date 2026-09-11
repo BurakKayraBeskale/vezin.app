@@ -235,14 +235,15 @@ export function canAssignTaskInProject(
 
 /**
  * Görev silme yetkisi.
+ * A BLOĞU: assignedToId tek kaynak — assigneeIds artık kontrol edilmiyor.
  */
 export function canDeleteTask(
   user: { id: string; role: string; canViewAllProjects: boolean; overseesDepartment?: string | null; department?: string; seniorityLevel?: number },
-  task: { createdById: string; assignedToId?: string | null; assigneeIds?: string[] },
+  task: { createdById: string; assignedToId?: string | null },
   project?: { department: string; createdById: string } | null
 ): boolean {
-  const assigneeIds = task.assigneeIds ?? [];
-  if (task.assignedToId === user.id || assigneeIds.includes(user.id)) return false;
+  // Göreve atanan kişi silemez
+  if (task.assignedToId === user.id) return false;
   if (user.role === "ADMIN" || user.canViewAllProjects) return true;
   if (project != null) {
     const userProjectDept = userDeptToProjectDept(user.department ?? "");

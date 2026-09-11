@@ -67,7 +67,7 @@ function makeSession(u: TestUser) {
       overseesDepartment: u.overseesDepartment,
     },
     expires: new Date(Date.now() + 86_400_000).toISOString(),
-  };
+  } as any;
 }
 
 function makeToken(u: TestUser) {
@@ -81,7 +81,7 @@ function makeToken(u: TestUser) {
     canViewAllProjects: u.canViewAllProjects,
     canViewAllTasks: false,
     overseesDepartment: u.overseesDepartment,
-  };
+  } as any;
 }
 
 function asUser(u: TestUser) {
@@ -155,8 +155,10 @@ beforeAll(async () => {
   createdUserIds.push(admin.id);
 
   // Proje 1: mudur1 + senior + asistan1 + asistan2
+  // A BLOĞU: departman kapısı nedeniyle proje departmanı kullanıcı departmanıyla eşleşmeli
+  // Tüm test kullanıcıları OUTSOURCE → proje de OUTSOURCE
   const proj1 = await prisma.project.create({
-    data: { name: `${PREFIX} Proje 1`, department: "BAGIMSIZ_DENETIM", createdById: admin.id },
+    data: { name: `${PREFIX} Proje 1`, department: "OUTSOURCE", createdById: admin.id },
   });
   createdProjectIds.push(proj1.id);
   await prisma.projectMember.createMany({
@@ -167,7 +169,7 @@ beforeAll(async () => {
 
   // Proje 2: mudur2
   const proj2 = await prisma.project.create({
-    data: { name: `${PREFIX} Proje 2`, department: "BAGIMSIZ_DENETIM", createdById: admin.id },
+    data: { name: `${PREFIX} Proje 2`, department: "OUTSOURCE", createdById: admin.id },
   });
   createdProjectIds.push(proj2.id);
   await prisma.projectMember.createMany({

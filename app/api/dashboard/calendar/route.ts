@@ -19,9 +19,11 @@ export async function GET(req: NextRequest) {
   const role = (session.user as any).role as string;
   const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
   const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
+  const department = (session.user as any).department as string ?? "";
+  const seniorityLevel = (session.user as any).seniorityLevel as number ?? 0;
 
   // Görünürlük filtresi — takvim de aynı kapsamı kullanır
-  const visibilityWhere = buildTaskVisibilityWhereForUser({ id: userId, role, canViewAllProjects, overseesDepartment });
+  const visibilityWhere = buildTaskVisibilityWhereForUser({ id: userId, role, canViewAllProjects, overseesDepartment, department, seniorityLevel });
 
   // Takvim: görünürlük kapsamındaki görevler + o aya ait vade tarihi
   const tasks = await prisma.task.findMany({

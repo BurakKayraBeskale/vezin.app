@@ -28,6 +28,8 @@ function sessionFields(token: NonNullable<Awaited<ReturnType<typeof getSession>>
     canViewAllTasks: (token as any).canViewAllTasks as boolean ?? false,
     canViewAllProjects: (token as any).canViewAllProjects as boolean ?? false,
     overseesDepartment: (token as any).overseesDepartment as string | null ?? null,
+    department: (token as any).department as string ?? "",
+    seniorityLevel: (token as any).seniorityLevel as number ?? 0,
     isAdmin: (token as any).role === "ADMIN",
   };
 }
@@ -38,6 +40,8 @@ function makeVisUser(fields: ReturnType<typeof sessionFields>) {
     role: fields.userRole,
     canViewAllProjects: fields.canViewAllProjects,
     overseesDepartment: fields.overseesDepartment,
+    department: fields.department,
+    seniorityLevel: fields.seniorityLevel,
   };
 }
 
@@ -93,11 +97,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (body.nextOccurrence !== undefined) allowed.nextOccurrence = body.nextOccurrence ? new Date(body.nextOccurrence) : null;
       if (body.parentTaskId !== undefined) allowed.parentTaskId = body.parentTaskId || null;
 
-      // Çoklu atanan — assigneeIds öncelikli, sonra tek assignedToId
+      // A BLOĞU: assignedToId tek kaynak — TaskAssignee artık yazılmıyor
       if (Array.isArray(body.assigneeIds)) {
         const newIds: string[] = body.assigneeIds.filter(Boolean);
 
-        // Server-side atama yetkisi kontrolü
+        // Çoklu atama desteklenmiyor
+        if (newIds.length > 1) {
+          return NextResponse.json({ error: "Birden fazla kişiye atama yapılamaz" }, { status: 400 });
+        }
+
+        // Server-side kıdem kontrolü
         const assigner = await prisma.user.findUnique({
           where: { id: userId },
           select: { seniorityLevel: true, canViewAllProjects: true, role: true },
@@ -114,27 +123,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           }
         }
 
-        allowed.assignedToId = newIds[0] ?? null;
-        await prisma.taskAssignee.deleteMany({ where: { taskId: params.id } });
-        if (newIds.length > 0) {
-          await prisma.taskAssignee.createMany({
-            data: newIds.map((uid) => ({ taskId: params.id, userId: uid })),
-          });
-        }
-        for (const uid of newIds) {
-          if (uid !== userId) {
-            try {
-              const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
-              await prisma.notification.create({
-                data: {
-                  userId: uid,
-                  type: "TASK_ASSIGNED",
-                  message: `"${t?.title}" görevi size atandı.`,
-                  relatedId: params.id,
-                },
-              });
-            } catch { /* ignore */ }
-          }
+        const newAssignee = newIds[0] ?? null;
+        allowed.assignedToId = newAssignee;
+
+        if (newAssignee && newAssignee !== userId) {
+          try {
+            const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
+            await prisma.notification.create({
+              data: {
+                userId: newAssignee,
+                type: "TASK_ASSIGNED",
+                message: `"${t?.title}" görevi size atandı.`,
+                relatedId: params.id,
+              },
+            });
+          } catch { /* ignore */ }
         }
       } else if (body.assignedToId !== undefined) {
         const newId: string | null = body.assignedToId || null;
@@ -152,10 +155,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           }
         }
         allowed.assignedToId = newId;
-        if (newId) {
-          await prisma.taskAssignee.deleteMany({ where: { taskId: params.id } });
-          await prisma.taskAssignee.create({ data: { taskId: params.id, userId: newId } });
-        }
       }
     }
 
@@ -212,7 +211,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const fields = sessionFields(token);
   const visUser = makeVisUser(fields);
 
-  // Önce görünürlük filtresi — kullanıcının göremedeği görevi silemez
+  // Önce görünürlük filtresi — kullanıcının göremediği görevi silemez
   const taskWhere = buildTaskVisibilityWhereForUser(visUser);
   const task = await prisma.task.findFirst({
     where: { AND: [{ id: params.id }, taskWhere as any] },
@@ -220,7 +219,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       id: true,
       createdById: true,
       assignedToId: true,
-      assignees: { select: { userId: true } },
+      // A BLOĞU: TaskAssignee artık okunmuyor — assignedToId tek kaynak
       project: { select: { department: true, createdById: true } },
     },
   });
@@ -230,7 +229,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   // Silme yetkisi kontrolü — canDeleteTask tek doğru kaynak
   const allowed = canDeleteTask(
     { id: fields.userId, role: fields.userRole, canViewAllProjects: fields.canViewAllProjects, overseesDepartment: fields.overseesDepartment },
-    { createdById: task.createdById, assignedToId: task.assignedToId, assigneeIds: task.assignees.map((a) => a.userId) },
+    { createdById: task.createdById, assignedToId: task.assignedToId },
     task.project ?? null
   );
 

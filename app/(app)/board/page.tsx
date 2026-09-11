@@ -5,7 +5,7 @@ import KanbanBoard from "@/components/KanbanBoard";
 import PerformancePanel from "@/components/PerformancePanel";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
-import { getVisibleTaskIds, buildVisibilityWhere } from "@/lib/task-visibility";
+import { buildTaskVisibilityWhere } from "@/lib/task-permissions";
 import { getPerformanceScope } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
@@ -18,13 +18,14 @@ export default async function BoardPage() {
   const canViewAllTasks = (session!.user as any).canViewAllTasks ?? false;
   const canViewAllProjects = (session!.user as any).canViewAllProjects ?? false;
   const overseesDepartment = (session!.user as any).overseesDepartment as string | null ?? null;
+  const department = (session!.user as any).department as string ?? "";
+  const seniorityLevel = (session!.user as any).seniorityLevel as number ?? 0;
   const canManage = isAdmin || canViewAllTasks;
   const userEmail = session!.user.email ?? "";
   const performanceScope = getPerformanceScope({ role, email: userEmail });
 
-  // ── Görünür görevler — kıdem+atama zinciri modeli ─────────────────────────
-  const visibleIds = await getVisibleTaskIds({ id: userId, role, canViewAllTasks });
-  const taskWhere = buildVisibilityWhere(visibleIds);
+  // ── Görünür görevler — A BLOĞU merkezi permission motoru ──────────────────
+  const taskWhere = buildTaskVisibilityWhere({ id: userId, role, canViewAllProjects, overseesDepartment, department, seniorityLevel });
 
   // ── Atanabilir kullanıcılar — kıdem kuralı ───────────────────────────────
   const assigner = await prisma.user.findUnique({

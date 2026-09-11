@@ -7,7 +7,7 @@ import { canAssignTaskInProject, ASSIGN_EXCEPTIONS } from "@/lib/access";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
-  assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+  assignees: { include: { user: { select: { id: true, name: true, email: true } } } }, // okunur ama artık yazılmaz
   createdBy: { select: { id: true, name: true } },
   parent: { select: { id: true, title: true } },
   children: { select: { id: true, title: true, status: true } },
@@ -23,6 +23,8 @@ function sessionVisUser(session: any) {
     role: (session.user as any).role as string,
     canViewAllProjects: (session.user as any).canViewAllProjects as boolean ?? false,
     overseesDepartment: (session.user as any).overseesDepartment as string | null ?? null,
+    department: (session.user as any).department as string ?? "",
+    seniorityLevel: (session.user as any).seniorityLevel as number ?? 0,
   };
 }
 
@@ -49,6 +51,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { title, description, priority, assignedToId, dueDate, projectId, companyId, parentTaskId } = body;
   const assigneeIds: string[] = Array.isArray(body.assigneeIds) ? body.assigneeIds.filter(Boolean) : [];
+
+  // A BLOĞU: assignedToId tek kaynak — çoklu atama desteklenmiyor
+  if (assigneeIds.length > 1) {
+    return NextResponse.json({ error: "Birden fazla kişiye atama yapılamaz" }, { status: 400 });
+  }
 
   if (!title?.trim()) return NextResponse.json({ error: "Başlık gerekli" }, { status: 400 });
 
@@ -162,12 +169,22 @@ export async function POST(req: NextRequest) {
     if (!parent) return NextResponse.json({ error: "Üst görev bulunamadı veya erişim yok" }, { status: 404 });
   }
 
+  // A BLOĞU: assignedToId tek kaynak — TaskAssignee artık yazılmıyor
+  // assignmentLevelSnapshot ve reviewOwnerId oluşturucu bilgisinden alınır
+  const assignerForSnapshot = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { seniorityLevel: true, department: true },
+  });
+
   const task = await prisma.task.create({
     data: {
       title: title.trim(),
       description: description?.trim() || null,
       priority: priority || "MEDIUM",
       assignedToId: primaryAssignee,
+      reviewOwnerId: userId,
+      assignmentLevelSnapshot: assignerForSnapshot?.seniorityLevel ?? null,
+      departmentId: !projectId ? (assignerForSnapshot?.department ?? null) : null,
       dueDate: dueDate ? new Date(dueDate) : null,
       createdById: userId,
       isRecurring: body.isRecurring ?? false,
@@ -181,27 +198,18 @@ export async function POST(req: NextRequest) {
     include: taskInclude,
   });
 
-  const idsToAssign = assigneeIds.length > 0 ? assigneeIds : (primaryAssignee ? [primaryAssignee] : []);
-  // SQLite: skipDuplicates desteklenmez — task yeni oluşturulduğu için mükerrer olamaz
-  if (idsToAssign.length > 0) {
-    await prisma.taskAssignee.createMany({
-      data: [...new Set(idsToAssign)].map((uid) => ({ taskId: task.id, userId: uid })),
-    });
-  }
-
-  for (const uid of idsToAssign) {
-    if (uid !== userId) {
-      try {
-        await prisma.notification.create({
-          data: {
-            userId: uid,
-            type: "TASK_ASSIGNED",
-            message: `"${task.title}" görevi size atandı.`,
-            relatedId: task.id,
-          },
-        });
-      } catch { /* ignore */ }
-    }
+  // Bildirim: yalnızca atanan kişiye (assignedToId = tek kaynak)
+  if (primaryAssignee && primaryAssignee !== userId) {
+    try {
+      await prisma.notification.create({
+        data: {
+          userId: primaryAssignee,
+          type: "TASK_ASSIGNED",
+          message: `"${task.title}" görevi size atandı.`,
+          relatedId: task.id,
+        },
+      });
+    } catch { /* ignore */ }
   }
 
   const full = await prisma.task.findUnique({ where: { id: task.id }, include: taskInclude });

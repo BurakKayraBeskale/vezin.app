@@ -81,35 +81,39 @@ model UserRelation {
 // recurringType: "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY"
 // recurringDay: 1-31 for MONTHLY, 0-6 for WEEKLY (0=Mon)
 model Task {
-  id             String    @id @default(cuid())
-  title          String
-  description    String?
-  status         String    @default("TODO")
-  priority       String    @default("MEDIUM")
-  assignedTo     User?     @relation("AssignedTo", fields: [assignedToId], references: [id])
-  assignedToId   String?
-  dueDate        DateTime?
-  createdBy      User      @relation("CreatedBy", fields: [createdById], references: [id])
-  createdById    String
-  parentTaskId   String?
-  parent         Task?     @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
-  children       Task[]    @relation("TaskHierarchy")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  completedAt    DateTime?
-  isRecurring    Boolean   @default(false)
-  recurringType  String?
-  recurringDay   Int?
-  nextOccurrence DateTime?
-  companyId      String?
-  company        Company?  @relation(fields: [companyId], references: [id])
-  projectId      String?
-  project        Project?  @relation(fields: [projectId], references: [id])
-  assignees      TaskAssignee[]
-  feedbacks      Feedback[]
-  files          File[]
-  logs           TaskLog[]
-  comments       TaskComment[]
+  id                      String    @id @default(cuid())
+  title                   String
+  description             String?
+  status                  String    @default("TODO")
+  priority                String    @default("MEDIUM")
+  assignedTo              User?     @relation("AssignedTo", fields: [assignedToId], references: [id])
+  assignedToId            String?
+  reviewOwnerId           String?   // inceleme sahibi (varsayılan: createdById)
+  assignmentLevelSnapshot Int?      // atama anındaki atayan kıdem seviyesi
+  departmentId            String?   // proje dışı görevler için departman (user dept formatı)
+  deletedAt               DateTime? // yumuşak silme
+  dueDate                 DateTime?
+  createdBy               User      @relation("CreatedBy", fields: [createdById], references: [id])
+  createdById             String
+  parentTaskId            String?
+  parent                  Task?     @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  children                Task[]    @relation("TaskHierarchy")
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  completedAt             DateTime?
+  isRecurring             Boolean   @default(false)
+  recurringType           String?
+  recurringDay            Int?
+  nextOccurrence          DateTime?
+  companyId               String?
+  company                 Company?  @relation(fields: [companyId], references: [id])
+  projectId               String?
+  project                 Project?  @relation(fields: [projectId], references: [id])
+  assignees               TaskAssignee[]
+  feedbacks               Feedback[]
+  files                   File[]
+  logs                    TaskLog[]
+  comments                TaskComment[]
 }
 
 model TaskAssignee {

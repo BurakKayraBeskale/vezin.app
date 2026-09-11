@@ -24,13 +24,15 @@ export async function GET() {
   const userRole = (session.user as any).role as "ADMIN" | "MANAGER" | "EMPLOYEE";
   const canViewAllProjects = (session.user as any).canViewAllProjects as boolean ?? false;
   const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
+  const department = (session.user as any).department as string ?? "";
+  const seniorityLevel = (session.user as any).seniorityLevel as number ?? 0;
 
   const now = new Date();
   const thisWeekStart = weekBounds(0).start;
   const { start: lastStart, end: lastEnd } = weekBounds(1);
 
   // Görünürlük filtresi — tüm sayaç, groupBy ve liste sorgularında kullanılır
-  const visibilityWhere = buildTaskVisibilityWhereForUser({ id: userId, role: userRole, canViewAllProjects, overseesDepartment });
+  const visibilityWhere = buildTaskVisibilityWhereForUser({ id: userId, role: userRole, canViewAllProjects, overseesDepartment, department, seniorityLevel });
 
   // Sayaç kartları: görünürlük filtresi AND kişisel filtre (assignedToId)
   // Kullanıcı yalnızca görebildiği ve kendisine atanmış görevleri sayar.
