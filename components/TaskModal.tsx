@@ -42,14 +42,18 @@ export interface TaskFull {
   priority: Priority;
   assignedTo: User | null;
   assignedToId: string | null;
+  reviewOwnerId?: string | null;
   assignees: AssigneeRecord[];
   dueDate: string | null;
+  projectId?: string | null;
   createdBy: { id: string; name: string };
   createdAt: string;
   files: FileRecord[];
   feedbacks: FeedbackRecord[];
   logs: LogRecord[];
-  project?: { department: string; createdById: string } | null;
+  parent?: { id: string; title: string } | null;
+  children?: { id: string; title: string; status: string }[];
+  project?: { id?: string; name?: string; department: string; createdById: string } | null;
 }
 
 const STATUS_LABELS: Record<Status, string> = {

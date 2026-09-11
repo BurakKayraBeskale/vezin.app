@@ -7,18 +7,9 @@ import { TaskFull } from "./TaskModal";
 interface User { id: string; name: string; }
 interface CompanyOption { id: string; name: string; }
 
-interface Template {
-  id: string;
-  title: string;
-  description: string | null;
-  priority: string;
-  estimatedDays: number | null;
-}
-
 interface Props {
   task?: TaskFull | null;
   users: User[];
-  templates?: Template[];
   onClose: () => void;
   onCreate?: (task: TaskFull) => void;
   onUpdate?: (task: TaskFull) => void;
@@ -28,7 +19,7 @@ function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
 }
 
-export default function TaskFormModal({ task, users, templates, onClose, onCreate, onUpdate }: Props) {
+export default function TaskFormModal({ task, users, onClose, onCreate, onUpdate }: Props) {
   const isEdit = !!task;
   const { data: session } = useSession();
   const isBAGIMSIZ = (session?.user as any)?.department === "BAGIMSIZ_DENETIM";
@@ -44,9 +35,6 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
       })
       .catch(() => {});
   }, [isBAGIMSIZ]);
-  const [fromTemplate, setFromTemplate] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-
   const [title, setTitle] = useState(task?.title ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
   const [priority, setPriority] = useState<string>(task?.priority ?? "MEDIUM");
@@ -96,20 +84,6 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
     setAssigneeIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
-  }
-
-  function applyTemplate(id: string) {
-    setSelectedTemplateId(id);
-    const tpl = templates?.find((t) => t.id === id);
-    if (!tpl) return;
-    setTitle(tpl.title);
-    setDescription(tpl.description ?? "");
-    setPriority(tpl.priority);
-    if (tpl.estimatedDays) {
-      const d = new Date();
-      d.setDate(d.getDate() + tpl.estimatedDays);
-      setDueDate(d.toISOString().slice(0, 10));
-    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -182,36 +156,6 @@ export default function TaskFormModal({ task, users, templates, onClose, onCreat
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Template selector */}
-          {!isEdit && templates && templates.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <button
-                  type="button"
-                  onClick={() => setFromTemplate((v) => !v)}
-                  className="text-xs text-[#F57C28] hover:underline font-medium flex items-center gap-1"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                  </svg>
-                  {fromTemplate ? "Şablonsuz devam et" : "Şablondan doldur"}
-                </button>
-              </div>
-              {fromTemplate && (
-                <select
-                  value={selectedTemplateId}
-                  onChange={(e) => applyTemplate(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#F57C28]/40 bg-[#FFF9F5] text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
-                >
-                  <option value="">— Şablon seçin —</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>{t.title}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Başlık *</label>
             <input

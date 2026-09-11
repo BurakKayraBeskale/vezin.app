@@ -17,8 +17,9 @@ import {
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import clsx from "clsx";
 import PriorityBadge from "./PriorityBadge";
-import TaskModal, { TaskFull } from "./TaskModal";
-import TaskFormModal from "./TaskFormModal";
+import { TaskFull } from "./TaskModal";
+import TaskDetail from "./TaskDetail";
+import NewTaskModal from "./NewTaskModal";
 
 type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
 
@@ -37,7 +38,6 @@ const STATUS_LABELS: Record<Status, string> = {
 };
 
 interface User { id: string; name: string; email?: string; }
-interface Template { id: string; title: string; description: string | null; priority: string; estimatedDays: number | null; }
 
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
@@ -263,11 +263,10 @@ interface Props {
   isAdmin: boolean;
   currentUserId: string;
   canDeleteFiles: boolean;
-  templates?: Template[];
   userIdentity?: UserIdentity;
 }
 
-export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserId, canDeleteFiles, templates, userIdentity }: Props) {
+export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserId, canDeleteFiles, userIdentity }: Props) {
   const router = useRouter();
   const { theme } = useTheme();
   const isDark = theme === "dark";
@@ -505,15 +504,6 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserI
         )}
         {isAdmin && (
           <div className="flex items-center gap-2 ml-auto flex-shrink-0">
-            {templates && templates.length > 0 && (
-              <button onClick={() => setShowCreate(true)}
-                className="flex items-center gap-1.5 text-xs border border-[#F57C28]/40 bg-[#FFF9F5] text-[#F57C28] font-semibold px-3 py-2 rounded-xl hover:bg-[#FFF3E9] transition-colors">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                </svg>
-                Şablondan Oluştur
-              </button>
-            )}
             <button onClick={() => setShowCreate(true)}
               className="flex items-center gap-1.5 text-xs bg-[#F57C28] hover:bg-[#D96A1A] text-white font-semibold px-3 py-2 rounded-xl transition-colors shadow-md shadow-[#F57C28]/25">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -553,24 +543,24 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserI
       </DndContext>
 
       {selectedTask && (
-        <TaskModal
-          task={selectedTask}
+        <TaskDetail
+          taskId={selectedTask.id}
+          initialTask={selectedTask}
           users={users}
           isAdmin={isAdmin}
-          currentUserId={currentUserId}
-          canDeleteFiles={canDeleteFiles}
           onClose={() => setSelectedTask(null)}
           onUpdate={handleModalUpdate}
+          onDelete={(id) => {
+            setTasks((prev) => prev.filter((t) => t.id !== id));
+            setSelectedTask(null);
+            setToast("Görev silindi");
+            setTimeout(() => setToast(null), 2500);
+          }}
         />
       )}
 
       {showCreate && (
-        <TaskFormModal
-          users={users}
-          templates={templates}
-          onClose={() => setShowCreate(false)}
-          onCreate={handleCreate}
-        />
+        <NewTaskModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />
       )}
 
       {deleteTarget && (

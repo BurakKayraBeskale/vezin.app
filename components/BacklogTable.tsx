@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import PriorityBadge from "./PriorityBadge";
 import StatusBadge from "./StatusBadge";
-import TaskModal, { TaskFull } from "./TaskModal";
+import { TaskFull } from "./TaskModal";
+import TaskDetail from "./TaskDetail";
 import TaskFormModal from "./TaskFormModal";
+import NewTaskModal from "./NewTaskModal";
 
 type Priority = "HIGH" | "MEDIUM" | "LOW";
 type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
@@ -20,7 +22,6 @@ const STATUS_LABELS: Record<Status, string> = {
 };
 
 interface User { id: string; name: string; email?: string; }
-interface Template { id: string; title: string; description: string | null; priority: string; estimatedDays: number | null; }
 
 interface Props {
   initialTasks: TaskFull[];
@@ -28,7 +29,6 @@ interface Props {
   isAdmin: boolean;
   currentUserId: string;
   canDeleteFiles: boolean;
-  templates?: Template[];
 }
 
 function fmtDate(d: string | null) {
@@ -60,7 +60,7 @@ function SortIcon({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol; s
   );
 }
 
-export default function BacklogTable({ initialTasks, users, isAdmin, currentUserId, canDeleteFiles, templates }: Props) {
+export default function BacklogTable({ initialTasks, users, isAdmin, currentUserId, canDeleteFiles }: Props) {
   const router = useRouter();
   const [tasks, setTasks] = useState<TaskFull[]>(initialTasks);
   const [toast, setToast] = useState<string | null>(null);
@@ -267,15 +267,6 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
           <span className="text-sm text-gray-400 whitespace-nowrap hidden sm:block">{filtered.length} görev</span>
           {isAdmin && (
             <div className="flex items-center gap-2 flex-shrink-0">
-              {templates && templates.length > 0 && (
-                <button onClick={() => setShowCreate(true)}
-                  className="flex items-center gap-1.5 text-xs border border-[#F57C28]/40 bg-[#FFF9F5] text-[#F57C28] font-semibold px-3 py-2.5 rounded-xl hover:bg-[#FFF3E9] transition-colors">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                  </svg>
-                  <span className="hidden sm:inline">Şablondan</span>
-                </button>
-              )}
               <button onClick={() => setShowCreate(true)}
                 className="flex items-center gap-2 bg-[#F57C28] hover:bg-[#D96A1A] text-white text-sm font-semibold px-3 sm:px-4 py-2.5 rounded-xl shadow-md shadow-[#F57C28]/25 transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -435,13 +426,24 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
 
       {/* Modals */}
       {viewTask && (
-        <TaskModal task={viewTask} users={users} isAdmin={isAdmin} currentUserId={currentUserId} canDeleteFiles={canDeleteFiles} onClose={() => setViewTask(null)} onUpdate={handleUpdate} />
+        <TaskDetail
+          taskId={viewTask.id}
+          initialTask={viewTask}
+          users={users}
+          isAdmin={isAdmin}
+          onClose={() => setViewTask(null)}
+          onUpdate={handleUpdate}
+          onDelete={(id) => {
+            setTasks((prev) => prev.filter((t) => t.id !== id));
+            setViewTask(null);
+          }}
+        />
       )}
       {editTask && (
-        <TaskFormModal task={editTask} users={users} templates={templates} onClose={() => setEditTask(null)} onUpdate={handleUpdate} />
+        <TaskFormModal task={editTask} users={users} onClose={() => setEditTask(null)} onUpdate={handleUpdate} />
       )}
       {showCreate && (
-        <TaskFormModal users={users} templates={templates} onClose={() => setShowCreate(false)} onCreate={handleCreate} />
+        <NewTaskModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />
       )}
     </div>
   );

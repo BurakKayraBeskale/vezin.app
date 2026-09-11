@@ -34,7 +34,7 @@ export default async function BoardPage() {
   });
   const canAssignAll = assigner ? (assigner.canViewAllTasks || assigner.role === "ADMIN") : false;
 
-  const [tasks, users, templates] = await Promise.all([
+  const [tasks, users] = await Promise.all([
     prisma.task.findMany({
       where: taskWhere as any,
       include: {
@@ -70,12 +70,6 @@ export default async function BoardPage() {
       select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
       orderBy: { name: "asc" },
     }),
-    canManage
-      ? prisma.taskTemplate.findMany({
-          select: { id: true, title: true, description: true, priority: true, estimatedDays: true },
-          orderBy: { createdAt: "desc" },
-        })
-      : Promise.resolve([]),
   ]);
 
   const counts = {
@@ -117,7 +111,6 @@ export default async function BoardPage() {
         isAdmin={canManage}
         currentUserId={userId}
         canDeleteFiles={canManage}
-        templates={JSON.parse(JSON.stringify(templates))}
         userIdentity={{ id: userId, role, canViewAllProjects, overseesDepartment }}
       />
 

@@ -9,7 +9,7 @@ const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
   assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
   createdBy: { select: { id: true, name: true } },
-  project: { select: { department: true, createdById: true } },
+  project: { select: { id: true, name: true, department: true, createdById: true } },
   parent: { select: { id: true, title: true } },
   children: { select: { id: true, title: true, status: true } },
   files: { include: { uploadedBy: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" as const } },

@@ -973,21 +973,22 @@ describe("Proje içi görev atama — POST /api/tasks (projectId + yetki)", () =
     expect(leaked).toBeNull();
   });
 
-  it("dueDate boş gönderilirse hata dönüyor → 400", async () => {
-    asUser(manager); // seniority geçecek, ama dueDate yok
+  it("dueDate boş gönderilirse görev oluşturulur → 201 (B Bloğu: dueDate opsiyonel)", async () => {
+    asUser(manager); // seniority geçecek, dueDate yok ama artık zorunlu değil
     const req = new Request("http://localhost/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: `${PREFIX} DueDate Eksik`,
         assigneeIds: [bdUser1.id],
-        // dueDate kasıtlı olarak yok
+        // dueDate kasıtlı olarak yok — artık opsiyonel
       }),
     });
     const res = await tasksPOST(req as any);
-    expect(res.status).toBe(400);
-    const leaked = await prisma.task.findFirst({ where: { title: `${PREFIX} DueDate Eksik` } });
-    expect(leaked).toBeNull();
+    expect(res.status).toBe(201);
+    const created = await prisma.task.findFirst({ where: { title: `${PREFIX} DueDate Eksik` } });
+    expect(created).not.toBeNull();
+    if (created) createdTaskIds.push(created.id);
   });
 });
 

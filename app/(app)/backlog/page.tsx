@@ -30,7 +30,7 @@ export default async function BacklogPage() {
   });
   const canAssignAll = assigner ? (assigner.canViewAllTasks || assigner.role === "ADMIN") : false;
 
-  const [tasks, users, templates] = await Promise.all([
+  const [tasks, users] = await Promise.all([
     prisma.task.findMany({
       where: taskWhere as any,
       include: {
@@ -65,12 +65,6 @@ export default async function BacklogPage() {
       select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
       orderBy: { name: "asc" },
     }),
-    canManage
-      ? prisma.taskTemplate.findMany({
-          select: { id: true, title: true, description: true, priority: true, estimatedDays: true },
-          orderBy: { createdAt: "desc" },
-        })
-      : Promise.resolve([]),
   ]);
 
   // Görünür kullanıcılar (@mention için): görev katılımcıları ∪ atanabilir kullanıcılar
@@ -109,7 +103,6 @@ export default async function BacklogPage() {
         isAdmin={canManage}
         currentUserId={userId}
         canDeleteFiles={canManage}
-        templates={JSON.parse(JSON.stringify(templates))}
       />
     </div>
   );

@@ -154,9 +154,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Son tarih zorunlu ─────────────────────────────────────────────────
-  if (!body.dueDate) {
-    return NextResponse.json({ error: "Son tarih zorunludur" }, { status: 400 });
+  // ── Atanan zorunlu ────────────────────────────────────────────────────
+  if (!primaryAssignee) {
+    return NextResponse.json({ error: "Atanan kişi zorunludur" }, { status: 400 });
   }
 
   // ── Alt-görev: üst görevi görebilmeyi kontrol et ───────────────────────
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
       assignedToId: primaryAssignee,
       reviewOwnerId: userId,
       assignmentLevelSnapshot: assignerForSnapshot?.seniorityLevel ?? null,
-      departmentId: !projectId ? (assignerForSnapshot?.department ?? null) : null,
+      departmentId: !projectId ? (body.departmentId || assignerForSnapshot?.department || null) : null,
       dueDate: dueDate ? new Date(dueDate) : null,
       createdById: userId,
       isRecurring: body.isRecurring ?? false,
