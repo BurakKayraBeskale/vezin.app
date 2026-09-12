@@ -53,6 +53,10 @@ model User {
   projectMembers      ProjectMember[]
   projectsCreated     Project[]         @relation("ProjectCreatedBy")
   karsitIncelemeler   KarsitInceleme[]
+  reviewRoundsSubmitted TaskReviewRound[] @relation("ReviewRoundSubmitter")
+  reviewRoundsReviewed  TaskReviewRound[] @relation("ReviewRoundReviewer")
+  taskSources         TaskSource[]
+  taskAttachments     TaskAttachment[]
 }
 
 model Notification {
@@ -92,6 +96,7 @@ model Task {
   assignmentLevelSnapshot Int?      // atama anındaki atayan kıdem seviyesi
   departmentId            String?   // proje dışı görevler için departman (user dept formatı)
   deletedAt               DateTime? // yumuşak silme
+  reopenReason            String?   // DONE→TODO geçişinde zorunlu sebep
   dueDate                 DateTime?
   createdBy               User      @relation("CreatedBy", fields: [createdById], references: [id])
   createdById             String
@@ -114,6 +119,63 @@ model Task {
   files                   File[]
   logs                    TaskLog[]
   comments                TaskComment[]
+  reviewRounds            TaskReviewRound[]
+  sources                 TaskSource[]
+  attachments             TaskAttachment[]
+}
+
+// reviewAction: "APPROVED" | "REVISION_REQUESTED"
+model TaskReviewRound {
+  id             String    @id @default(cuid())
+  task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId         String
+  roundNumber    Int
+  submittedBy    User      @relation("ReviewRoundSubmitter", fields: [submittedById], references: [id])
+  submittedById  String
+  submissionNote String
+  submittedAt    DateTime  @default(now())
+  reviewedBy     User?     @relation("ReviewRoundReviewer", fields: [reviewedById], references: [id])
+  reviewedById   String?
+  reviewAction   String?
+  reviewNote     String?
+  reviewedAt     DateTime?
+  attachments    TaskAttachment[]
+}
+
+// type: "LINK" | "FILE"
+model TaskSource {
+  id          String   @id @default(cuid())
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String
+  type        String
+  name        String
+  url         String?
+  storageKey  String?
+  description String?
+  addedBy     User     @relation(fields: [addedById], references: [id])
+  addedById   String
+  createdAt   DateTime @default(now())
+}
+
+// kind: "SUBMISSION" | "FEEDBACK"
+// type: "LINK" | "FILE"
+model TaskAttachment {
+  id             String           @id @default(cuid())
+  task           Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId         String
+  reviewRound    TaskReviewRound? @relation(fields: [reviewRoundId], references: [id], onDelete: SetNull)
+  reviewRoundId  String?
+  kind           String
+  type           String
+  name           String
+  url            String?
+  storageKey     String?
+  size           Int?
+  uploadedBy     User             @relation(fields: [uploadedById], references: [id])
+  uploadedById   String
+  createdAt      DateTime         @default(now())
+  retentionUntil DateTime?
+  purgedAt       DateTime?
 }
 
 model TaskAssignee {

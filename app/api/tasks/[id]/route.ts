@@ -4,9 +4,15 @@ import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 import { canDeleteTask } from "@/lib/access";
 import { computeCompletedAt } from "@/lib/task-status";
+import {
+  canReviewTask,
+  canSubmitForReview,
+  canTakeOverReview,
+  canReassignTask,
+} from "@/lib/task-permissions";
 
 const taskInclude = {
-  assignedTo: { select: { id: true, name: true, email: true } },
+  assignedTo: { select: { id: true, name: true, email: true, seniorityLevel: true } },
   assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
   createdBy: { select: { id: true, name: true } },
   project: { select: { id: true, name: true, department: true, createdById: true } },
@@ -15,6 +21,17 @@ const taskInclude = {
   files: { include: { uploadedBy: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" as const } },
   feedbacks: { include: { fromUser: { select: { id: true, name: true, role: true } } }, orderBy: { createdAt: "asc" as const } },
   logs: { include: { user: { select: { id: true, name: true } } }, orderBy: { timestamp: "asc" as const } },
+  reviewRounds: {
+    include: {
+      submittedBy: { select: { id: true, name: true } },
+      reviewedBy: { select: { id: true, name: true } },
+    },
+    orderBy: { roundNumber: "asc" as const },
+  },
+  sources: {
+    include: { addedBy: { select: { id: true, name: true } } },
+    orderBy: { createdAt: "asc" as const },
+  },
 };
 
 async function getSession(req: NextRequest) {
@@ -35,6 +52,17 @@ function sessionFields(token: NonNullable<Awaited<ReturnType<typeof getSession>>
 }
 
 function makeVisUser(fields: ReturnType<typeof sessionFields>) {
+  return {
+    id: fields.userId,
+    role: fields.userRole,
+    canViewAllProjects: fields.canViewAllProjects,
+    overseesDepartment: fields.overseesDepartment,
+    department: fields.department,
+    seniorityLevel: fields.seniorityLevel,
+  };
+}
+
+function makeWorkflowUser(fields: ReturnType<typeof sessionFields>) {
   return {
     id: fields.userId,
     role: fields.userRole,
@@ -71,19 +99,268 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const fields = sessionFields(token);
     const { userId, isAdmin } = fields;
     const canManage = isAdmin || fields.canViewAllProjects || fields.overseesDepartment != null;
+    const wfUser = makeWorkflowUser(fields);
 
     // Mevcut görevi çek — görünürlük zorla
     const where = buildTaskVisibilityWhereForUser(makeVisUser(fields));
     const current = await prisma.task.findFirst({
       where: { AND: [{ id: params.id }, where as any] },
-      select: { status: true, assignedToId: true },
+      select: {
+        status: true,
+        assignedToId: true,
+        createdById: true,
+        reviewOwnerId: true,
+        completedAt: true,
+        parentTaskId: true,
+      },
     });
     if (!current) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
 
+    // ── TAMAMLANMIŞ (DONE) GÖREV DÜZENLEME YASAĞI ────────────────────────────
+    // Yalnızca özel aksiyonlara (reopen, take_over_review) izin ver
+    const allowedOnDone = ["reopen", "take_over_review"];
+    if (current.status === "DONE" && body.action && !allowedOnDone.includes(body.action)) {
+      return NextResponse.json({ error: "Tamamlanmış görev düzenlenemez" }, { status: 403 });
+    }
+    if (current.status === "DONE" && !body.action) {
+      // Herhangi bir alan güncellemesi → 403
+      const editFields = ["title", "description", "priority", "dueDate", "status",
+        "assigneeIds", "assignedToId", "parentTaskId", "isRecurring"];
+      if (editFields.some((f) => body[f] !== undefined)) {
+        return NextResponse.json({ error: "Tamamlanmış görev düzenlenemez" }, { status: 403 });
+      }
+    }
+
+    // ── ÖZEL AKSİYONLAR ──────────────────────────────────────────────────────
+
+    if (body.action === "submit_review") {
+      // IN_PROGRESS → REVIEW: yalnızca atanan kişi, submissionNote zorunlu
+      if (!canSubmitForReview(wfUser, { assignedToId: current.assignedToId })) {
+        return NextResponse.json({ error: "Yalnızca atanan kişi incelemeye gönderebilir" }, { status: 403 });
+      }
+      if (current.status !== "IN_PROGRESS") {
+        return NextResponse.json({ error: "Görev devam ediyor durumunda olmalı" }, { status: 400 });
+      }
+      if (!body.submissionNote?.trim()) {
+        return NextResponse.json({ error: "Gönderim notu zorunludur" }, { status: 400 });
+      }
+
+      // Açık alt görev kontrolü — herhangi bir torun DONE değilse 409
+      const openChildren = await prisma.task.findFirst({
+        where: { parentTaskId: params.id, status: { not: "DONE" }, deletedAt: null },
+        select: { id: true },
+      });
+      if (openChildren) {
+        return NextResponse.json(
+          { error: "Tüm alt görevler tamamlanmadan incelemeye gönderilemez" },
+          { status: 409 }
+        );
+      }
+
+      // Mevcut tur sayısını bul
+      const roundCount = await prisma.taskReviewRound.count({ where: { taskId: params.id } });
+      await prisma.taskReviewRound.create({
+        data: {
+          taskId: params.id,
+          roundNumber: roundCount + 1,
+          submittedById: userId,
+          submissionNote: body.submissionNote.trim(),
+        },
+      });
+
+      const updated = await prisma.task.update({
+        where: { id: params.id },
+        data: { status: "REVIEW" },
+        include: taskInclude,
+      });
+      await prisma.taskLog.create({
+        data: { taskId: params.id, userId, action: "STATUS_CHANGED", fromStatus: "IN_PROGRESS", toStatus: "REVIEW" },
+      });
+      const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
+      return NextResponse.json(withLogs ?? updated);
+    }
+
+    if (body.action === "approve") {
+      // Atanan kişi kendi görevini tamamlayamaz — önce kontrol et
+      if (current.assignedToId === userId) {
+        return NextResponse.json({ error: "Kendi görevinizi onaylayamazsınız" }, { status: 403 });
+      }
+      // REVIEW → DONE: yalnızca reviewOwner veya yönetici
+      if (!canReviewTask(wfUser, { reviewOwnerId: current.reviewOwnerId, assignedToId: current.assignedToId })) {
+        return NextResponse.json({ error: "İnceleme yetkisi yok" }, { status: 403 });
+      }
+      if (current.status !== "REVIEW") {
+        return NextResponse.json({ error: "Görev incelemede durumunda olmalı" }, { status: 400 });
+      }
+
+      // En son turu güncelle
+      const lastRound = await prisma.taskReviewRound.findFirst({
+        where: { taskId: params.id },
+        orderBy: { roundNumber: "desc" },
+      });
+      if (lastRound) {
+        await prisma.taskReviewRound.update({
+          where: { id: lastRound.id },
+          data: { reviewedById: userId, reviewAction: "APPROVED", reviewedAt: new Date() },
+        });
+      }
+
+      const completedAt = new Date();
+      const updated = await prisma.task.update({
+        where: { id: params.id },
+        data: { status: "DONE", completedAt },
+        include: taskInclude,
+      });
+      await prisma.taskLog.create({
+        data: { taskId: params.id, userId, action: "COMPLETED", fromStatus: "REVIEW", toStatus: "DONE" },
+      });
+      const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
+      return NextResponse.json(withLogs ?? updated);
+    }
+
+    if (body.action === "request_revision") {
+      // REVIEW → TODO: yalnızca reviewOwner veya yönetici, geri bildirim zorunlu
+      if (!canReviewTask(wfUser, { reviewOwnerId: current.reviewOwnerId, assignedToId: current.assignedToId })) {
+        return NextResponse.json({ error: "İnceleme yetkisi yok" }, { status: 403 });
+      }
+      // Atanan kişi kendi görevini kendine iade edemez
+      if (current.assignedToId === userId) {
+        return NextResponse.json({ error: "Atanan kişi kendi görevini geri gönderemez" }, { status: 403 });
+      }
+      if (current.status !== "REVIEW") {
+        return NextResponse.json({ error: "Görev incelemede durumunda olmalı" }, { status: 400 });
+      }
+      if (!body.reviewNote?.trim()) {
+        return NextResponse.json({ error: "Revizyon notu zorunludur" }, { status: 400 });
+      }
+
+      // En son turu güncelle
+      const lastRound = await prisma.taskReviewRound.findFirst({
+        where: { taskId: params.id },
+        orderBy: { roundNumber: "desc" },
+      });
+      if (lastRound) {
+        await prisma.taskReviewRound.update({
+          where: { id: lastRound.id },
+          data: {
+            reviewedById: userId,
+            reviewAction: "REVISION_REQUESTED",
+            reviewNote: body.reviewNote.trim(),
+            reviewedAt: new Date(),
+          },
+        });
+      }
+
+      const updated = await prisma.task.update({
+        where: { id: params.id },
+        data: { status: "TODO" },
+        include: taskInclude,
+      });
+      await prisma.taskLog.create({
+        data: { taskId: params.id, userId, action: "STATUS_CHANGED", fromStatus: "REVIEW", toStatus: "TODO" },
+      });
+      const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
+      return NextResponse.json(withLogs ?? updated);
+    }
+
+    if (body.action === "reopen") {
+      // DONE → TODO: reopenReason zorunlu
+      if (!canManage && current.reviewOwnerId !== userId) {
+        return NextResponse.json({ error: "Yeniden açma yetkisi yok" }, { status: 403 });
+      }
+      if (current.status !== "DONE") {
+        return NextResponse.json({ error: "Görev tamamlanmış durumunda olmalı" }, { status: 400 });
+      }
+      if (!body.reopenReason?.trim()) {
+        return NextResponse.json({ error: "Yeniden açma sebebi zorunludur" }, { status: 400 });
+      }
+
+      const updated = await prisma.task.update({
+        where: { id: params.id },
+        data: { status: "TODO", completedAt: null, reopenReason: body.reopenReason.trim() },
+        include: taskInclude,
+      });
+      await prisma.taskLog.create({
+        data: { taskId: params.id, userId, action: "STATUS_CHANGED", fromStatus: "DONE", toStatus: "TODO" },
+      });
+      const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
+      return NextResponse.json(withLogs ?? updated);
+    }
+
+    if (body.action === "take_over_review") {
+      // reviewOwnerId'yi devralan kullanıcıya ata
+      // reviewOwner'ın kıdemini öğren
+      const currentOwnerRecord = current.reviewOwnerId
+        ? await prisma.user.findUnique({
+            where: { id: current.reviewOwnerId },
+            select: { seniorityLevel: true },
+          })
+        : null;
+      if (
+        !canTakeOverReview(wfUser, {
+          reviewOwnerId: current.reviewOwnerId,
+          reviewOwnerSeniorityLevel: currentOwnerRecord?.seniorityLevel ?? null,
+        })
+      ) {
+        return NextResponse.json({ error: "Devir alma yetkisi yok" }, { status: 403 });
+      }
+
+      const updated = await prisma.task.update({
+        where: { id: params.id },
+        data: { reviewOwnerId: userId },
+        include: taskInclude,
+      });
+      await prisma.taskLog.create({
+        data: { taskId: params.id, userId, action: "UPDATED", fromStatus: null, toStatus: null },
+      });
+      const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
+      return NextResponse.json(withLogs ?? updated);
+    }
+
+    // ── STANDART DURUM DEĞİŞİKLİĞİ ───────────────────────────────────────────
     const allowed: Record<string, unknown> = {};
+
     if (body.status !== undefined) {
-      allowed.status = body.status;
-      allowed.completedAt = computeCompletedAt(body.status as string);
+      const newStatus = body.status as string;
+      const fromStatus = current.status;
+
+      // Atanan kişi IN_PROGRESS→REVIEW için submit_review aksiyonu kullanmalı
+      if (fromStatus === "IN_PROGRESS" && newStatus === "REVIEW") {
+        if (current.assignedToId === userId && !canManage) {
+          return NextResponse.json(
+            { error: "İncelemeye göndermek için 'İncelemeye Gönder' butonunu kullanın" },
+            { status: 400 }
+          );
+        }
+      }
+
+      // Atanan kişi REVIEW→IN_PROGRESS (geri alma) yapamaz
+      if (fromStatus === "REVIEW" && newStatus === "IN_PROGRESS") {
+        if (current.assignedToId === userId && !canManage) {
+          return NextResponse.json(
+            { error: "İnceleme sürecini geri alamazsınız" },
+            { status: 403 }
+          );
+        }
+      }
+
+      // Atanan kişi REVIEW→DONE (kendi onayı) yapamaz
+      if (fromStatus === "REVIEW" && newStatus === "DONE") {
+        if (current.assignedToId === userId) {
+          return NextResponse.json({ error: "Kendi görevinizi onaylayamazsınız" }, { status: 403 });
+        }
+      }
+
+      // DONE→TODO için reopen aksiyonu gerekli
+      if (fromStatus === "DONE" && newStatus === "TODO") {
+        return NextResponse.json(
+          { error: "Yeniden açmak için 'Yeniden Aç' aksiyonunu kullanın" },
+          { status: 400 }
+        );
+      }
+
+      allowed.status = newStatus;
+      allowed.completedAt = computeCompletedAt(newStatus);
     }
 
     if (canManage) {
@@ -101,12 +378,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (Array.isArray(body.assigneeIds)) {
         const newIds: string[] = body.assigneeIds.filter(Boolean);
 
-        // Çoklu atama desteklenmiyor
         if (newIds.length > 1) {
           return NextResponse.json({ error: "Birden fazla kişiye atama yapılamaz" }, { status: 400 });
         }
 
-        // Server-side kıdem kontrolü
         const assigner = await prisma.user.findUnique({
           where: { id: userId },
           select: { seniorityLevel: true, canViewAllProjects: true, role: true },
@@ -125,6 +400,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
         const newAssignee = newIds[0] ?? null;
         allowed.assignedToId = newAssignee;
+        // C BLOĞU: Yeniden atamada status → TODO, reviewOwnerId → atayan
+        if (newAssignee && newAssignee !== current.assignedToId) {
+          allowed.status = "TODO";
+          allowed.reviewOwnerId = userId;
+        }
 
         if (newAssignee && newAssignee !== userId) {
           try {
@@ -142,20 +422,28 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       } else if (body.assignedToId !== undefined) {
         const newId: string | null = body.assignedToId || null;
         if (newId && newId !== userId) {
-          // Server-side kıdem kontrolü
           const [assigner, assignee] = await Promise.all([
             prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } }),
             prisma.user.findUnique({ where: { id: newId }, select: { seniorityLevel: true } }),
           ]);
           if (assigner && assignee) {
             const assignerCanAssignAll = assigner.canViewAllProjects || assigner.role === "ADMIN";
-            if (!assignerCanAssignAll && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
+            if (!assignerCanAssignAll && !canReassignTask(wfUser, assignee.seniorityLevel)) {
               return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
             }
           }
         }
         allowed.assignedToId = newId;
+        // C BLOĞU: Yeniden atamada status → TODO, reviewOwnerId → atayan
+        if (newId && newId !== current.assignedToId) {
+          allowed.status = "TODO";
+          allowed.reviewOwnerId = userId;
+        }
       }
+    }
+
+    if (Object.keys(allowed).length === 0) {
+      return NextResponse.json({ error: "Güncellenecek alan yok" }, { status: 400 });
     }
 
     const task = await prisma.task.update({
@@ -217,14 +505,31 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     where: { AND: [{ id: params.id }, taskWhere as any] },
     select: {
       id: true,
+      status: true,
       createdById: true,
       assignedToId: true,
-      // A BLOĞU: TaskAssignee artık okunmuyor — assignedToId tek kaynak
       project: { select: { department: true, createdById: true } },
     },
   });
 
   if (!task) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
+
+  // DONE görev: yalnızca Admin silebilir
+  if (task.status === "DONE" && !fields.isAdmin) {
+    return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
+  }
+
+  // Tamamlanmamış alt görev kontrolü
+  const openChild = await prisma.task.findFirst({
+    where: { parentTaskId: params.id, status: { not: "DONE" }, deletedAt: null },
+    select: { id: true },
+  });
+  if (openChild) {
+    return NextResponse.json(
+      { error: "Tamamlanmamış alt görevler var; önce onları kapatın" },
+      { status: 409 }
+    );
+  }
 
   // Silme yetkisi kontrolü — canDeleteTask tek doğru kaynak
   const allowed = canDeleteTask(
@@ -235,6 +540,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 
   if (!allowed) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
 
-  await prisma.task.delete({ where: { id: params.id } });
+  // C BLOĞU: Yumuşak silme (soft-delete)
+  await prisma.task.update({
+    where: { id: params.id },
+    data: { deletedAt: new Date() },
+  });
   return NextResponse.json({ ok: true });
 }

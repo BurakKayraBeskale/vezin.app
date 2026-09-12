@@ -146,6 +146,7 @@ let task_vergi1: string;     // Vergi proj1, vergiUser'a atanmış
 const createdUserIds: string[] = [];
 const createdProjectIds: string[] = [];
 const createdTaskIds: string[] = [];
+const softDeletedTaskIds: string[] = []; // C BLOĞU: soft-delete ile silinen görevler
 
 beforeAll(async () => {
   async function mkUser(
@@ -283,8 +284,12 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (createdTaskIds.length > 0)
-    await prisma.task.deleteMany({ where: { id: { in: createdTaskIds } } });
+  // Önce tüm görevleri temizle (soft-delete edilenler dahil) — kullanıcı silmeden önce
+  const allTaskIds = [...new Set([...createdTaskIds, ...softDeletedTaskIds])];
+  if (allTaskIds.length > 0) {
+    await prisma.taskLog.deleteMany({ where: { taskId: { in: allTaskIds } } });
+    await prisma.task.deleteMany({ where: { id: { in: allTaskIds } } });
+  }
   if (createdProjectIds.length > 0) {
     await prisma.projectMember.deleteMany({ where: { projectId: { in: createdProjectIds } } });
     await prisma.project.deleteMany({ where: { id: { in: createdProjectIds } } });
@@ -1382,8 +1387,10 @@ describe("Görev silme yetkisi — DELETE /api/tasks/[id]", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    const gone = await prisma.task.findUnique({ where: { id: task_creator } });
-    expect(gone).toBeNull();
+    // C BLOĞU: soft-delete — task hâlâ DB'de ama deletedAt set
+    const gone = await prisma.task.findUnique({ where: { id: task_creator }, select: { deletedAt: true } });
+    expect(gone?.deletedAt).not.toBeNull();
+    softDeletedTaskIds.push(task_creator);
     const idx = createdTaskIds.indexOf(task_creator);
     if (idx > -1) createdTaskIds.splice(idx, 1);
   });
@@ -1406,8 +1413,10 @@ describe("Görev silme yetkisi — DELETE /api/tasks/[id]", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    const gone = await prisma.task.findUnique({ where: { id: task_projcreator } });
-    expect(gone).toBeNull();
+    // C BLOĞU: soft-delete
+    const gone = await prisma.task.findUnique({ where: { id: task_projcreator }, select: { deletedAt: true } });
+    expect(gone?.deletedAt).not.toBeNull();
+    softDeletedTaskIds.push(task_projcreator);
     const idx = createdTaskIds.indexOf(task_projcreator);
     if (idx > -1) createdTaskIds.splice(idx, 1);
   });
@@ -1429,8 +1438,10 @@ describe("Görev silme yetkisi — DELETE /api/tasks/[id]", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    const gone = await prisma.task.findUnique({ where: { id: t.id } });
-    expect(gone).toBeNull();
+    // C BLOĞU: soft-delete
+    const gone = await prisma.task.findUnique({ where: { id: t.id }, select: { deletedAt: true } });
+    expect(gone?.deletedAt).not.toBeNull();
+    softDeletedTaskIds.push(t.id);
   });
 
   it("TD5: ADMIN silebilir → 200", async () => {
@@ -1450,8 +1461,10 @@ describe("Görev silme yetkisi — DELETE /api/tasks/[id]", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    const gone = await prisma.task.findUnique({ where: { id: t.id } });
-    expect(gone).toBeNull();
+    // C BLOĞU: soft-delete
+    const gone = await prisma.task.findUnique({ where: { id: t.id }, select: { deletedAt: true } });
+    expect(gone?.deletedAt).not.toBeNull();
+    softDeletedTaskIds.push(t.id);
   });
 });
 

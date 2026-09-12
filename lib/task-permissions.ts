@@ -1,5 +1,5 @@
 /**
- * Merkezi görev permission motoru — A BLOĞU
+ * Merkezi görev permission motoru — A+C BLOĞU
  *
  * 9 kural sistemi (öncelik sırası):
  *   1. ADMIN → daima görür (departman kapısı UYGULANMAZ)
@@ -97,6 +97,133 @@ export function canViewTask(
   // Kural 9: İnceleme sahibi
   if (task.reviewOwnerId != null && task.reviewOwnerId === user.id) return true;
 
+  return false;
+}
+
+// ── C BLOĞU: İş akışı yetki fonksiyonları ───────────────────────────────────
+
+export type WorkflowUser = {
+  id: string;
+  role: string;
+  seniorityLevel?: number;
+  canViewAllProjects?: boolean;
+  overseesDepartment?: string | null;
+  department?: string;
+};
+
+/** İnceleme sahibi (reviewOwner) mi? */
+function isReviewOwner(userId: string, task: { reviewOwnerId?: string | null }): boolean {
+  return task.reviewOwnerId === userId;
+}
+
+/** Yönetici yetkisi var mı? (Admin / canViewAllProjects / overseesDepartment) */
+function isManager(user: WorkflowUser): boolean {
+  return (
+    user.role === "ADMIN" ||
+    user.canViewAllProjects === true ||
+    user.overseesDepartment != null
+  );
+}
+
+/** Senior Manager+ (kıdem ≥ 11) */
+function isSeniorManager(user: WorkflowUser): boolean {
+  return (user.seniorityLevel ?? 0) >= 11;
+}
+
+/**
+ * Görevi inceleme yetkisi — yalnızca reviewOwner veya yönetici.
+ * Durum: REVIEW → (DONE veya TODO)
+ */
+export function canReviewTask(
+  user: WorkflowUser,
+  task: { reviewOwnerId?: string | null; assignedToId?: string | null }
+): boolean {
+  if (isReviewOwner(user.id, task)) return true;
+  if (isManager(user)) return true;
+  if (isSeniorManager(user)) return true;
+  return false;
+}
+
+/**
+ * İncelemeye gönderme yetkisi — yalnızca atanan kişi.
+ * Durum: IN_PROGRESS → REVIEW
+ */
+export function canSubmitForReview(
+  user: WorkflowUser,
+  task: { assignedToId?: string | null }
+): boolean {
+  return task.assignedToId === user.id;
+}
+
+/**
+ * İnceleme devrimi (take-over) yetkisi.
+ * Koşul: kullanıcı mevcut reviewOwner değil, ve daha yüksek kıdem veya yönetici.
+ */
+export function canTakeOverReview(
+  user: WorkflowUser,
+  task: {
+    reviewOwnerId?: string | null;
+    reviewOwnerSeniorityLevel?: number | null;
+  }
+): boolean {
+  if (task.reviewOwnerId === user.id) return false; // Zaten reviewOwner
+  if (user.role === "ADMIN" || user.canViewAllProjects) return true;
+  const ownerLevel = task.reviewOwnerSeniorityLevel ?? 0;
+  const userLevel = user.seniorityLevel ?? 0;
+  return userLevel > ownerLevel;
+}
+
+/**
+ * Alt görev oluşturma yetkisi.
+ * Hakkı olanlar: parent'ın assignee, reviewOwner, proje yöneticisi veya yönetici.
+ */
+export function canCreateSubtask(
+  user: WorkflowUser,
+  parentTask: {
+    assignedToId?: string | null;
+    reviewOwnerId?: string | null;
+    projectCreatedById?: string | null;
+  }
+): boolean {
+  if (user.id === parentTask.assignedToId) return true;
+  if (isReviewOwner(user.id, parentTask)) return true;
+  if (isManager(user)) return true;
+  if (isSeniorManager(user)) return true;
+  if (user.id === parentTask.projectCreatedById) return true;
+  return false;
+}
+
+/**
+ * Görev yeniden atama yetkisi.
+ * Atayan, hedefin kıdemi üzerinde olmalı (ya da yönetici).
+ */
+export function canReassignTask(
+  assigner: WorkflowUser,
+  targetSeniorityLevel: number
+): boolean {
+  if (assigner.role === "ADMIN" || assigner.canViewAllProjects) return true;
+  return (assigner.seniorityLevel ?? 0) > targetSeniorityLevel;
+}
+
+/**
+ * Görevi farklı bir projeye taşıma yetkisi — yalnızca yönetici.
+ */
+export function canMoveTaskToProject(user: WorkflowUser): boolean {
+  return isManager(user) || isSeniorManager(user);
+}
+
+/**
+ * Kaynak (TaskSource) ekleme/silme yetkisi.
+ * Atanan kişi ekleyemez; reviewOwner, Senior Manager+ ve Admin ekleyebilir.
+ */
+export function canManageTaskSource(
+  user: WorkflowUser,
+  task: { assignedToId?: string | null; reviewOwnerId?: string | null }
+): boolean {
+  if (task.assignedToId === user.id) return false;
+  if (isReviewOwner(user.id, task)) return true;
+  if (isManager(user)) return true;
+  if (isSeniorManager(user)) return true;
   return false;
 }
 
