@@ -2,10 +2,10 @@
  * Tekrarlayan görev üretici — D BLOĞU
  *
  * Çalıştırma:
- *   npx ts-node --project tsconfig.scripts.json scripts/generate-occurrences.ts
+ *   npx tsx scripts/generate-occurrences.ts
  *
  * Cron (sunucuda günde bir kez — örn. sabah 06:00):
- *   0 6 * * * cd /var/www/vezin && npx ts-node --project tsconfig.scripts.json scripts/generate-occurrences.ts >> /var/log/vezin-recurrence.log 2>&1
+ *   0 6 * * * cd /var/www/vezin && npx tsx scripts/generate-occurrences.ts >> /var/log/vezin-recurrence.log 2>&1
  *
  * Kurallar:
  *   - nextOccurrenceAt <= şimdi olan seriler işlenir

@@ -1531,6 +1531,47 @@ describe("Açık görevli üye kaldırma — POST /api/projects/[id]/members →
   });
 });
 
+describe("Açık görev incelemesinden sorumlu üye projeden çıkarılamaz (D BLOĞU)", () => {
+  it("reviewOwner olan ama assignedToId olmayan üye çıkarılamaz → 409", async () => {
+    const proj = await prisma.project.create({
+      data: { name: `${PREFIX} ReviewOwner Member`, department: "OUTSOURCE", createdById: manager.id },
+    });
+    createdProjectIds.push(proj.id);
+    await prisma.projectMember.createMany({
+      data: [
+        { projectId: proj.id, userId: manager.id, assignedBy: manager.id },
+        { projectId: proj.id, userId: junior.id, assignedBy: manager.id },
+      ],
+    });
+    const openTask = await prisma.task.create({
+      data: {
+        title: `${PREFIX} Review Owner Açık Görev`,
+        projectId: proj.id,
+        assignedToId: junior.id,
+        createdById: manager.id,
+        reviewOwnerId: manager.id,
+        status: "IN_PROGRESS",
+        priority: "MEDIUM",
+      },
+    });
+    createdTaskIds.push(openTask.id);
+
+    asUser(manager);
+    const req = new Request(`http://localhost/api/projects/${proj.id}/members`, {
+      method: "POST",
+      body: JSON.stringify({ removeUserIds: [manager.id] }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await projectMembersPOST(req as any, { params: { id: proj.id } });
+    expect(res.status).toBe(409);
+
+    const member = await prisma.projectMember.findFirst({
+      where: { projectId: proj.id, userId: manager.id },
+    });
+    expect(member).not.toBeNull();
+  });
+});
+
 describe("Açık görevli projeyi tamamlama — POST /api/projects/[id]/status → 409", () => {
   it("Tamamlanmamış görev varken proje DONE yapılamaz", async () => {
     const proj = await prisma.project.create({

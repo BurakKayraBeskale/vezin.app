@@ -20,6 +20,7 @@ vi.mock("next-auth", () => ({ getServerSession: vi.fn() }));
 vi.mock("next-auth/jwt", () => ({ getToken: vi.fn() }));
 
 import { PATCH as taskPATCH } from "../../app/api/tasks/[id]/route";
+import { POST as tasksPOST } from "../../app/api/tasks/route";
 import { PATCH as userPATCH } from "../../app/api/users/[id]/route";
 import { getServerSession } from "next-auth";
 import { getToken } from "next-auth/jwt";
@@ -59,6 +60,14 @@ function patchReq(id: string, body: object) {
 function userPatchReq(id: string, body: object) {
   return new Request(`http://localhost/api/users/${id}`, {
     method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }) as any;
+}
+
+function postReq(body: object) {
+  return new Request(`http://localhost/api/tasks`, {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   }) as any;
@@ -475,5 +484,96 @@ describe("TD9 — OneDrive linki retention dışı", () => {
       select: { retentionUntil: true },
     });
     expect(updatedAtt?.retentionUntil).toBeNull();
+  });
+});
+
+// ── TD10: Tekrarlayan görev oluşturunca RecurringSeries oluşur ──────────────
+
+describe("TD10 — tekrarlayan görev oluşturunca RecurringSeries oluşur", () => {
+  it("isRecurring=true ile POST /api/tasks → Task.recurringSeriesId dolu ve RecurringSeries kaydı doğru", async () => {
+    sessionOf(creator);
+    const res = await tasksPOST(postReq({
+      title: `${PREFIX} TD10 recurring`,
+      priority: "MEDIUM",
+      assignedToId: assignee.id,
+      isRecurring: true,
+      recurringType: "WEEKLY",
+      recurringDay: 2,
+    }));
+    expect(res.status).toBe(201);
+    const created = await json(res);
+    cleanupTaskIds.push(created.id);
+
+    expect(created.recurringSeriesId).toBeTruthy();
+
+    const series = await prisma.recurringSeries.findUnique({ where: { id: created.recurringSeriesId } });
+    expect(series).not.toBeNull();
+    cleanupSeriesIds.push(series!.id);
+    expect(series?.assignedToId).toBe(assignee.id);
+    expect(series?.ownerId).toBe(creator.id);
+    expect(series?.recurringType).toBe("WEEKLY");
+    expect(series?.recurringDay).toBe(2);
+    expect(series?.isStopped).toBe(false);
+    // nextOccurrenceAt gelecekte olmalı (ilk occurrence az önce elle oluşturuldu)
+    expect(series!.nextOccurrenceAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("isRecurring=false → RecurringSeries oluşturulmaz", async () => {
+    sessionOf(creator);
+    const res = await tasksPOST(postReq({
+      title: `${PREFIX} TD10 non-recurring`,
+      priority: "MEDIUM",
+      assignedToId: assignee.id,
+    }));
+    expect(res.status).toBe(201);
+    const created = await json(res);
+    cleanupTaskIds.push(created.id);
+    expect(created.recurringSeriesId ?? null).toBeNull();
+  });
+});
+
+// ── TD11: Reopen sonrası tekrar tamamlanınca retention yeniden başlar ────────
+
+describe("TD11 — reopen sonrası tekrar tamamlanınca retention yeniden başlar", () => {
+  it("reopen retention'ı sıfırlar, tekrar approve retention'ı yeniden başlatır", async () => {
+    const taskId = await mkTask({ status: "DONE" });
+    const file = await prisma.file.create({
+      data: {
+        taskId,
+        uploadedById: assignee.id,
+        filename: "yeniden.pdf",
+        path: "/tmp/yeniden.pdf",
+        retentionUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      },
+    });
+    cleanupFileIds.push(file.id);
+
+    sessionOf(creator);
+    const reopenRes = await taskPATCH(
+      patchReq(taskId, { action: "reopen", reopenReason: "Tekrar kontrol gerekli" }),
+      { params: { id: taskId } }
+    );
+    expect(reopenRes.status).toBe(200);
+
+    const afterReopen = await prisma.file.findUnique({ where: { id: file.id }, select: { retentionUntil: true } });
+    expect(afterReopen?.retentionUntil).toBeNull();
+
+    // Görevi tekrar incelemeye al (workflow geçişleri C/B bloklarında test edildi — burada doğrudan set)
+    await prisma.task.update({ where: { id: taskId }, data: { status: "REVIEW" } });
+    const round = await prisma.taskReviewRound.create({
+      data: { taskId, roundNumber: 2, submittedById: assignee.id, submissionNote: "Tekrar hazır" },
+    });
+    cleanupRoundIds.push(round.id);
+
+    const beforeApprove = Date.now();
+    const approveRes = await taskPATCH(patchReq(taskId, { action: "approve" }), { params: { id: taskId } });
+    expect(approveRes.status).toBe(200);
+
+    const afterApprove = await prisma.file.findUnique({ where: { id: file.id }, select: { retentionUntil: true } });
+    expect(afterApprove?.retentionUntil).not.toBeNull();
+    const expectedMin = new Date(beforeApprove + 365 * 24 * 60 * 60 * 1000 - 5 * 60 * 1000);
+    const expectedMax = new Date(beforeApprove + 365 * 24 * 60 * 60 * 1000 + 5 * 60 * 1000);
+    expect(afterApprove!.retentionUntil!.getTime()).toBeGreaterThan(expectedMin.getTime());
+    expect(afterApprove!.retentionUntil!.getTime()).toBeLessThan(expectedMax.getTime());
   });
 });

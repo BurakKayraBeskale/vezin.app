@@ -2,10 +2,10 @@
  * Süresi dolmuş ek/dosya temizleyici — D BLOĞU
  *
  * Çalıştırma:
- *   npx ts-node --project tsconfig.scripts.json scripts/purge-expired-attachments.ts
+ *   npx tsx scripts/purge-expired-attachments.ts
  *
  * Cron (sunucuda günde bir kez — örn. sabah 03:00):
- *   0 3 * * * cd /var/www/vezin && npx ts-node --project tsconfig.scripts.json scripts/purge-expired-attachments.ts >> /var/log/vezin-purge.log 2>&1
+ *   0 3 * * * cd /var/www/vezin && npx tsx scripts/purge-expired-attachments.ts >> /var/log/vezin-purge.log 2>&1
  *
  * Kurallar:
  *   - retentionUntil < şimdi VE purgedAt IS NULL → işle

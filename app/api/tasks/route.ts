@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 import { canAssignTaskInProject, ASSIGN_EXCEPTIONS } from "@/lib/access";
 import { sendNotification, TaskNotif } from "@/lib/notifications";
+import { computeNextOccurrence } from "@/lib/recurring";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -177,6 +178,33 @@ export async function POST(req: NextRequest) {
     select: { seniorityLevel: true, department: true },
   });
 
+  const taskDepartmentId = !projectId ? (body.departmentId || assignerForSnapshot?.department || null) : null;
+
+  // D BLOĞU: Tekrarlayan görev işaretliyse RecurringSeries oluştur ve bu ilk
+  // occurrence'ı seriye bağla — üretim motoru (generate-occurrences) seriyi bekler.
+  let recurringSeriesId: string | null = null;
+  if (body.isRecurring && body.recurringType) {
+    const now = new Date();
+    const series = await prisma.recurringSeries.create({
+      data: {
+        recurringType: body.recurringType,
+        recurringDay: body.recurringDay ?? null,
+        startDate: now,
+        endType: body.endType === "SPECIFIC_DATE" ? "SPECIFIC_DATE" : "INDEFINITE",
+        endDate: body.endDate ? new Date(body.endDate) : null,
+        nextOccurrenceAt: computeNextOccurrence(now, body.recurringType, body.recurringDay ?? null),
+        title: title.trim(),
+        description: description?.trim() || null,
+        priority: priority || "MEDIUM",
+        assignedToId: primaryAssignee,
+        projectId: projectId || null,
+        departmentId: taskDepartmentId,
+        ownerId: userId,
+      },
+    });
+    recurringSeriesId = series.id;
+  }
+
   const task = await prisma.task.create({
     data: {
       title: title.trim(),
@@ -185,13 +213,14 @@ export async function POST(req: NextRequest) {
       assignedToId: primaryAssignee,
       reviewOwnerId: userId,
       assignmentLevelSnapshot: assignerForSnapshot?.seniorityLevel ?? null,
-      departmentId: !projectId ? (body.departmentId || assignerForSnapshot?.department || null) : null,
+      departmentId: taskDepartmentId,
       dueDate: dueDate ? new Date(dueDate) : null,
       createdById: userId,
       isRecurring: body.isRecurring ?? false,
       recurringType: body.recurringType ?? null,
       recurringDay: body.recurringDay ?? null,
       nextOccurrence: body.nextOccurrence ? new Date(body.nextOccurrence) : null,
+      recurringSeriesId,
       companyId: companyId || null,
       projectId: projectId || null,
       parentTaskId: parentTaskId || null,
