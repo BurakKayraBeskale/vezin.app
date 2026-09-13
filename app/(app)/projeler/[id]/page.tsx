@@ -9,6 +9,7 @@ import {
 } from "@/lib/task-visibility";
 import { canAccessProjects, canManageProject } from "@/lib/access";
 import Link from "next/link";
+import BackButton from "@/components/BackButton";
 import ProjeEditForm from "@/components/ProjeEditForm";
 import ProjeDetayClient from "@/components/ProjeDetayClient";
 import ProjeAksiyonlar from "@/components/ProjeAksiyonlar";
@@ -147,8 +148,9 @@ export default async function ProjeDetayPage({
 
   return (
     <div className="max-w-5xl mx-auto">
-      {/* Breadcrumb */}
+      {/* Geri + Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-4">
+        <BackButton />
         <Link href="/projeler" className="hover:text-[#F57C28] transition-colors">
           Projeler
         </Link>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import Sidebar from "@/components/Sidebar";
+import BackButton from "@/components/BackButton";
 import clsx from "clsx";
 
 interface AppShellProps {
@@ -120,6 +121,10 @@ export default function AppShell({
   // Backlog badge = overdue tasks added since the user last visited /backlog
   const backlogBadge = Math.max(0, badges.overdueCount - seenOverdue);
 
+  // Proje detayı kendi geri butonunu breadcrumb'ın soluna, satır içinde koyuyor —
+  // burada tekrar render edip çift buton oluşturmayalım.
+  const hasInlineBackButton = /^\/projeler\/[^/]+$/.test(pathname);
+
   return (
     <div className="min-h-screen">
       {/* ── Mobile top navigation bar ─────────────────────── */}
@@ -192,6 +197,11 @@ export default function AppShell({
           "overflow-x-hidden transition-colors duration-200"
         )}
       >
+        {!hasInlineBackButton && (
+          <div className="mb-3">
+            <BackButton />
+          </div>
+        )}
         {children}
       </main>
     </div>
