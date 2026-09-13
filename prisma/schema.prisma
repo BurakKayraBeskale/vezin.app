@@ -57,6 +57,8 @@ model User {
   reviewRoundsReviewed  TaskReviewRound[] @relation("ReviewRoundReviewer")
   taskSources         TaskSource[]
   taskAttachments     TaskAttachment[]
+  ownedSeries         RecurringSeries[] @relation("SeriesOwner")
+  assignedSeries      RecurringSeries[] @relation("SeriesAssignee")
 }
 
 model Notification {
@@ -110,6 +112,8 @@ model Task {
   recurringType           String?
   recurringDay            Int?
   nextOccurrence          DateTime?
+  recurringSeriesId       String?
+  recurringSeries         RecurringSeries? @relation("SeriesTasks", fields: [recurringSeriesId], references: [id], onDelete: SetNull)
   companyId               String?
   company                 Company?  @relation(fields: [companyId], references: [id])
   projectId               String?
@@ -122,6 +126,31 @@ model Task {
   reviewRounds            TaskReviewRound[]
   sources                 TaskSource[]
   attachments             TaskAttachment[]
+}
+
+// endType: "INDEFINITE" | "SPECIFIC_DATE"
+// recurringType: "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY"
+// recurringDay: 0-6 for WEEKLY (0=Mon), 1-31 for MONTHLY
+model RecurringSeries {
+  id               String    @id @default(cuid())
+  recurringType    String
+  recurringDay     Int?
+  startDate        DateTime
+  endType          String    @default("INDEFINITE")
+  endDate          DateTime?
+  isStopped        Boolean   @default(false)
+  nextOccurrenceAt DateTime
+  title            String
+  description      String?
+  priority         String    @default("MEDIUM")
+  assignedToId     String
+  projectId        String?
+  departmentId     String?
+  ownerId          String
+  createdAt        DateTime  @default(now())
+  owner            User      @relation("SeriesOwner", fields: [ownerId], references: [id])
+  assignedTo       User      @relation("SeriesAssignee", fields: [assignedToId], references: [id])
+  tasks            Task[]    @relation("SeriesTasks")
 }
 
 // reviewAction: "APPROVED" | "REVISION_REQUESTED"
@@ -247,15 +276,17 @@ model Feedback {
 }
 
 model File {
-  id           String   @id @default(cuid())
-  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  taskId       String
-  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
-  uploadedById String
-  filename     String
-  path         String
-  comment      String?
-  createdAt    DateTime @default(now())
+  id             String    @id @default(cuid())
+  task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId         String
+  uploadedBy     User      @relation(fields: [uploadedById], references: [id])
+  uploadedById   String
+  filename       String
+  path           String
+  comment        String?
+  createdAt      DateTime  @default(now())
+  retentionUntil DateTime? // completedAt + 1 yıl; görev aktifken null
+  purgedAt       DateTime? // fiziksel silme tarihi; meta veri korunur
 }
 
 // category: "SUGGESTION" | "COMPLAINT" | "PETITION"

@@ -219,7 +219,7 @@ describe("TB5 — backlog ve proje detayı aynı veriyi döndürür", () => {
     sessionOf(creator);
 
     // Listeden al
-    const listRes = await tasksGET(getReq());
+    const listRes = await tasksGET();
     const listData: any[] = await json(listRes);
     expect(listRes.status).toBe(200);
     const fromList = listData.find((t: any) => t.id === task.id);

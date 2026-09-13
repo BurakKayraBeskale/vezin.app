@@ -10,6 +10,8 @@ import {
   canTakeOverReview,
   canReassignTask,
 } from "@/lib/task-permissions";
+import { sendNotification, sendNotificationToMany, TaskNotif } from "@/lib/notifications";
+import { computeRetentionUntil } from "@/lib/recurring";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true, seniorityLevel: true } },
@@ -176,6 +178,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       await prisma.taskLog.create({
         data: { taskId: params.id, userId, action: "STATUS_CHANGED", fromStatus: "IN_PROGRESS", toStatus: "REVIEW" },
       });
+      // Bildirim: reviewOwner'a inceleme talebi (atanan kişi ≠ reviewOwner ise)
+      if (current.reviewOwnerId && current.reviewOwnerId !== userId) {
+        const notif = TaskNotif.submittedForReview(updated.title, params.id);
+        await sendNotification(current.reviewOwnerId, notif.type, notif.message, notif.relatedId);
+      }
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
       return NextResponse.json(withLogs ?? updated);
     }
@@ -214,6 +221,44 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       await prisma.taskLog.create({
         data: { taskId: params.id, userId, action: "COMPLETED", fromStatus: "REVIEW", toStatus: "DONE" },
       });
+
+      // D BLOĞU: Dosya retention — completedAt + 1 yıl
+      const retentionUntil = computeRetentionUntil(completedAt);
+      await prisma.file.updateMany({
+        where: { taskId: params.id, purgedAt: null },
+        data: { retentionUntil },
+      });
+      await prisma.taskAttachment.updateMany({
+        where: { taskId: params.id, type: "FILE", purgedAt: null },
+        data: { retentionUntil },
+      });
+
+      // D BLOĞU: Alt görev bildirimleri — parent atananına
+      if (current.parentTaskId) {
+        const parent = await prisma.task.findUnique({
+          where: { id: current.parentTaskId },
+          select: { id: true, title: true, assignedToId: true },
+        });
+        if (parent?.assignedToId) {
+          const subtaskNotif = TaskNotif.subtaskCompleted(updated.title, parent.id);
+          await sendNotification(parent.assignedToId, subtaskNotif.type, subtaskNotif.message, subtaskNotif.relatedId);
+
+          // Tüm kardeş görevler tamamlandı mı?
+          const openSiblings = await prisma.task.count({
+            where: {
+              parentTaskId: current.parentTaskId,
+              id: { not: params.id },
+              status: { not: "DONE" },
+              deletedAt: null,
+            },
+          });
+          if (openSiblings === 0) {
+            const allDoneNotif = TaskNotif.allSubtasksDone(parent.title, parent.id);
+            await sendNotification(parent.assignedToId, allDoneNotif.type, allDoneNotif.message, allDoneNotif.relatedId);
+          }
+        }
+      }
+
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
       return NextResponse.json(withLogs ?? updated);
     }
@@ -259,6 +304,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       await prisma.taskLog.create({
         data: { taskId: params.id, userId, action: "STATUS_CHANGED", fromStatus: "REVIEW", toStatus: "TODO" },
       });
+      // Bildirim: atanana revizyon talebi
+      if (current.assignedToId && current.assignedToId !== userId) {
+        const notif = TaskNotif.revisionRequested(updated.title, params.id);
+        await sendNotification(current.assignedToId, notif.type, notif.message, notif.relatedId);
+      }
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
       return NextResponse.json(withLogs ?? updated);
     }
@@ -283,6 +333,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       await prisma.taskLog.create({
         data: { taskId: params.id, userId, action: "STATUS_CHANGED", fromStatus: "DONE", toStatus: "TODO" },
       });
+
+      // D BLOĞU: Retention sıfırla — geri sayım iptal edilir
+      await prisma.file.updateMany({
+        where: { taskId: params.id, purgedAt: null },
+        data: { retentionUntil: null },
+      });
+      await prisma.taskAttachment.updateMany({
+        where: { taskId: params.id, type: "FILE", purgedAt: null },
+        data: { retentionUntil: null },
+      });
+
+      // Bildirim: atanana görev yeniden açıldı
+      if (current.assignedToId && current.assignedToId !== userId) {
+        const notif = TaskNotif.taskReopened(updated.title, params.id);
+        await sendNotification(current.assignedToId, notif.type, notif.message, notif.relatedId);
+      }
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
       return NextResponse.json(withLogs ?? updated);
     }
@@ -305,6 +371,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         return NextResponse.json({ error: "Devir alma yetkisi yok" }, { status: 403 });
       }
 
+      const oldReviewOwnerId = current.reviewOwnerId;
       const updated = await prisma.task.update({
         where: { id: params.id },
         data: { reviewOwnerId: userId },
@@ -313,6 +380,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       await prisma.taskLog.create({
         data: { taskId: params.id, userId, action: "UPDATED", fromStatus: null, toStatus: null },
       });
+      // Bildirim: eski reviewOwner'a devir bildirimi
+      if (oldReviewOwnerId && oldReviewOwnerId !== userId) {
+        const lostNotif = TaskNotif.reviewOwnerLost(updated.title, params.id);
+        await sendNotification(oldReviewOwnerId, lostNotif.type, lostNotif.message, lostNotif.relatedId);
+      }
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
       return NextResponse.json(withLogs ?? updated);
     }
@@ -400,24 +472,26 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
         const newAssignee = newIds[0] ?? null;
         allowed.assignedToId = newAssignee;
-        // C BLOĞU: Yeniden atamada status → TODO, reviewOwnerId → atayan
+        // C+D BLOĞU: Yeniden atamada status → TODO, reviewOwnerId → atayan
         if (newAssignee && newAssignee !== current.assignedToId) {
           allowed.status = "TODO";
           allowed.reviewOwnerId = userId;
-        }
-
-        if (newAssignee && newAssignee !== userId) {
-          try {
+          // Bildirim: eski atanana görev alındı
+          if (current.assignedToId && current.assignedToId !== userId) {
             const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
-            await prisma.notification.create({
-              data: {
-                userId: newAssignee,
-                type: "TASK_ASSIGNED",
-                message: `"${t?.title}" görevi size atandı.`,
-                relatedId: params.id,
-              },
-            });
-          } catch { /* ignore */ }
+            if (t) {
+              const takenNotif = TaskNotif.taskTaken(t.title, params.id);
+              await sendNotification(current.assignedToId, takenNotif.type, takenNotif.message, takenNotif.relatedId);
+            }
+          }
+        }
+        // Bildirim: yeni atanana görev atandı
+        if (newAssignee && newAssignee !== userId && newAssignee !== current.assignedToId) {
+          const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
+          if (t) {
+            const assignedNotif = TaskNotif.taskAssigned(t.title, params.id);
+            await sendNotification(newAssignee, assignedNotif.type, assignedNotif.message, assignedNotif.relatedId);
+          }
         }
       } else if (body.assignedToId !== undefined) {
         const newId: string | null = body.assignedToId || null;
@@ -434,10 +508,26 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           }
         }
         allowed.assignedToId = newId;
-        // C BLOĞU: Yeniden atamada status → TODO, reviewOwnerId → atayan
+        // C+D BLOĞU: Yeniden atamada status → TODO, reviewOwnerId → atayan
         if (newId && newId !== current.assignedToId) {
           allowed.status = "TODO";
           allowed.reviewOwnerId = userId;
+          // Bildirim: eski atanana görev alındı
+          if (current.assignedToId && current.assignedToId !== userId) {
+            const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
+            if (t) {
+              const takenNotif = TaskNotif.taskTaken(t.title, params.id);
+              await sendNotification(current.assignedToId, takenNotif.type, takenNotif.message, takenNotif.relatedId);
+            }
+          }
+          // Bildirim: yeni atanana görev atandı
+          if (newId && newId !== userId) {
+            const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
+            if (t) {
+              const assignedNotif = TaskNotif.taskAssigned(t.title, params.id);
+              await sendNotification(newId, assignedNotif.type, assignedNotif.message, assignedNotif.relatedId);
+            }
+          }
         }
       }
     }

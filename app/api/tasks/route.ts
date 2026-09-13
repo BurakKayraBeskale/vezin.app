@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 import { canAssignTaskInProject, ASSIGN_EXCEPTIONS } from "@/lib/access";
+import { sendNotification, TaskNotif } from "@/lib/notifications";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -198,18 +199,21 @@ export async function POST(req: NextRequest) {
     include: taskInclude,
   });
 
-  // Bildirim: yalnızca atanan kişiye (assignedToId = tek kaynak)
+  // D BLOĞU: Bildirim — atanan kişiye (spam önleme: yalnızca doğrudan ilişkili)
   if (primaryAssignee && primaryAssignee !== userId) {
-    try {
-      await prisma.notification.create({
-        data: {
-          userId: primaryAssignee,
-          type: "TASK_ASSIGNED",
-          message: `"${task.title}" görevi size atandı.`,
-          relatedId: task.id,
-        },
-      });
-    } catch { /* ignore */ }
+    const notif = TaskNotif.taskAssigned(task.title, task.id);
+    await sendNotification(primaryAssignee, notif.type, notif.message, notif.relatedId);
+  }
+
+  // D BLOĞU: Alt görev bildirimi — parent'ın atananına
+  if (parentTaskId && task.parentTaskId) {
+    const parent = await prisma.task.findUnique({
+      where: { id: task.parentTaskId },
+      select: { id: true, title: true, assignedToId: true },
+    });
+    if (parent?.assignedToId && parent.assignedToId !== userId && parent.assignedToId !== primaryAssignee) {
+      await sendNotification(parent.assignedToId, "TASK_ASSIGNED", `"${task.title}" adlı yeni bir alt görev oluşturuldu.`, parent.id);
+    }
   }
 
   const full = await prisma.task.findUnique({ where: { id: task.id }, include: taskInclude });

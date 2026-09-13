@@ -50,6 +50,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (status !== undefined) {
     const validStatuses = ["ACTIVE", "INACTIVE", "DELETED"];
     if (validStatuses.includes(status)) {
+      // D BLOĞU: Pasife almadan önce tamamlanmamış görev kontrolü
+      if (status === "INACTIVE" || status === "DELETED") {
+        const openTaskCount = await prisma.task.count({
+          where: {
+            assignedToId: params.id,
+            status: { in: ["TODO", "IN_PROGRESS", "REVIEW"] },
+            deletedAt: null,
+          },
+        });
+        if (openTaskCount > 0) {
+          return NextResponse.json(
+            {
+              error: `Bu kullanıcının üzerinde ${openTaskCount} tamamlanmamış görev bulunmaktadır. Kullanıcıyı pasife almadan önce görevleri başka kullanıcılara devredin veya tamamlayın.`,
+            },
+            { status: 409 }
+          );
+        }
+      }
       data.status = status;
       // Pasif yapılan kullanıcılara görev atanamaz
       if (status === "INACTIVE" || status === "DELETED") {

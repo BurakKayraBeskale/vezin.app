@@ -95,23 +95,40 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // ── Çıkarma ─────────────────────────────────────────────────────────────────
   if (removeUserIds.length > 0) {
-    // Açık görev kontrolü: TODO, IN_PROGRESS, REVIEW durumundaki görevler varsa çıkarılamaz
+    // D BLOĞU: açık görev kontrolü genişletildi — kişiye atanmış VE kişinin review owner olduğu görevler
     for (const removeUserId of removeUserIds) {
-      const openTaskCount = await prisma.task.count({
-        where: {
-          projectId: params.id,
-          assignedToId: removeUserId,
-          status: { in: ["TODO", "IN_PROGRESS", "REVIEW"] },
-        },
-      });
-      if (openTaskCount > 0) {
+      const [assignedCount, reviewOwnerCount] = await Promise.all([
+        prisma.task.count({
+          where: {
+            projectId: params.id,
+            assignedToId: removeUserId,
+            status: { in: ["TODO", "IN_PROGRESS", "REVIEW"] },
+            deletedAt: null,
+          },
+        }),
+        prisma.task.count({
+          where: {
+            projectId: params.id,
+            reviewOwnerId: removeUserId,
+            assignedToId: { not: removeUserId }, // kendi üzerine olanlar zaten assignedCount'ta
+            status: { in: ["TODO", "IN_PROGRESS", "REVIEW"] },
+            deletedAt: null,
+          },
+        }),
+      ]);
+
+      if (assignedCount > 0 || reviewOwnerCount > 0) {
         const targetUser = await prisma.user.findUnique({
           where: { id: removeUserId },
           select: { name: true },
         });
+        const name = targetUser?.name ?? "Bu kullanıcı";
+        const parts: string[] = [];
+        if (assignedCount > 0) parts.push(`${assignedCount} görev kullanıcının üzerinde`);
+        if (reviewOwnerCount > 0) parts.push(`${reviewOwnerCount} açık görevin incelemesinden kullanıcı sorumludur`);
         return NextResponse.json(
           {
-            error: `${targetUser?.name ?? "Bu kullanıcı"}'nın projede ${openTaskCount} açık görevi bulunmaktadır. Kullanıcıyı projeden çıkarmadan önce görevleri tamamlayın veya uygun başka bir proje üyesine devredin.`,
+            error: `${name}'nın projede devam eden görev ilişkileri bulunmaktadır. ${parts.join(", ")}.`,
           },
           { status: 409 }
         );
