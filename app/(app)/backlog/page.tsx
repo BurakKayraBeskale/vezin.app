@@ -2,9 +2,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import BacklogTable from "@/components/BacklogTable";
-import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
 import { buildTaskVisibilityWhere } from "@/lib/task-permissions";
+import { getEligibleAssignees } from "@/lib/task-assignment";
 
 export const dynamic = "force-dynamic";
 
@@ -23,12 +23,11 @@ export default async function BacklogPage() {
   // ── Görünür görevler — A BLOĞU merkezi permission motoru ─────────────────
   const taskWhere = buildTaskVisibilityWhere({ id: userId, role, canViewAllProjects, overseesDepartment, department, seniorityLevel });
 
-  // ── Atanabilir kullanıcılar — kıdem kuralı ────────────────────────────────
+  // ── Atanabilir kullanıcılar — tek doğru kaynak (getEligibleAssignees) ────
   const assigner = await prisma.user.findUnique({
     where: { id: userId },
-    select: { seniorityLevel: true, canViewAllTasks: true, role: true },
+    select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true },
   });
-  const canAssignAll = assigner ? (assigner.canViewAllTasks || assigner.role === "ADMIN") : false;
 
   const [tasks, users] = await Promise.all([
     prisma.task.findMany({
@@ -54,17 +53,15 @@ export default async function BacklogPage() {
       },
       orderBy: { createdAt: "desc" },
     }),
-    // Atanabilir kullanıcılar: kıdem kuralına göre filtreli
-    prisma.user.findMany({
-      where: canAssignAll
-        ? { email: { notIn: HIDDEN_ACCOUNT_EMAILS } }
-        : {
-            email: { notIn: HIDDEN_ACCOUNT_EMAILS },
-            seniorityLevel: { lt: assigner?.seniorityLevel ?? 0 },
-          },
-      select: { id: true, name: true, email: true, seniorityLevel: true, title: true },
-      orderBy: { name: "asc" },
-    }),
+    assigner
+      ? getEligibleAssignees({
+          id: userId,
+          role: assigner.role,
+          seniorityLevel: assigner.seniorityLevel,
+          canViewAllProjects: assigner.canViewAllProjects,
+          email: assigner.email,
+        })
+      : Promise.resolve([]),
   ]);
 
   // Görünür kullanıcılar (@mention için): görev katılımcıları ∪ atanabilir kullanıcılar

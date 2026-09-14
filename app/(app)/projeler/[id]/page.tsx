@@ -267,7 +267,6 @@ export default async function ProjeDetayPage({
         bypassSeniority={bypassSeniority}
         projectId={project.id}
         projectName={project.name}
-        projectDept={project.department}
         projectStatus={project.status}
       />
     </div>

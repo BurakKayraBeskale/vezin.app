@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/ThemeProvider";
-import { canDeleteTask } from "@/lib/access";
+import { canDeleteTask } from "@/lib/task-permissions";
 import {
   DndContext,
   DragEndEvent,

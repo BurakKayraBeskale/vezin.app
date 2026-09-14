@@ -872,6 +872,9 @@ describe("T17: Görev atama — kıdem kontrolü", () => {
       body: JSON.stringify({
         title: `${PREFIX} Geçerli Atama Görevi`,
         assigneeIds: [bdUser2.id], // bdUser2 seniorityLevel=1
+        // getEligibleAssignees: projesiz görevde target görevin departmanında olmalı —
+        // bdUser2 BAGIMSIZ_DENETIM'de, bu yüzden departmentId açıkça eşleştirilir.
+        departmentId: "BAGIMSIZ_DENETIM",
         dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       }),
       headers: { "Content-Type": "application/json" },
@@ -1007,6 +1010,8 @@ describe("ADMIN/canViewAll kıdem bypass — POST /api/tasks (projectId)", () =>
       data: { name: `${PREFIX} AdminBypass-201`, department: "BAGIMSIZ_DENETIM", createdById: adminLow.id },
     });
     createdProjectIds.push(proj.id);
+    // getEligibleAssignees: projeli görevde target projenin aktif üyesi olmalı
+    await prisma.projectMember.create({ data: { projectId: proj.id, userId: highTarget.id, assignedBy: adminLow.id } });
 
     asUser(adminLow); // role=ADMIN, seniorityLevel=0
     const req = new Request("http://localhost/api/tasks", {
@@ -1030,6 +1035,8 @@ describe("ADMIN/canViewAll kıdem bypass — POST /api/tasks (projectId)", () =>
       data: { name: `${PREFIX} ViewAllBypass-201`, department: "BAGIMSIZ_DENETIM", createdById: canViewAllLow.id },
     });
     createdProjectIds.push(proj.id);
+    // getEligibleAssignees: projeli görevde target projenin aktif üyesi olmalı
+    await prisma.projectMember.create({ data: { projectId: proj.id, userId: highTarget.id, assignedBy: canViewAllLow.id } });
 
     asUser(canViewAllLow); // canViewAllProjects=true, seniorityLevel=0
     const req = new Request("http://localhost/api/tasks", {
@@ -1138,7 +1145,7 @@ describe("canBeAssignedTasks — görev atama engeli", () => {
   });
 
   it("canBeAssignedTasks=false olan kişi, başkasına görev atayabiliyor → 201", async () => {
-    // notAssignable (level=8), bdUser1 (level=2)'e atıyor — ATAYAN olarak geçerli
+    // notAssignable (level=8, dept=OUTSOURCE), bdUser1 (level=2, dept=BAGIMSIZ_DENETIM)'e atıyor — ATAYAN olarak geçerli
     asUser(notAssignable);
     const req = new Request("http://localhost/api/tasks", {
       method: "POST",
@@ -1146,6 +1153,9 @@ describe("canBeAssignedTasks — görev atama engeli", () => {
       body: JSON.stringify({
         title: `${PREFIX} Atanamaz Atayan 201`,
         assigneeIds: [bdUser1.id], // bdUser1 level=2, canBeAssignedTasks=true
+        // getEligibleAssignees: projesiz görevde target görevin departmanında olmalı —
+        // bdUser1 BAGIMSIZ_DENETIM'de, notAssignable ise OUTSOURCE'ta; departmentId açıkça eşleştirilir.
+        departmentId: "BAGIMSIZ_DENETIM",
         dueDate: futureDate(),
       }),
     });
@@ -1218,6 +1228,12 @@ describe("ASSIGN_EXCEPTIONS — Murat Özgür özel atama istisnası", () => {
     });
     exceptionProjId = proj.id;
     createdProjectIds.push(proj.id);
+
+    // getEligibleAssignees: projeli görevde target projenin aktif üyesi olmalı —
+    // ASSIGN_EXCEPTIONS yalnızca canBeAssignedTasks kuralını atlar, üyelik kuralını atlamaz.
+    await prisma.projectMember.create({
+      data: { projectId: exceptionProjId, userId: ebubekirReal.id, assignedBy: muratReal.id },
+    });
   });
 
   afterAll(async () => {

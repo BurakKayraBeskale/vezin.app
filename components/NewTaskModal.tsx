@@ -31,7 +31,6 @@ interface Props {
   /** Proje detay ekranından açılınca: sabit proje, değiştirilemez */
   fixedProjectId?: string;
   fixedProjectName?: string;
-  fixedProjectDept?: string;
   onClose: () => void;
   onCreate?: (task: TaskFull) => void;
 }
@@ -39,12 +38,12 @@ interface Props {
 export default function NewTaskModal({
   fixedProjectId,
   fixedProjectName,
-  fixedProjectDept,
   onClose,
   onCreate,
 }: Props) {
   const { data: session } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
+  const ownDepartment = (session?.user as any)?.department as string | undefined;
 
   // Form state
   const [title, setTitle] = useState("");
@@ -67,10 +66,8 @@ export default function NewTaskModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Atanan listesi filtrelemesi için proje departmanı
-  const effectiveProjectDept =
-    fixedProjectDept ??
-    (projectId ? projects.find((p) => p.id === projectId)?.department : undefined);
+  // Atanan listesi filtrelemesi için proje ID / departman
+  const effectiveProjectId = fixedProjectId || projectId || undefined;
 
   // Proje listesini yükle (sabit proje yoksa)
   useEffect(() => {
@@ -87,12 +84,20 @@ export default function NewTaskModal({
       .finally(() => setProjectsLoading(false));
   }, [fixedProjectId]);
 
-  // Atanabilir kullanıcıları yükle — proje değişince yeniden çek
+  // Atanabilir kullanıcıları yükle — proje/departman değişince yeniden çek
   useEffect(() => {
     setAssigneesLoading(true);
     setAssignedToId("");
     const params = new URLSearchParams();
-    if (effectiveProjectDept) params.set("projectDept", effectiveProjectDept);
+    if (effectiveProjectId) {
+      params.set("projectId", effectiveProjectId);
+    } else if (departmentId) {
+      // Admin'in seçtiği departman — proje departmanı formatında (DEPT_LABELS)
+      params.set("projectDept", departmentId);
+    } else if (ownDepartment) {
+      // Departman seçilmemişse görev, oluşturanın departmanına düşer
+      params.set("departmentId", ownDepartment);
+    }
     fetch(`/api/users/assignable?${params}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((data: AssignableUser[]) => {
@@ -100,7 +105,7 @@ export default function NewTaskModal({
       })
       .catch(() => {})
       .finally(() => setAssigneesLoading(false));
-  }, [effectiveProjectDept]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveProjectId, departmentId, ownDepartment]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

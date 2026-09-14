@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { canDeleteTask } from "@/lib/access";
+import { canDeleteTask } from "@/lib/task-permissions";
 import StatusBadge from "./StatusBadge";
 import PriorityBadge from "./PriorityBadge";
 import TaskFormModal from "./TaskFormModal";

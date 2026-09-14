@@ -81,7 +81,6 @@ export default function ProjeDetayClient({
   bypassSeniority,
   projectId,
   projectName,
-  projectDept,
   projectStatus = "ACTIVE",
 }: {
   tasks: Task[];
@@ -92,7 +91,6 @@ export default function ProjeDetayClient({
   bypassSeniority: boolean;
   projectId: string;
   projectName?: string;
-  projectDept?: string;
   projectStatus?: string;
 }) {
   const [tasks, setTasks] = useState(initialTasks);
@@ -415,7 +413,6 @@ export default function ProjeDetayClient({
         <NewTaskModal
           fixedProjectId={projectId}
           fixedProjectName={projectName}
-          fixedProjectDept={projectDept}
           onClose={() => setShowNewTask(false)}
           onCreate={handleTaskCreated}
         />

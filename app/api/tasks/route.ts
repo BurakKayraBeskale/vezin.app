@@ -3,9 +3,17 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
-import { canAssignTaskInProject, ASSIGN_EXCEPTIONS } from "@/lib/access";
+import { canAssignTaskInProject } from "@/lib/task-permissions";
+import { isEligibleAssignee } from "@/lib/task-assignment";
+import { projectDeptToUserDept } from "@/lib/access";
 import { sendNotification, TaskNotif } from "@/lib/notifications";
 import { computeNextOccurrence } from "@/lib/recurring";
+
+/** body.departmentId proje-departman formatındaysa (örn. "YMM") kullanıcı-departman formatına çevirir. */
+function normalizeDepartmentId(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return projectDeptToUserDept(raw) ?? raw;
+}
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -63,24 +71,32 @@ export async function POST(req: NextRequest) {
 
   const visUser = sessionVisUser(session);
   const userId = visUser.id;
-  const userRole = visUser.role;
 
   const primaryAssignee = assigneeIds[0] ?? assignedToId ?? null;
 
+  const assigner = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true, department: true },
+  });
+  if (!assigner) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
+
+  const assignerEligibility = {
+    id: userId,
+    role: assigner.role,
+    seniorityLevel: assigner.seniorityLevel,
+    canViewAllProjects: assigner.canViewAllProjects,
+    email: assigner.email,
+  };
+
+  let taskDepartmentId: string | null = null;
+
   if (projectId) {
-    // ── Proje görevi: yetki + kıdem tek noktadan (canAssignTaskInProject) ──
-    const [project, assigner] = await Promise.all([
-      prisma.project.findUnique({
-        where: { id: projectId },
-        select: { id: true, createdById: true, department: true },
-      }),
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true },
-      }),
-    ]);
+    // ── Proje görevi: proje otoritesi (canAssignTaskInProject) + hedef uygunluğu (isEligibleAssignee) ──
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, createdById: true, department: true },
+    });
     if (!project) return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
-    if (!assigner) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
 
     const assignerArg = {
       id: userId,
@@ -96,62 +112,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
     }
 
-    // Her atanan için canBeAssignedTasks + kıdem kontrolü
-    // (canAssignTaskInProject canBeAssignedTasks'ı da kontrol eder; self-skip seniority-only)
+    // Her atanan için tek doğru kaynaktan (isEligibleAssignee) hedef uygunluk kontrolü
     const idsToCheck = assigneeIds.length > 0 ? assigneeIds : (primaryAssignee ? [primaryAssignee] : []);
     for (const aid of idsToCheck) {
-      const target = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true, canBeAssignedTasks: true, email: true } });
+      if (aid === userId) continue; // self: uygunluk kontrolü atlanır
+      const target = await prisma.user.findUnique({ where: { id: aid }, select: { id: true } });
       if (!target) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
-      // canBeAssignedTasks=false → her zaman engel (self-assignment dahil)
-      // İstisna: ASSIGN_EXCEPTIONS'da tanımlı atayan→hedef çifti
-      if (!target.canBeAssignedTasks) {
-        const assignerExceptions = ASSIGN_EXCEPTIONS[assigner.email?.toLowerCase() ?? ""] ?? [];
-        if (!assignerExceptions.includes(target.email.toLowerCase())) {
-          return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
-        }
-      }
-      if (aid === userId) continue; // self: seniority atlanır
-      if (!canAssignTaskInProject(assignerArg, project, target)) {
-        return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
+      if (!(await isEligibleAssignee(assignerEligibility, aid, { projectId }))) {
+        return NextResponse.json({ error: "Bu kişiye atama yapamazsınız" }, { status: 403 });
       }
     }
   } else {
-    // ── Proje dışı görev: canBeAssignedTasks + kıdem kontrolü ────────────
-    if (primaryAssignee && primaryAssignee !== userId) {
-      const [assigner, assignee] = await Promise.all([
-        prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true } }),
-        prisma.user.findUnique({ where: { id: primaryAssignee }, select: { seniorityLevel: true, canBeAssignedTasks: true, email: true } }),
-      ]);
-      if (!assigner || !assignee) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
-      if (!assignee.canBeAssignedTasks) {
-        const assignerExceptions = ASSIGN_EXCEPTIONS[assigner.email?.toLowerCase() ?? ""] ?? [];
-        if (!assignerExceptions.includes(assignee.email.toLowerCase())) {
-          return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
-        }
-      }
-      const assignerCanAll = assigner.canViewAllProjects || assigner.role === "ADMIN";
-      if (!assignerCanAll && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
-        return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
-      }
-    }
+    // ── Proje dışı görev: departman + tek doğru kaynaktan (isEligibleAssignee) ──
+    taskDepartmentId = normalizeDepartmentId(body.departmentId) || assigner.department || null;
 
-    if (assigneeIds.length > 1) {
-      const assigner = await prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true } });
-      const assignerCanAll = assigner ? (assigner.canViewAllProjects || assigner.role === "ADMIN") : false;
-      for (const aid of assigneeIds) {
-        if (aid === userId) continue;
-        const assignee = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true, canBeAssignedTasks: true, email: true } });
-        if (!assignee) continue;
-        // canBeAssignedTasks=false → ADMIN dahil herkese engel (istisna hariç)
-        if (!assignee.canBeAssignedTasks) {
-          const assignerExceptions = ASSIGN_EXCEPTIONS[assigner?.email?.toLowerCase() ?? ""] ?? [];
-          if (!assignerExceptions.includes(assignee.email.toLowerCase())) {
-            return NextResponse.json({ error: "Bu kişiye görev atanamaz" }, { status: 403 });
-          }
-        }
-        if (!assignerCanAll && assigner && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
-          return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
-        }
+    const idsToCheck = assigneeIds.length > 0 ? assigneeIds : (primaryAssignee ? [primaryAssignee] : []);
+    for (const aid of idsToCheck) {
+      if (aid === userId) continue; // self: uygunluk kontrolü atlanır
+      const target = await prisma.user.findUnique({ where: { id: aid }, select: { id: true } });
+      if (!target) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
+      if (!(await isEligibleAssignee(assignerEligibility, aid, { departmentId: taskDepartmentId ?? undefined }))) {
+        return NextResponse.json({ error: "Bu kişiye atama yapamazsınız" }, { status: 403 });
       }
     }
   }
@@ -170,15 +151,6 @@ export async function POST(req: NextRequest) {
     });
     if (!parent) return NextResponse.json({ error: "Üst görev bulunamadı veya erişim yok" }, { status: 404 });
   }
-
-  // A BLOĞU: assignedToId tek kaynak — TaskAssignee artık yazılmıyor
-  // assignmentLevelSnapshot ve reviewOwnerId oluşturucu bilgisinden alınır
-  const assignerForSnapshot = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { seniorityLevel: true, department: true },
-  });
-
-  const taskDepartmentId = !projectId ? (body.departmentId || assignerForSnapshot?.department || null) : null;
 
   // D BLOĞU: Tekrarlayan görev işaretliyse RecurringSeries oluştur ve bu ilk
   // occurrence'ı seriye bağla — üretim motoru (generate-occurrences) seriyi bekler.
@@ -212,7 +184,7 @@ export async function POST(req: NextRequest) {
       priority: priority || "MEDIUM",
       assignedToId: primaryAssignee,
       reviewOwnerId: userId,
-      assignmentLevelSnapshot: assignerForSnapshot?.seniorityLevel ?? null,
+      assignmentLevelSnapshot: assigner.seniorityLevel ?? null,
       departmentId: taskDepartmentId,
       dueDate: dueDate ? new Date(dueDate) : null,
       createdById: userId,

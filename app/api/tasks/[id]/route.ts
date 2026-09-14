@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
-import { canDeleteTask } from "@/lib/access";
 import { computeCompletedAt } from "@/lib/task-status";
 import {
+  canDeleteTask,
+  canManageTask,
   canReviewTask,
   canSubmitForReview,
   canTakeOverReview,
-  canReassignTask,
 } from "@/lib/task-permissions";
+import { isEligibleAssignee } from "@/lib/task-assignment";
 import { sendNotification, sendNotificationToMany, TaskNotif } from "@/lib/notifications";
 import { computeRetentionUntil } from "@/lib/recurring";
 
@@ -114,6 +115,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         reviewOwnerId: true,
         completedAt: true,
         parentTaskId: true,
+        projectId: true,
+        departmentId: true,
       },
     });
     if (!current) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
@@ -435,7 +438,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       allowed.completedAt = computeCompletedAt(newStatus);
     }
 
-    if (canManage) {
+    const scope = current.projectId
+      ? { projectId: current.projectId }
+      : { departmentId: current.departmentId };
+
+    if (canManageTask(wfUser, current)) {
       if (body.title !== undefined) allowed.title = body.title;
       if (body.description !== undefined) allowed.description = body.description;
       if (body.priority !== undefined) allowed.priority = body.priority;
@@ -456,17 +463,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
         const assigner = await prisma.user.findUnique({
           where: { id: userId },
-          select: { seniorityLevel: true, canViewAllProjects: true, role: true },
+          select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true },
         });
-        const assignerCanAssignAll = assigner ? (assigner.canViewAllProjects || assigner.role === "ADMIN") : false;
 
-        if (!assignerCanAssignAll) {
-          for (const aid of newIds) {
-            if (aid === userId) continue;
-            const assignee = await prisma.user.findUnique({ where: { id: aid }, select: { seniorityLevel: true } });
-            if (assigner && assignee && !(assigner.seniorityLevel > assignee.seniorityLevel)) {
-              return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
-            }
+        for (const aid of newIds) {
+          if (aid === userId) continue; // self: uygunluk kontrolü atlanır
+          if (assigner && !(await isEligibleAssignee(
+            { id: userId, role: assigner.role, seniorityLevel: assigner.seniorityLevel, canViewAllProjects: assigner.canViewAllProjects, email: assigner.email },
+            aid,
+            scope
+          ))) {
+            return NextResponse.json({ error: "Bu kişiye atama yapamazsınız" }, { status: 403 });
           }
         }
 
@@ -496,15 +503,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       } else if (body.assignedToId !== undefined) {
         const newId: string | null = body.assignedToId || null;
         if (newId && newId !== userId) {
-          const [assigner, assignee] = await Promise.all([
-            prisma.user.findUnique({ where: { id: userId }, select: { seniorityLevel: true, canViewAllProjects: true, role: true } }),
-            prisma.user.findUnique({ where: { id: newId }, select: { seniorityLevel: true } }),
-          ]);
-          if (assigner && assignee) {
-            const assignerCanAssignAll = assigner.canViewAllProjects || assigner.role === "ADMIN";
-            if (!assignerCanAssignAll && !canReassignTask(wfUser, assignee.seniorityLevel)) {
-              return NextResponse.json({ error: "Bu kişiye atama yapamazsınız (kıdem yetersiz)" }, { status: 403 });
-            }
+          const assigner = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true },
+          });
+          if (assigner && !(await isEligibleAssignee(
+            { id: userId, role: assigner.role, seniorityLevel: assigner.seniorityLevel, canViewAllProjects: assigner.canViewAllProjects, email: assigner.email },
+            newId,
+            scope
+          ))) {
+            return NextResponse.json({ error: "Bu kişiye atama yapamazsınız" }, { status: 403 });
           }
         }
         allowed.assignedToId = newId;

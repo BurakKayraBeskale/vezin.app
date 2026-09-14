@@ -2,26 +2,34 @@
  * GET /api/users/assignable
  *
  * Mevcut kullanıcının atama yapabileceği kişileri döndürür.
+ * Kural motoru: lib/task-assignment.ts → getEligibleAssignees (tek doğru kaynak).
  *
- * Kural: assigner.seniorityLevel > assignee.seniorityLevel (kesin büyük)
- * İstisna: canViewAllTasks || ADMIN → herkese atayabilir.
+ * İsteğe bağlı sorgu parametreleri:
+ *   ?projectId=<id>
+ *   Projeli görev — yalnızca bu projenin aktif üyeleri döner.
  *
- * İsteğe bağlı sorgu parametresi:
  *   ?projectDept=BAGIMSIZ_DENETIM | YMM | MUHASEBE | OUTSOURCE
- *   Verildiğinde Prisma WHERE'e departman filtresi eklenir (server-side).
+ *   Projesiz görev — verilen proje departmanı kullanıcı departmanına çevrilip
+ *   yalnızca o departmandaki kullanıcılar döner. projectId verilmişse yok sayılır.
+ *
+ *   ?departmentId=<user dept formatında departman>
+ *   projectDept ile aynı işi görür, ancak zaten kullanıcı departman formatındadır
+ *   (çeviri yapılmaz). projectId veya projectDept verilmişse yok sayılır.
  *
  *   ?purpose=member
- *   Proje üyelik yönetimi için: kıdem kısıtı uygulanmaz, tüm aktif kullanıcılar listelenir.
+ *   Proje üyelik yönetimi için: görev atama kuralları uygulanmaz, tüm aktif
+ *   kullanıcılar listelenir (bu, getEligibleAssignees'in kapsamı dışındadır).
  *
  * UI bu endpoint'i kullanarak atanabilecekler listesini filtreler.
- * Sunucu da POST/PATCH /api/tasks sırasında bağımsız kontrol yapar.
+ * Sunucu da POST/PATCH /api/tasks sırasında bağımsız kontrol yapar (isEligibleAssignee).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
-import { projectDeptToUserDept, ASSIGN_EXCEPTIONS } from "@/lib/access";
+import { projectDeptToUserDept } from "@/lib/access";
+import { getEligibleAssignees } from "@/lib/task-assignment";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -31,65 +39,38 @@ export async function GET(req: NextRequest) {
 
   const assigner = await prisma.user.findUnique({
     where: { id: userId },
-    select: { seniorityLevel: true, canViewAllTasks: true, role: true, email: true },
+    select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true },
   });
   if (!assigner) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
 
-  const canAssignAll = assigner.canViewAllTasks || assigner.role === "ADMIN";
-
   const searchParams = new URL(req.url).searchParams;
-  // İsteğe bağlı proje departman filtresi
-  const projectDept = searchParams.get("projectDept");
-  const userDeptFilter = projectDept ? projectDeptToUserDept(projectDept) : null;
-  // purpose=member → proje üyelik yönetimi için kıdem kısıtı kaldırılır
   const isMemberPurpose = searchParams.get("purpose") === "member";
+  const projectId = searchParams.get("projectId");
+  const projectDept = searchParams.get("projectDept");
+  const rawDepartmentId = searchParams.get("departmentId");
+  const departmentId = projectId
+    ? null
+    : (projectDept ? projectDeptToUserDept(projectDept) : rawDepartmentId);
 
-  const userSelect = {
-    id: true,
-    name: true,
-    email: true,
-    department: true,
-    title: true,
-    seniorityLevel: true,
-  } as const;
-
-  const applySenitoryFilter = !canAssignAll && !isMemberPurpose;
-  const where: Record<string, unknown> = {
-    email: { notIn: HIDDEN_ACCOUNT_EMAILS },
-    status: "ACTIVE",
-    ...(isMemberPurpose ? {} : { canBeAssignedTasks: true }),
-    ...(applySenitoryFilter && { seniorityLevel: { lt: assigner.seniorityLevel } }),
-    // Departman filtresi verilmişse Prisma WHERE'e eklenir (server-side)
-    ...(userDeptFilter !== null && { department: userDeptFilter }),
-  };
-
-  const users = await prisma.user.findMany({
-    where,
-    select: userSelect,
-    orderBy: [{ seniorityLevel: "desc" }, { name: "asc" }],
-  });
-
-  // ASSIGN_EXCEPTIONS: atayan için tanımlı istisna kullanıcıları ekle
-  // (canBeAssignedTasks=false olsalar bile listeye dahil edilir)
-  const assignerEmail = assigner.email?.toLowerCase() ?? "";
-  const exceptionEmails = ASSIGN_EXCEPTIONS[assignerEmail] ?? [];
-  if (exceptionEmails.length > 0) {
-    const exceptionWhere: Record<string, unknown> = {
-      email: { in: exceptionEmails },
-      ...(userDeptFilter !== null && { department: userDeptFilter }),
-    };
-    const exceptionUsers = await prisma.user.findMany({
-      where: exceptionWhere,
-      select: userSelect,
+  // purpose=member: proje üyelik yönetimi — görev atama kuralları (kıdem, canBeAssignedTasks,
+  // proje üyeliği) uygulanmaz; yalnızca departman filtresi (verilmişse) geçerli kalır.
+  if (isMemberPurpose) {
+    const users = await prisma.user.findMany({
+      where: {
+        email: { notIn: HIDDEN_ACCOUNT_EMAILS },
+        status: "ACTIVE",
+        ...(departmentId ? { department: departmentId } : {}),
+      },
+      select: { id: true, name: true, email: true, department: true, title: true, seniorityLevel: true },
+      orderBy: [{ seniorityLevel: "desc" }, { name: "asc" }],
     });
-    const existingIds = new Set(users.map((u) => u.id));
-    for (const eu of exceptionUsers) {
-      if (!existingIds.has(eu.id)) users.push(eu);
-    }
-    users.sort(
-      (a, b) => b.seniorityLevel - a.seniorityLevel || a.name.localeCompare(b.name, "tr")
-    );
+    return NextResponse.json(users);
   }
+
+  const users = await getEligibleAssignees(
+    { id: userId, role: assigner.role, seniorityLevel: assigner.seniorityLevel, canViewAllProjects: assigner.canViewAllProjects, email: assigner.email },
+    { projectId: projectId || undefined, departmentId: departmentId || undefined }
+  );
 
   return NextResponse.json(users);
 }

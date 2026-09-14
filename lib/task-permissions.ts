@@ -227,6 +227,98 @@ export function canManageTaskSource(
   return false;
 }
 
+/**
+ * Görev ana bilgilerini (başlık, açıklama, öncelik, son tarih, atanan, proje)
+ * düzenleme yetkisi.
+ * Hakkı olanlar: reviewOwner, yönetici (Admin/canViewAllProjects/overseesDepartment),
+ * Senior Manager+/Partner (kıdem ≥ 11).
+ * Atanan kişi ana bilgileri değiştiremez. Tamamlanmış (DONE) görev salt okunurdur
+ * (önce Yeniden Aç gerekir).
+ */
+export function canManageTask(
+  user: WorkflowUser,
+  task: { assignedToId?: string | null; reviewOwnerId?: string | null; status?: string }
+): boolean {
+  if (task.status === "DONE") return false;
+  if (task.assignedToId === user.id) return false;
+  if (isReviewOwner(user.id, task)) return true;
+  if (isManager(user)) return true;
+  if (isSeniorManager(user)) return true;
+  return false;
+}
+
+// ── D BLOĞU: Görev atama yetkisi (lib/access.ts'ten taşındı) ────────────────
+
+/**
+ * Görev atama yetkisi (kıdeme bağlı):
+ *   Atayan, hedefin seniorityLevel'ını KESİNLİKLE geçmelidir.
+ */
+export function canAssignTask(assignerLevel: number, targetLevel: number): boolean {
+  return assignerLevel > targetLevel;
+}
+
+/**
+ * Atama istisnası: belirli atayan → hedef e-posta çiftlerine,
+ * canBeAssignedTasks=false kuralının uygulanmadığı istisnalar.
+ */
+export const ASSIGN_EXCEPTIONS: Record<string, string[]> = {
+  "muratozgur@vezin.com.tr": ["ebubekirozturk@vezin.com.tr"],
+};
+
+/**
+ * Proje içinde görev atama yetkisi — tek doğru kaynak (UI ve API kullanır).
+ */
+export function canAssignTaskInProject(
+  assigner: {
+    id: string;
+    role: string;
+    canViewAllProjects: boolean;
+    overseesDepartment?: string | null;
+    seniorityLevel: number;
+    department?: string;
+    email?: string;
+  },
+  project: { department: string; createdById: string },
+  target?: { seniorityLevel: number; canBeAssignedTasks?: boolean; email?: string }
+): boolean {
+  if (target && target.canBeAssignedTasks === false) {
+    const exceptions = ASSIGN_EXCEPTIONS[assigner.email?.toLowerCase() ?? ""] ?? [];
+    if (!exceptions.includes(target.email?.toLowerCase() ?? "")) return false;
+  }
+  if (assigner.role === "ADMIN" || assigner.canViewAllProjects) return true;
+  // Proje otoritesi
+  const userProjectDept = userDeptToProjectDept(assigner.department ?? "");
+  const hasProjectAuthority =
+    (assigner.overseesDepartment != null && assigner.overseesDepartment === project.department) ||
+    (assigner.seniorityLevel >= 11 && userProjectDept === project.department) ||
+    assigner.id === project.createdById;
+  if (!hasProjectAuthority) return false;
+  if (!target) return true;
+  return assigner.seniorityLevel > target.seniorityLevel;
+}
+
+/**
+ * Görev silme yetkisi.
+ * A BLOĞU: assignedToId tek kaynak — assigneeIds artık kontrol edilmiyor.
+ */
+export function canDeleteTask(
+  user: { id: string; role: string; canViewAllProjects: boolean; overseesDepartment?: string | null; department?: string; seniorityLevel?: number },
+  task: { createdById: string; assignedToId?: string | null },
+  project?: { department: string; createdById: string } | null
+): boolean {
+  // Göreve atanan kişi silemez
+  if (task.assignedToId === user.id) return false;
+  if (user.role === "ADMIN" || user.canViewAllProjects) return true;
+  if (project != null) {
+    const userProjectDept = userDeptToProjectDept(user.department ?? "");
+    if (user.overseesDepartment != null && user.overseesDepartment === project.department) return true;
+    if ((user.seniorityLevel ?? 0) >= 11 && userProjectDept === project.department) return true;
+  }
+  if (task.createdById === user.id) return true;
+  if (project != null && project.createdById === user.id) return true;
+  return false;
+}
+
 // ── Prisma WHERE filtresi ────────────────────────────────────────────────────
 
 /**
