@@ -37,7 +37,7 @@ const coreNavItems = [
   },
   {
     href: "/board",
-    label: "Tahta",
+    label: "Görev Takip",
     showOverdue: false,
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

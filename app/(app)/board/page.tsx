@@ -83,7 +83,7 @@ export default async function BoardPage() {
     <div className="max-w-screen-2xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Kanban Tahtası</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Görev Takip</h1>
           <p className="text-sm text-gray-400 mt-1">
             Görevlere tıklayarak detay ve işlemleri görüntüleyin
           </p>
