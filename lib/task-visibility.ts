@@ -107,6 +107,52 @@ export function buildTaskVisibilityWhere(projectIds: string[] | null): object {
   return { projectId: { in: projectIds } };
 }
 
+/**
+ * Parent/children ilişkili görev bilgisi sızıntısını kapatır.
+ *
+ * taskInclude içindeki `parent`/`children` alanları kendi görünürlük kuralına
+ * tabi değildir — bu fonksiyon her ilişkili görevi merkezi görünürlük filtresine
+ * (buildTaskVisibilityWhereForUser) karşı doğrular:
+ *   - parent görünmüyorsa → { restricted: true } ile değiştirilir (id/title sızmaz)
+ *   - children'daki görünmeyen öğeler listeden düşer
+ *
+ * `tasks` dizisindeki her öğe mutasyona uğratılmadan yeni nesneler döner.
+ */
+export async function filterRelatedTaskVisibility<
+  T extends { parent?: { id: string; title: string } | null; children?: { id: string }[] }
+>(tasks: T[], user: VisibilityUser): Promise<T[]> {
+  const relatedIds = new Set<string>();
+  for (const t of tasks) {
+    if (t.parent) relatedIds.add(t.parent.id);
+    if (Array.isArray(t.children)) for (const c of t.children) relatedIds.add(c.id);
+  }
+  if (relatedIds.size === 0) return tasks;
+
+  const where = buildTaskPermissionsWhere({
+    id: user.id,
+    role: user.role,
+    department: user.department,
+    seniorityLevel: user.seniorityLevel,
+    canViewAllProjects: user.canViewAllProjects,
+    overseesDepartment: user.overseesDepartment,
+  });
+  const visible = await prisma.task.findMany({
+    where: { AND: [{ id: { in: [...relatedIds] } }, where as any] },
+    select: { id: true },
+  });
+  const visibleIds = new Set(visible.map((v) => v.id));
+
+  return tasks.map((t) => {
+    const parent = t.parent
+      ? (visibleIds.has(t.parent.id) ? t.parent : ({ restricted: true } as any))
+      : t.parent;
+    const children = Array.isArray(t.children)
+      ? t.children.filter((c) => visibleIds.has(c.id))
+      : t.children;
+    return { ...t, parent, children };
+  });
+}
+
 // ── Backward compat shims ────────────────────────────────────────────────────
 
 export type LegacyVisibilityUser = {

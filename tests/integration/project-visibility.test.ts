@@ -866,15 +866,15 @@ describe("T17: Görev atama — kıdem kontrolü", () => {
   });
 
   it("Senior 2 (level 3), Senior 1 (level 2) kişiye görev atayabilir → 201", async () => {
-    asUser(senior2User); // seniorityLevel=3
+    asUser(senior2User); // seniorityLevel=3, dept=OUTSOURCE
     const postReq = new Request("http://localhost/api/tasks", {
       method: "POST",
       body: JSON.stringify({
         title: `${PREFIX} Geçerli Atama Görevi`,
-        assigneeIds: [bdUser2.id], // bdUser2 seniorityLevel=1
-        // getEligibleAssignees: projesiz görevde target görevin departmanında olmalı —
-        // bdUser2 BAGIMSIZ_DENETIM'de, bu yüzden departmentId açıkça eşleştirilir.
-        departmentId: "BAGIMSIZ_DENETIM",
+        assigneeIds: [outsider.id], // outsider seniorityLevel=0, dept=OUTSOURCE (senior2User ile aynı departman)
+        // D BLOĞU güvenlik turu: projesiz görevde departman artık daima oluşturanın
+        // kendi departmanı — body.departmentId ADMIN/canViewAllProjects dışında yok sayılır.
+        departmentId: "BAGIMSIZ_DENETIM", // kasıtlı: yok sayılmalı, görev yine OUTSOURCE'ta oluşmalı
         dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       }),
       headers: { "Content-Type": "application/json" },
@@ -1145,17 +1145,16 @@ describe("canBeAssignedTasks — görev atama engeli", () => {
   });
 
   it("canBeAssignedTasks=false olan kişi, başkasına görev atayabiliyor → 201", async () => {
-    // notAssignable (level=8, dept=OUTSOURCE), bdUser1 (level=2, dept=BAGIMSIZ_DENETIM)'e atıyor — ATAYAN olarak geçerli
+    // notAssignable (level=8, dept=OUTSOURCE), junior (level=2, dept=OUTSOURCE)'a atıyor — ATAYAN olarak geçerli
     asUser(notAssignable);
     const req = new Request("http://localhost/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: `${PREFIX} Atanamaz Atayan 201`,
-        assigneeIds: [bdUser1.id], // bdUser1 level=2, canBeAssignedTasks=true
-        // getEligibleAssignees: projesiz görevde target görevin departmanında olmalı —
-        // bdUser1 BAGIMSIZ_DENETIM'de, notAssignable ise OUTSOURCE'ta; departmentId açıkça eşleştirilir.
-        departmentId: "BAGIMSIZ_DENETIM",
+        assigneeIds: [junior.id], // junior level=2, dept=OUTSOURCE, canBeAssignedTasks=true
+        // D BLOĞU güvenlik turu: projesiz görevde departman daima oluşturanın (notAssignable)
+        // kendi departmanı — body.departmentId yok sayılır, görev OUTSOURCE'ta oluşur.
         dueDate: futureDate(),
       }),
     });

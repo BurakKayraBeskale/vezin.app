@@ -155,15 +155,25 @@ describe("TC1 — atanan approve → 403", () => {
 
 // ── TC2: Atanan REVIEW→IN_PROGRESS geri alamaz ───────────────────────────────
 
-describe("TC2 — atanan review'dan geri alamaz → 403", () => {
-  it("atanan REVIEW→IN_PROGRESS yapamaz", async () => {
+describe("TC2 — REVIEW'dan çıkış genel PATCH'ten yapılamaz → 400", () => {
+  it("atanan REVIEW→IN_PROGRESS'i genel PATCH ile yapamaz", async () => {
     const id = await createTask({ status: "REVIEW" });
 
     sessionOf(assignee);
     const res = await taskPATCH(patchReq(id, { status: "IN_PROGRESS" }), { params: { id } });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
     const data = await json(res);
-    expect(data.error).toMatch(/geri alamazsınız/i);
+    expect(data.error).toMatch(/revizyon/i);
+  });
+
+  it("reviewOwner bile REVIEW→IN_PROGRESS'i genel PATCH ile yapamaz — request_revision şart", async () => {
+    const id = await createTask({ status: "REVIEW" });
+
+    sessionOf(creator); // creator = reviewOwner
+    const res = await taskPATCH(patchReq(id, { status: "IN_PROGRESS" }), { params: { id } });
+    expect(res.status).toBe(400);
+    const data = await json(res);
+    expect(data.error).toMatch(/revizyon/i);
   });
 });
 

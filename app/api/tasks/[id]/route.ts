@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
+import { buildTaskVisibilityWhereForUser, filterRelatedTaskVisibility } from "@/lib/task-visibility";
 import { computeCompletedAt } from "@/lib/task-status";
 import {
   canDeleteTask,
@@ -76,6 +76,12 @@ function makeWorkflowUser(fields: ReturnType<typeof sessionFields>) {
   };
 }
 
+/** parent/children'daki görünmeyen ilişkili görevleri süzüp yanıtı döner. */
+async function respondTask(fields: ReturnType<typeof sessionFields>, task: NonNullable<Awaited<ReturnType<typeof prisma.task.findFirst>>>) {
+  const [sanitized] = await filterRelatedTaskVisibility([task as any], makeVisUser(fields));
+  return NextResponse.json(sanitized);
+}
+
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const token = await getSession(req);
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
@@ -90,7 +96,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   // 404 (not 403) — 403 "böyle bir görev var" bilgisini sızdırır
   if (!task) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
-  return NextResponse.json(task);
+  return respondTask(fields, task);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -187,7 +193,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         await sendNotification(current.reviewOwnerId, notif.type, notif.message, notif.relatedId);
       }
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
-      return NextResponse.json(withLogs ?? updated);
+      return respondTask(fields, withLogs ?? updated);
     }
 
     if (body.action === "approve") {
@@ -263,7 +269,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
 
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
-      return NextResponse.json(withLogs ?? updated);
+      return respondTask(fields, withLogs ?? updated);
     }
 
     if (body.action === "request_revision") {
@@ -313,7 +319,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         await sendNotification(current.assignedToId, notif.type, notif.message, notif.relatedId);
       }
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
-      return NextResponse.json(withLogs ?? updated);
+      return respondTask(fields, withLogs ?? updated);
     }
 
     if (body.action === "reopen") {
@@ -353,7 +359,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         await sendNotification(current.assignedToId, notif.type, notif.message, notif.relatedId);
       }
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
-      return NextResponse.json(withLogs ?? updated);
+      return respondTask(fields, withLogs ?? updated);
     }
 
     if (body.action === "take_over_review") {
@@ -389,7 +395,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         await sendNotification(oldReviewOwnerId, lostNotif.type, lostNotif.message, lostNotif.relatedId);
       }
       const withLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
-      return NextResponse.json(withLogs ?? updated);
+      return respondTask(fields, withLogs ?? updated);
     }
 
     // ── STANDART DURUM DEĞİŞİKLİĞİ ───────────────────────────────────────────
@@ -399,31 +405,33 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const newStatus = body.status as string;
       const fromStatus = current.status;
 
-      // Atanan kişi IN_PROGRESS→REVIEW için submit_review aksiyonu kullanmalı
+      // IN_PROGRESS→REVIEW yalnızca action:"submit_review" ile yapılabilir —
+      // genel PATCH'ten gelirse kim olursa olsun reddet (submissionNote/alt görev
+      // kontrolü/inceleme turu kaydı bu yoldan atlanamaz)
       if (fromStatus === "IN_PROGRESS" && newStatus === "REVIEW") {
-        if (current.assignedToId === userId && !canManage) {
-          return NextResponse.json(
-            { error: "İncelemeye göndermek için 'İncelemeye Gönder' butonunu kullanın" },
-            { status: 400 }
-          );
-        }
+        return NextResponse.json(
+          { error: "İncelemeye göndermek için 'İncelemeye Gönder' butonunu kullanın" },
+          { status: 400 }
+        );
       }
 
-      // Atanan kişi REVIEW→IN_PROGRESS (geri alma) yapamaz
-      if (fromStatus === "REVIEW" && newStatus === "IN_PROGRESS") {
-        if (current.assignedToId === userId && !canManage) {
-          return NextResponse.json(
-            { error: "İnceleme sürecini geri alamazsınız" },
-            { status: 403 }
-          );
-        }
+      // REVIEW'dan çıkış (IN_PROGRESS veya TODO) yalnızca action:"request_revision" ile
+      // yapılabilir — genel PATCH'ten reddet
+      if (fromStatus === "REVIEW" && (newStatus === "IN_PROGRESS" || newStatus === "TODO")) {
+        return NextResponse.json(
+          { error: "Revizyon istemek için 'Revizyon İste' aksiyonunu kullanın" },
+          { status: 400 }
+        );
       }
 
-      // Atanan kişi REVIEW→DONE (kendi onayı) yapamaz
+      // REVIEW→DONE yalnızca action:"approve" ile yapılabilir — genel PATCH'ten
+      // gelirse canReviewTask'ı olsa bile reddet (onay turu kaydı/bildirim/retention
+      // bu yoldan atlanamaz)
       if (fromStatus === "REVIEW" && newStatus === "DONE") {
-        if (current.assignedToId === userId) {
-          return NextResponse.json({ error: "Kendi görevinizi onaylayamazsınız" }, { status: 403 });
-        }
+        return NextResponse.json(
+          { error: "Onaylamak için 'Onayla' butonunu kullanın" },
+          { status: 400 }
+        );
       }
 
       // DONE→TODO için reopen aksiyonu gerekli
@@ -576,14 +584,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           data: { taskId: params.id, userId, action, fromStatus, toStatus, durationMinutes },
         });
       } catch {
-        return NextResponse.json(task);
+        return respondTask(fields, task);
       }
 
       const taskWithLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
-      return NextResponse.json(taskWithLogs ?? task);
+      return respondTask(fields, taskWithLogs ?? task);
     }
 
-    return NextResponse.json(task);
+    return respondTask(fields, task);
   } catch (err) {
     console.error("PATCH /api/tasks/[id] error:", err);
     return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });

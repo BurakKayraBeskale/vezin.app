@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
-import { canAssignTaskInProject } from "@/lib/task-permissions";
+import { buildTaskVisibilityWhereForUser, filterRelatedTaskVisibility } from "@/lib/task-visibility";
+import { canAssignTaskInProject, canCreateSubtask } from "@/lib/task-permissions";
 import { isEligibleAssignee } from "@/lib/task-assignment";
 import { projectDeptToUserDept } from "@/lib/access";
 import { sendNotification, TaskNotif } from "@/lib/notifications";
@@ -51,7 +51,8 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json(tasks);
+  const sanitized = await filterRelatedTaskVisibility(tasks, visUser);
+  return NextResponse.json(sanitized);
 }
 
 export async function POST(req: NextRequest) {
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const body = await req.json();
-  const { title, description, priority, assignedToId, dueDate, projectId, companyId, parentTaskId } = body;
+  const { title, description, priority, assignedToId, dueDate, companyId, parentTaskId } = body;
   const assigneeIds: string[] = Array.isArray(body.assigneeIds) ? body.assigneeIds.filter(Boolean) : [];
 
   // A BLOĞU: assignedToId tek kaynak — çoklu atama desteklenmiyor
@@ -88,12 +89,62 @@ export async function POST(req: NextRequest) {
     email: assigner.email,
   };
 
+  // ── Alt-görev: üst görevi görebilmeyi + oluşturma yetkisini kontrol et ──────
+  // Parent varsa proje/departman MİRAS alınır; body'den gelen projectId/departmentId yok sayılır.
+  let effectiveProjectId: string | null = null;
+  let parentRecord: {
+    id: string;
+    projectId: string | null;
+    departmentId: string | null;
+    assignedToId: string | null;
+    reviewOwnerId: string | null;
+    project: { createdById: string } | null;
+  } | null = null;
+
+  if (parentTaskId) {
+    const parentWhere = buildTaskVisibilityWhereForUser(visUser);
+    parentRecord = await prisma.task.findFirst({
+      where: { AND: [{ id: parentTaskId }, parentWhere as any] },
+      select: {
+        id: true,
+        projectId: true,
+        departmentId: true,
+        assignedToId: true,
+        reviewOwnerId: true,
+        project: { select: { createdById: true } },
+      },
+    });
+    if (!parentRecord) return NextResponse.json({ error: "Üst görev bulunamadı veya erişim yok" }, { status: 404 });
+
+    const wfUser = {
+      id: userId,
+      role: assigner.role,
+      seniorityLevel: assigner.seniorityLevel,
+      canViewAllProjects: assigner.canViewAllProjects,
+      overseesDepartment: visUser.overseesDepartment,
+      department: assigner.department,
+    };
+    if (
+      !canCreateSubtask(wfUser, {
+        assignedToId: parentRecord.assignedToId,
+        reviewOwnerId: parentRecord.reviewOwnerId,
+        projectCreatedById: parentRecord.project?.createdById ?? null,
+      })
+    ) {
+      return NextResponse.json({ error: "Alt görev oluşturma yetkiniz yok" }, { status: 403 });
+    }
+
+    effectiveProjectId = parentRecord.projectId;
+  } else {
+    effectiveProjectId = body.projectId || null;
+  }
+
   let taskDepartmentId: string | null = null;
 
-  if (projectId) {
+  if (effectiveProjectId) {
     // ── Proje görevi: proje otoritesi (canAssignTaskInProject) + hedef uygunluğu (isEligibleAssignee) ──
     const project = await prisma.project.findUnique({
-      where: { id: projectId },
+      where: { id: effectiveProjectId },
       select: { id: true, createdById: true, department: true },
     });
     if (!project) return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
@@ -118,13 +169,21 @@ export async function POST(req: NextRequest) {
       if (aid === userId) continue; // self: uygunluk kontrolü atlanır
       const target = await prisma.user.findUnique({ where: { id: aid }, select: { id: true } });
       if (!target) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
-      if (!(await isEligibleAssignee(assignerEligibility, aid, { projectId }))) {
+      if (!(await isEligibleAssignee(assignerEligibility, aid, { projectId: effectiveProjectId }))) {
         return NextResponse.json({ error: "Bu kişiye atama yapamazsınız" }, { status: 403 });
       }
     }
   } else {
     // ── Proje dışı görev: departman + tek doğru kaynaktan (isEligibleAssignee) ──
-    taskDepartmentId = normalizeDepartmentId(body.departmentId) || assigner.department || null;
+    if (parentRecord) {
+      // Alt görev: departman parent'tan miras alınır (proje dışı üst görev ise)
+      taskDepartmentId = parentRecord.departmentId;
+    } else {
+      // Yalnızca ADMIN / canViewAllProjects → body.departmentId kabul edilir.
+      // Diğer herkes için departman daima oluşturanın kendi departmanıdır.
+      const canSetDepartment = visUser.role === "ADMIN" || visUser.canViewAllProjects;
+      taskDepartmentId = (canSetDepartment ? normalizeDepartmentId(body.departmentId) : null) || assigner.department || null;
+    }
 
     const idsToCheck = assigneeIds.length > 0 ? assigneeIds : (primaryAssignee ? [primaryAssignee] : []);
     for (const aid of idsToCheck) {
@@ -140,16 +199,6 @@ export async function POST(req: NextRequest) {
   // ── Atanan zorunlu ────────────────────────────────────────────────────
   if (!primaryAssignee) {
     return NextResponse.json({ error: "Atanan kişi zorunludur" }, { status: 400 });
-  }
-
-  // ── Alt-görev: üst görevi görebilmeyi kontrol et ───────────────────────
-  if (parentTaskId) {
-    const parentWhere = buildTaskVisibilityWhereForUser(visUser);
-    const parent = await prisma.task.findFirst({
-      where: { AND: [{ id: parentTaskId }, parentWhere as any] },
-      select: { id: true },
-    });
-    if (!parent) return NextResponse.json({ error: "Üst görev bulunamadı veya erişim yok" }, { status: 404 });
   }
 
   // D BLOĞU: Tekrarlayan görev işaretliyse RecurringSeries oluştur ve bu ilk
@@ -169,7 +218,7 @@ export async function POST(req: NextRequest) {
         description: description?.trim() || null,
         priority: priority || "MEDIUM",
         assignedToId: primaryAssignee,
-        projectId: projectId || null,
+        projectId: effectiveProjectId,
         departmentId: taskDepartmentId,
         ownerId: userId,
       },
@@ -194,7 +243,7 @@ export async function POST(req: NextRequest) {
       nextOccurrence: body.nextOccurrence ? new Date(body.nextOccurrence) : null,
       recurringSeriesId,
       companyId: companyId || null,
-      projectId: projectId || null,
+      projectId: effectiveProjectId,
       parentTaskId: parentTaskId || null,
     },
     include: taskInclude,
@@ -207,16 +256,11 @@ export async function POST(req: NextRequest) {
   }
 
   // D BLOĞU: Alt görev bildirimi — parent'ın atananına
-  if (parentTaskId && task.parentTaskId) {
-    const parent = await prisma.task.findUnique({
-      where: { id: task.parentTaskId },
-      select: { id: true, title: true, assignedToId: true },
-    });
-    if (parent?.assignedToId && parent.assignedToId !== userId && parent.assignedToId !== primaryAssignee) {
-      await sendNotification(parent.assignedToId, "TASK_ASSIGNED", `"${task.title}" adlı yeni bir alt görev oluşturuldu.`, parent.id);
-    }
+  if (parentRecord?.assignedToId && parentRecord.assignedToId !== userId && parentRecord.assignedToId !== primaryAssignee) {
+    await sendNotification(parentRecord.assignedToId, "TASK_ASSIGNED", `"${task.title}" adlı yeni bir alt görev oluşturuldu.`, parentRecord.id);
   }
 
   const full = await prisma.task.findUnique({ where: { id: task.id }, include: taskInclude });
-  return NextResponse.json(full ?? task, { status: 201 });
+  const [sanitized] = await filterRelatedTaskVisibility([full ?? task], visUser);
+  return NextResponse.json(sanitized, { status: 201 });
 }
