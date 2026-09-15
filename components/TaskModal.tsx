@@ -8,7 +8,7 @@ type Priority = "LOW" | "MEDIUM" | "HIGH";
 type Tab = "detay" | "dosyalar" | "aktivite" | "zaman";
 
 interface User { id: string; name: string; email?: string; }
-interface FileRecord { id: string; filename: string; comment?: string | null; uploadedBy: { id: string; name: string }; uploadedById: string; createdAt: string; }
+interface FileRecord { id: string; filename: string; comment?: string | null; uploadedBy: { id: string; name: string }; uploadedById: string; createdAt: string; purgedAt?: string | null; }
 interface FeedbackRecord { id: string; message: string; fromUser: { name: string; role: string }; createdAt: string; }
 interface CommentRecord {
   id: string;
@@ -34,6 +34,42 @@ interface AssigneeRecord {
   user: { id: string; name: string; email?: string };
 }
 
+export interface TaskSourceRecord {
+  id: string;
+  type: "LINK" | "FILE";
+  name: string;
+  url: string | null;
+  description: string | null;
+  addedBy: { id: string; name: string };
+  createdAt: string;
+}
+
+export interface TaskAttachmentRecord {
+  id: string;
+  kind: "SUBMISSION" | "FEEDBACK";
+  type: "LINK" | "FILE";
+  name: string;
+  url: string | null;
+  uploadedBy: { id: string; name: string };
+  createdAt: string;
+  purgedAt?: string | null;
+}
+
+export interface TaskReviewRoundRecord {
+  id: string;
+  roundNumber: number;
+  submittedBy: { id: string; name: string };
+  submissionNote: string;
+  submittedAt: string;
+  reviewedBy: { id: string; name: string } | null;
+  reviewAction: "APPROVED" | "REVISION_REQUESTED" | null;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  attachments: TaskAttachmentRecord[];
+}
+
+export type TaskParentRef = { id: string; title: string } | { restricted: true };
+
 export interface TaskFull {
   id: string;
   title: string;
@@ -43,17 +79,26 @@ export interface TaskFull {
   assignedTo: User | null;
   assignedToId: string | null;
   reviewOwnerId?: string | null;
+  reviewOwnerSeniorityLevel?: number | null;
   assignees: AssigneeRecord[];
   dueDate: string | null;
   projectId?: string | null;
+  departmentId?: string | null;
   createdBy: { id: string; name: string };
   createdAt: string;
   files: FileRecord[];
   feedbacks: FeedbackRecord[];
   logs: LogRecord[];
-  parent?: { id: string; title: string } | null;
+  parent?: TaskParentRef | null;
   children?: { id: string; title: string; status: string }[];
   project?: { id?: string; name?: string; department: string; createdById: string } | null;
+  sources?: TaskSourceRecord[];
+  reviewRounds?: TaskReviewRoundRecord[];
+  isRecurring?: boolean;
+  recurringType?: string | null;
+  recurringDay?: number | null;
+  nextOccurrence?: string | null;
+  recurringSeriesId?: string | null;
 }
 
 const STATUS_LABELS: Record<Status, string> = {

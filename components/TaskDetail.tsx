@@ -1,11 +1,29 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
-import { canDeleteTask } from "@/lib/task-permissions";
+import {
+  canDeleteTask,
+  canManageTask,
+  canManageTaskSource,
+  canReviewTask,
+  canTakeOverReview,
+  canReopenTask,
+  canCreateSubtask,
+  canSubmitForReview,
+} from "@/lib/task-permissions";
 import StatusBadge from "./StatusBadge";
 import PriorityBadge from "./PriorityBadge";
 import TaskFormModal from "./TaskFormModal";
+import ConfirmModal from "./ConfirmModal";
+import SubmitReviewModal from "./SubmitReviewModal";
+import RequestRevisionModal from "./RequestRevisionModal";
+import ReopenModal from "./ReopenModal";
+import ReassignModal from "./ReassignModal";
+import TaskResourcesSection from "./TaskResourcesSection";
+import SubtaskSection from "./SubtaskSection";
+import ReviewHistoryTimeline from "./ReviewHistoryTimeline";
+import RecurringSeriesPanel from "./RecurringSeriesPanel";
 import { TaskFull } from "./TaskModal";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -13,19 +31,6 @@ const STATUS_LABELS: Record<string, string> = {
   IN_PROGRESS: "Devam Ediyor",
   REVIEW: "İncelemede",
   DONE: "Tamamlandı",
-};
-
-const STATUS_TRANSITIONS: Record<
-  string,
-  { status: string; label: string; secondary?: boolean }[]
-> = {
-  TODO: [{ status: "IN_PROGRESS", label: "Başlat" }],
-  IN_PROGRESS: [{ status: "REVIEW", label: "İncelemeye Gönder" }],
-  REVIEW: [
-    { status: "DONE", label: "Tamamla" },
-    { status: "IN_PROGRESS", label: "Geri Gönder", secondary: true },
-  ],
-  DONE: [{ status: "IN_PROGRESS", label: "Yeniden Aç", secondary: true }],
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -48,7 +53,7 @@ interface Props {
 }
 
 export default function TaskDetail({
-  taskId,
+  taskId: rootTaskId,
   initialTask,
   users = [],
   isAdmin = false,
@@ -57,55 +62,135 @@ export default function TaskDetail({
   onDelete,
 }: Props) {
   const { data: session } = useSession();
-  const [task, setTask] = useState<TaskFull | null>(initialTask ?? null);
-  const [loading, setLoading] = useState(!initialTask);
+
+  // ── İç gezinme: alt/üst göreve tıklayınca aynı modal içinde açılır ─────────
+  const [currentId, setCurrentId] = useState(rootTaskId);
+  const [navStack, setNavStack] = useState<string[]>([]);
+
+  const [task, setTask] = useState<TaskFull | null>(
+    initialTask && initialTask.id === rootTaskId ? initialTask : null
+  );
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+
   const [showEdit, setShowEdit] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
+  const [showSubmitReview, setShowSubmitReview] = useState(false);
+  const [showRequestRevision, setShowRequestRevision] = useState(false);
+  const [showReopen, setShowReopen] = useState(false);
+  const [showApprove, setShowApprove] = useState(false);
+  const [showTakeOver, setShowTakeOver] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    if (initialTask) return;
+  const fetchTask = useCallback((id: string) => {
     setLoading(true);
     setLoadError("");
-    fetch(`/api/tasks/${taskId}`)
+    setActionError("");
+    fetch(`/api/tasks/${id}`)
       .then((r) => {
         if (!r.ok) throw new Error();
         return r.json();
       })
-      .then((data) => setTask(data))
+      .then((data: TaskFull) => setTask(data))
       .catch(() => setLoadError("Görev yüklenemedi"))
       .finally(() => setLoading(false));
-  }, [taskId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetchTask(currentId);
+  }, [currentId, fetchTask]);
+
+  function navigateTo(id: string) {
+    if (id === currentId) return;
+    setNavStack((prev) => [...prev, currentId]);
+    setCurrentId(id);
+  }
+
+  function goBack() {
+    setNavStack((prev) => {
+      if (prev.length === 0) return prev;
+      const next = [...prev];
+      const prevId = next.pop() as string;
+      setCurrentId(prevId);
+      return next;
+    });
+  }
+
+  /** Görevi günceller; kök görev (modal'ın açıldığı görev) değiştiyse çağıran bileşene bildirir. */
+  function applyUpdate(updated: TaskFull) {
+    setTask(updated);
+    if (updated.id === rootTaskId) onUpdate?.(updated);
+  }
 
   async function changeStatus(newStatus: string) {
     if (!task) return;
     setStatusLoading(true);
+    setActionError("");
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-      if (res.ok) {
-        const updated: TaskFull = await res.json();
-        setTask(updated);
-        onUpdate?.(updated);
+      const data = await res.json();
+      if (!res.ok) {
+        setActionError(data.error || "İşlem başarısız");
+        return;
       }
+      applyUpdate(data);
+    } catch {
+      setActionError("Sunucu hatası");
     } finally {
       setStatusLoading(false);
+    }
+  }
+
+  async function runConfirmAction(action: "approve" | "take_over_review") {
+    if (!task) return;
+    setConfirmLoading(true);
+    setConfirmError("");
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setConfirmError(data.error || "İşlem başarısız");
+        return;
+      }
+      applyUpdate(data);
+      setShowApprove(false);
+      setShowTakeOver(false);
+    } catch {
+      setConfirmError("Sunucu hatası");
+    } finally {
+      setConfirmLoading(false);
     }
   }
 
   async function handleDelete() {
     if (!task || !confirm(`"${task.title}" görevi kalıcı olarak silinecek. Emin misiniz?`)) return;
     setDeleting(true);
+    setActionError("");
     try {
       const res = await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
       if (res.ok) {
-        onDelete?.(task.id);
-        onClose();
+        if (task.id === rootTaskId) {
+          onDelete?.(task.id);
+          onClose();
+        } else {
+          goBack();
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setActionError(data.error || "Görev silinemedi");
       }
     } finally {
       setDeleting(false);
@@ -116,21 +201,57 @@ export default function TaskDetail({
     ? {
         id: (session.user as any).id as string,
         role: (session.user as any).role as string,
-        canViewAllProjects:
-          ((session.user as any).canViewAllProjects as boolean) ?? false,
-        overseesDepartment:
-          ((session.user as any).overseesDepartment as string | null) ?? null,
+        department: (session.user as any).department as string | undefined,
+        seniorityLevel: (session.user as any).seniorityLevel as number | undefined,
+        canViewAllProjects: ((session.user as any).canViewAllProjects as boolean) ?? false,
+        overseesDepartment: ((session.user as any).overseesDepartment as string | null) ?? null,
       }
     : null;
 
+  const isManager = !!userIdentity && (userIdentity.role === "ADMIN" || userIdentity.canViewAllProjects);
+
+  // ── Yetki kararları — tek kaynak lib/task-permissions.ts (bileşen içinde kural yazılmaz) ──
+  const isAssignee = !!userIdentity && !!task && task.assignedToId === userIdentity.id;
+  const canSubmit =
+    !!userIdentity && !!task && canSubmitForReview(userIdentity, { assignedToId: task.assignedToId });
+  const canReview =
+    !!userIdentity &&
+    !!task &&
+    canReviewTask(userIdentity, { reviewOwnerId: task.reviewOwnerId, assignedToId: task.assignedToId }) &&
+    !isAssignee; // kendi görevini onaylayamaz/revizyona gönderemez (backend de bunu reddeder)
+  const canManage =
+    !!userIdentity &&
+    !!task &&
+    canManageTask(userIdentity, {
+      assignedToId: task.assignedToId,
+      reviewOwnerId: task.reviewOwnerId,
+      status: task.status,
+    });
+  const canManageSource =
+    !!userIdentity &&
+    !!task &&
+    canManageTaskSource(userIdentity, { assignedToId: task.assignedToId, reviewOwnerId: task.reviewOwnerId });
+  const canTakeOver =
+    !!userIdentity &&
+    !!task &&
+    canTakeOverReview(userIdentity, {
+      reviewOwnerId: task.reviewOwnerId,
+      reviewOwnerSeniorityLevel: task.reviewOwnerSeniorityLevel ?? null,
+    });
+  const canReopen = !!userIdentity && !!task && canReopenTask(userIdentity, { reviewOwnerId: task.reviewOwnerId });
+  const canCreateSub =
+    !!userIdentity &&
+    !!task &&
+    canCreateSubtask(userIdentity, {
+      assignedToId: task.assignedToId,
+      reviewOwnerId: task.reviewOwnerId,
+      projectCreatedById: task.project?.createdById ?? null,
+    });
   const canDelete =
     userIdentity && task
       ? canDeleteTask(
           userIdentity,
-          {
-            createdById: task.createdBy.id,
-            assignedToId: task.assignedToId ?? null,
-          },
+          { createdById: task.createdBy.id, assignedToId: task.assignedToId ?? null },
           task.project ?? null
         )
       : false;
@@ -147,9 +268,22 @@ export default function TaskDetail({
         >
           {/* Header bar */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
-              Görev Detayı
-            </h2>
+            <div className="flex items-center gap-1.5">
+              {navStack.length > 0 && (
+                <button
+                  onClick={goBack}
+                  title="Geri"
+                  className="p-1.5 -ml-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                </button>
+              )}
+              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
+                Görev Detayı
+              </h2>
+            </div>
             <button
               onClick={onClose}
               className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 transition-colors"
@@ -244,30 +378,79 @@ export default function TaskDetail({
                   </div>
                 </dl>
 
-                {/* Aksiyon butonları */}
+                {/* Aksiyon butonları — duruma VE yetkiye göre gösterilir (lib/task-permissions.ts) */}
                 <div className="flex flex-wrap items-center gap-2">
-                  {(STATUS_TRANSITIONS[task.status] ?? []).map((t) => (
+                  {isAssignee && task.status === "TODO" && (
                     <button
-                      key={t.status}
-                      onClick={() => changeStatus(t.status)}
+                      onClick={() => changeStatus("IN_PROGRESS")}
                       disabled={statusLoading}
-                      className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-60 ${
-                        t.secondary
-                          ? "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                          : "bg-[#F57C28] text-white hover:bg-[#D96A1A] shadow-sm shadow-[#F57C28]/25"
-                      }`}
+                      className="px-3.5 py-2 rounded-lg text-sm font-semibold bg-[#F57C28] text-white hover:bg-[#D96A1A] shadow-sm shadow-[#F57C28]/25 disabled:opacity-60 transition-colors"
                     >
-                      {statusLoading ? "..." : t.label}
-                    </button>
-                  ))}
-                  {isAdmin && (
-                    <button
-                      onClick={() => setShowEdit(true)}
-                      className="px-3.5 py-2 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
-                    >
-                      Düzenle
+                      {statusLoading ? "..." : "Çalışmaya Başla"}
                     </button>
                   )}
+
+                  {canSubmit && task.status === "IN_PROGRESS" && (
+                    <button
+                      onClick={() => setShowSubmitReview(true)}
+                      className="px-3.5 py-2 rounded-lg text-sm font-semibold bg-[#F57C28] text-white hover:bg-[#D96A1A] shadow-sm shadow-[#F57C28]/25 transition-colors"
+                    >
+                      İncelemeye Gönder
+                    </button>
+                  )}
+
+                  {canReview && task.status === "REVIEW" && (
+                    <>
+                      <button
+                        onClick={() => setShowApprove(true)}
+                        className="px-3.5 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-600/25 transition-colors"
+                      >
+                        Onayla
+                      </button>
+                      <button
+                        onClick={() => setShowRequestRevision(true)}
+                        className="px-3.5 py-2 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                      >
+                        Revizyon İste
+                      </button>
+                    </>
+                  )}
+
+                  {canManage && (
+                    <>
+                      <button
+                        onClick={() => setShowEdit(true)}
+                        className="px-3.5 py-2 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                      >
+                        Düzenle
+                      </button>
+                      <button
+                        onClick={() => setShowReassign(true)}
+                        className="px-3.5 py-2 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                      >
+                        Atanan Kişiyi Değiştir
+                      </button>
+                    </>
+                  )}
+
+                  {canTakeOver && (
+                    <button
+                      onClick={() => setShowTakeOver(true)}
+                      className="px-3.5 py-2 rounded-lg text-sm font-semibold border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
+                    >
+                      İncelemeyi Devral
+                    </button>
+                  )}
+
+                  {task.status === "DONE" && canReopen && (
+                    <button
+                      onClick={() => setShowReopen(true)}
+                      className="px-3.5 py-2 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                      Yeniden Aç
+                    </button>
+                  )}
+
                   {canDelete && (
                     <button
                       onClick={handleDelete}
@@ -278,6 +461,12 @@ export default function TaskDetail({
                     </button>
                   )}
                 </div>
+
+                {actionError && (
+                  <div className="mt-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-2.5">
+                    {actionError}
+                  </div>
+                )}
               </div>
 
               {/* ── 1. Açıklama ── */}
@@ -294,68 +483,52 @@ export default function TaskDetail({
                 )}
               </section>
 
-              {/* ── 2. Kaynaklar (yer tutucu) ── */}
-              <section className="px-6 py-4 border-b border-gray-50">
-                <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                  Kaynaklar
-                </h3>
-                <p className="text-sm text-gray-400 italic">Yakında eklenecek</p>
-              </section>
+              {/* ── 2. Kaynaklar ── */}
+              <TaskResourcesSection
+                taskId={task.id}
+                files={task.files}
+                sources={task.sources ?? []}
+                canManage={canManageSource}
+                onFileAdded={(file) =>
+                  setTask((prev) => (prev ? { ...prev, files: [file, ...prev.files] } : prev))
+                }
+                onSourceAdded={(source) =>
+                  setTask((prev) =>
+                    prev ? { ...prev, sources: [...(prev.sources ?? []), source] } : prev
+                  )
+                }
+              />
 
               {/* ── 3. Alt Görevler ── */}
-              <section className="px-6 py-4 border-b border-gray-50">
-                <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                  Alt Görevler
-                </h3>
-                {task.parent && (
-                  <p className="text-xs text-gray-500 mb-2">
-                    Üst görev:{" "}
-                    <span className="font-medium text-gray-700">{task.parent.title}</span>
-                  </p>
-                )}
-                {(task.children?.length ?? 0) > 0 ? (
-                  <ul className="space-y-1.5">
-                    {task.children!.map((c) => (
-                      <li key={c.id} className="flex items-center gap-2 text-sm text-gray-700">
-                        <StatusBadge status={c.status as any} />
-                        <span>{c.title}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  !task.parent && (
-                    <p className="text-sm text-gray-400 italic">Alt görev yok</p>
+              <SubtaskSection
+                task={task}
+                canCreateSubtask={canCreateSub}
+                onNavigate={navigateTo}
+                onChildAdded={(child) =>
+                  setTask((prev) =>
+                    prev ? { ...prev, children: [...(prev.children ?? []), child] } : prev
                   )
-                )}
-              </section>
+                }
+              />
 
-              {/* ── 4. İnceleme & Revizyon Geçmişi (yer tutucu) ── */}
+              {/* ── 4. Tekrarlayan Görev Serisi ── */}
+              {task.isRecurring && task.recurringSeriesId && userIdentity && (
+                <RecurringSeriesPanel
+                  recurringSeriesId={task.recurringSeriesId}
+                  currentUserId={userIdentity.id}
+                  isManager={isManager}
+                />
+              )}
+
+              {/* ── 5. İnceleme & Revizyon Geçmişi ── */}
               <section className="px-6 py-4 border-b border-gray-50">
-                <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-3">
                   İnceleme & Revizyon Geçmişi
                 </h3>
-                {task.feedbacks?.length > 0 ? (
-                  <ul className="space-y-3">
-                    {task.feedbacks.map((f: any) => (
-                      <li key={f.id}>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-sm font-semibold text-gray-800">
-                            {f.fromUser.name}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {new Date(f.createdAt).toLocaleDateString("tr-TR")}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-600">{f.message}</p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-gray-400 italic">Yakında eklenecek</p>
-                )}
+                <ReviewHistoryTimeline taskId={task.id} rounds={task.reviewRounds ?? []} />
               </section>
 
-              {/* ── 5. Görev Geçmişi (accordion, kapalı) ── */}
+              {/* ── 6. Görev Geçmişi (accordion, kapalı) ── */}
               <section className="px-6 py-4">
                 <button
                   type="button"
@@ -417,10 +590,80 @@ export default function TaskDetail({
           users={users}
           onClose={() => setShowEdit(false)}
           onUpdate={(updated) => {
-            setTask(updated);
-            onUpdate?.(updated);
+            applyUpdate(updated);
             setShowEdit(false);
           }}
+        />
+      )}
+
+      {showReassign && task && (
+        <ReassignModal
+          taskId={task.id}
+          projectId={task.project?.id}
+          departmentId={task.departmentId ?? undefined}
+          currentAssigneeId={task.assignedToId}
+          onClose={() => setShowReassign(false)}
+          onSubmitted={(updated) => {
+            applyUpdate(updated);
+            setShowReassign(false);
+          }}
+        />
+      )}
+
+      {showSubmitReview && task && (
+        <SubmitReviewModal
+          taskId={task.id}
+          onClose={() => setShowSubmitReview(false)}
+          onSubmitted={(updated) => {
+            applyUpdate(updated);
+            setShowSubmitReview(false);
+          }}
+        />
+      )}
+
+      {showRequestRevision && task && (
+        <RequestRevisionModal
+          taskId={task.id}
+          onClose={() => setShowRequestRevision(false)}
+          onSubmitted={(updated) => {
+            applyUpdate(updated);
+            setShowRequestRevision(false);
+          }}
+        />
+      )}
+
+      {showReopen && task && (
+        <ReopenModal
+          taskId={task.id}
+          onClose={() => setShowReopen(false)}
+          onSubmitted={(updated) => {
+            applyUpdate(updated);
+            setShowReopen(false);
+          }}
+        />
+      )}
+
+      {showApprove && (
+        <ConfirmModal
+          title="Görevi Onayla"
+          message="Bu görevi onaylamak üzeresiniz. Onaylandıktan sonra görev Tamamlandı durumuna geçecektir."
+          confirmLabel="Onayla"
+          loading={confirmLoading}
+          error={confirmError}
+          onConfirm={() => runConfirmAction("approve")}
+          onCancel={() => { setShowApprove(false); setConfirmError(""); }}
+        />
+      )}
+
+      {showTakeOver && (
+        <ConfirmModal
+          title="İncelemeyi Devral"
+          message="Bu görevin inceleme sorumluluğunu devralmak üzeresiniz. Mevcut inceleme sahibine bildirim gönderilecektir."
+          confirmLabel="Devral"
+          loading={confirmLoading}
+          error={confirmError}
+          onConfirm={() => runConfirmAction("take_over_review")}
+          onCancel={() => { setShowTakeOver(false); setConfirmError(""); }}
         />
       )}
     </>

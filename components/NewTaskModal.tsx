@@ -31,6 +31,15 @@ interface Props {
   /** Proje detay ekranından açılınca: sabit proje, değiştirilemez */
   fixedProjectId?: string;
   fixedProjectName?: string;
+  /**
+   * Alt görev oluşturma modu — TaskDetail'den açılır. Proje/departman seçimi
+   * gösterilmez; backend zaten parent'ın projectId/departmentId'sini miras alır
+   * (bkz. app/api/tasks/route.ts). fixedDepartmentId yalnızca atanabilir kişi
+   * listesini doğru kapsamda çekmek için kullanılır (kullanıcı dept formatında).
+   */
+  parentTaskId?: string;
+  parentTaskTitle?: string;
+  fixedDepartmentId?: string;
   onClose: () => void;
   onCreate?: (task: TaskFull) => void;
 }
@@ -38,6 +47,9 @@ interface Props {
 export default function NewTaskModal({
   fixedProjectId,
   fixedProjectName,
+  parentTaskId,
+  parentTaskTitle,
+  fixedDepartmentId,
   onClose,
   onCreate,
 }: Props) {
@@ -69,9 +81,9 @@ export default function NewTaskModal({
   // Atanan listesi filtrelemesi için proje ID / departman
   const effectiveProjectId = fixedProjectId || projectId || undefined;
 
-  // Proje listesini yükle (sabit proje yoksa)
+  // Proje listesini yükle (sabit proje yoksa, ve alt görev modunda değilsek)
   useEffect(() => {
-    if (fixedProjectId) return;
+    if (fixedProjectId || parentTaskId) return;
     setProjectsLoading(true);
     fetch("/api/projects")
       .then((r) => (r.ok ? r.json() : []))
@@ -91,6 +103,10 @@ export default function NewTaskModal({
     const params = new URLSearchParams();
     if (effectiveProjectId) {
       params.set("projectId", effectiveProjectId);
+    } else if (parentTaskId && fixedDepartmentId) {
+      // Alt görev, projesiz üst görev — departman parent'tan miras alınır
+      // (fixedDepartmentId zaten kullanıcı departman formatında, çeviri gerekmez)
+      params.set("departmentId", fixedDepartmentId);
     } else if (departmentId) {
       // Admin'in seçtiği departman — proje departmanı formatında (DEPT_LABELS)
       params.set("projectDept", departmentId);
@@ -105,7 +121,7 @@ export default function NewTaskModal({
       })
       .catch(() => {})
       .finally(() => setAssigneesLoading(false));
-  }, [effectiveProjectId, departmentId, ownDepartment]);
+  }, [effectiveProjectId, departmentId, ownDepartment, parentTaskId, fixedDepartmentId]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -117,7 +133,7 @@ export default function NewTaskModal({
       setError("Atanan kişi zorunlu");
       return;
     }
-    if (isAdmin && !projectId && !departmentId) {
+    if (!parentTaskId && isAdmin && !projectId && !departmentId) {
       setError("Projesiz görev için departman seçmelisiniz");
       return;
     }
@@ -131,9 +147,13 @@ export default function NewTaskModal({
       priority,
       assignedToId,
       dueDate: dueDate || null,
-      projectId: projectId || null,
       isRecurring,
-      ...(isAdmin && !projectId && departmentId ? { departmentId } : {}),
+      ...(parentTaskId
+        ? { parentTaskId }
+        : {
+            projectId: projectId || null,
+            ...(isAdmin && !projectId && departmentId ? { departmentId } : {}),
+          }),
     };
 
     if (isRecurring) {
@@ -167,7 +187,7 @@ export default function NewTaskModal({
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[95vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800">Yeni Görev</h2>
+          <h2 className="text-lg font-bold text-gray-800">{parentTaskId ? "Yeni Alt Görev" : "Yeni Görev"}</h2>
           <button
             type="button"
             onClick={onClose}
@@ -213,56 +233,71 @@ export default function NewTaskModal({
             />
           </div>
 
-          {/* Proje */}
-          {fixedProjectId ? (
+          {/* Alt görev modu: proje/departman seçimi yok — parent'tan miras alınır */}
+          {parentTaskId ? (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Proje</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Üst Görev</label>
               <div className="px-3.5 py-2.5 rounded-xl border border-gray-100 bg-gray-50 text-sm text-gray-600">
-                {fixedProjectName ?? fixedProjectId}
+                {parentTaskTitle ?? parentTaskId}
               </div>
+              <p className="mt-1 text-xs text-gray-400">
+                Proje/departman üst görevden otomatik alınır.
+              </p>
             </div>
           ) : (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Proje</label>
-              {projectsLoading ? (
-                <div className="text-sm text-gray-400 py-2.5">Yükleniyor...</div>
+            <>
+              {/* Proje */}
+              {fixedProjectId ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Proje</label>
+                  <div className="px-3.5 py-2.5 rounded-xl border border-gray-100 bg-gray-50 text-sm text-gray-600">
+                    {fixedProjectName ?? fixedProjectId}
+                  </div>
+                </div>
               ) : (
-                <select
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
-                >
-                  <option value="">— Projesiz —</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Proje</label>
+                  {projectsLoading ? (
+                    <div className="text-sm text-gray-400 py-2.5">Yükleniyor...</div>
+                  ) : (
+                    <select
+                      value={projectId}
+                      onChange={(e) => setProjectId(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
+                    >
+                      <option value="">— Projesiz —</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               )}
-            </div>
-          )}
 
-          {/* Departman — sadece ADMIN + projesiz */}
-          {isAdmin && !projectId && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Departman *
-              </label>
-              <select
-                value={departmentId}
-                onChange={(e) => setDepartmentId(e.target.value)}
-                required
-                className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
-              >
-                <option value="">— Departman seçin —</option>
-                {Object.entries(DEPT_LABELS).map(([val, label]) => (
-                  <option key={val} value={val}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
+              {/* Departman — sadece ADMIN + projesiz */}
+              {isAdmin && !projectId && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Departman *
+                  </label>
+                  <select
+                    value={departmentId}
+                    onChange={(e) => setDepartmentId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
+                  >
+                    <option value="">— Departman seçin —</option>
+                    {Object.entries(DEPT_LABELS).map(([val, label]) => (
+                      <option key={val} value={val}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
           )}
 
           {/* Atanan kişi */}

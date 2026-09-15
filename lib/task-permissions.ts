@@ -145,6 +145,19 @@ export function canReviewTask(
 }
 
 /**
+ * Görevi yeniden açma yetkisi — yalnızca reviewOwner veya yönetici.
+ * Durum: DONE → TODO (action:"reopen")
+ */
+export function canReopenTask(
+  user: WorkflowUser,
+  task: { reviewOwnerId?: string | null }
+): boolean {
+  if (isReviewOwner(user.id, task)) return true;
+  if (isManager(user)) return true;
+  return false;
+}
+
+/**
  * İncelemeye gönderme yetkisi — yalnızca atanan kişi.
  * Durum: IN_PROGRESS → REVIEW
  */

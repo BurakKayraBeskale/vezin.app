@@ -10,6 +10,10 @@
  *   TS6  Normal kullanıcı POST /api/tasks body.departmentId ile departman değiştiremiyor
  *   TS7  Görevin atananı dosya/kaynak ekleyemiyor → 403
  *   TS8  Alt görev parent'ın projesini/departmanını miras alıyor, body'deki değer yok sayılıyor
+ *   TS9  PATCH {status:"DONE"} doğrudan TODO/IN_PROGRESS'ten → 400 (2. tur smoke testinde bulunan
+ *        gerçek bypass: atanan kişi onay akışını tamamen atlayıp kendi görevini DONE yapabiliyordu)
+ *   TS10 Görevle ilgisi olmayan (atanan/yönetici değil) görünür kullanıcı TODO↔IN_PROGRESS
+ *        durumunu değiştiremez → 403
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -404,5 +408,61 @@ describe("TS8 — alt görev parent'ın proje/departmanını miras alır", () =>
     const saved = await prisma.task.findUnique({ where: { id: data.id }, select: { projectId: true, departmentId: true } });
     expect(saved?.projectId).toBeNull();
     expect(saved?.departmentId).toBe("BAGIMSIZ_DENETIM");
+  });
+});
+
+// ── TS9: PATCH {status:"DONE"} doğrudan TODO/IN_PROGRESS'ten → 400 ───────────
+
+describe("TS9 — PATCH status:DONE doğrudan (TODO/IN_PROGRESS'ten) → 400", () => {
+  it("atanan kişi TODO'dan doğrudan DONE yapamaz — approve aksiyonu şart", async () => {
+    const taskId = await mkTask({
+      title: `${PREFIX} TS9-todo`, status: "TODO", assignedToId: assignee.id, createdById: creator.id,
+      departmentId: "BAGIMSIZ_DENETIM",
+    });
+
+    sessionOf(assignee);
+    const res = await taskPATCH(patchReq(taskId, { status: "DONE" }), { params: { id: taskId } });
+    expect(res.status).toBe(400);
+    const data = await json(res);
+    expect(data.error).toMatch(/onayla/i);
+
+    const task = await prisma.task.findUnique({ where: { id: taskId }, select: { status: true } });
+    expect(task?.status).toBe("TODO");
+  });
+
+  it("atanan kişi IN_PROGRESS'ten doğrudan DONE yapamaz — approve aksiyonu şart", async () => {
+    const taskId = await mkTask({
+      title: `${PREFIX} TS9-inprog`, status: "IN_PROGRESS", assignedToId: assignee.id, createdById: creator.id,
+      departmentId: "BAGIMSIZ_DENETIM",
+    });
+
+    sessionOf(assignee);
+    const res = await taskPATCH(patchReq(taskId, { status: "DONE" }), { params: { id: taskId } });
+    expect(res.status).toBe(400);
+
+    const task = await prisma.task.findUnique({ where: { id: taskId }, select: { status: true } });
+    expect(task?.status).toBe("IN_PROGRESS");
+  });
+});
+
+// ── TS10: İlgisiz görünür kullanıcı TODO↔IN_PROGRESS değiştiremez ────────────
+
+describe("TS10 — görevle ilgisiz (atanan/yönetici değil) kullanıcı durum değiştiremez", () => {
+  it("createdById üzerinden görünür ama atanan/yönetici olmayan kullanıcı → 403", async () => {
+    // bystander görevi görebilir (createdById=bystander → kural 7) ama ne atanan
+    // ne de yönetim yetkisi (canManageTask) var — durum değişikliği reddedilmeli.
+    const taskId = await mkTask({
+      title: `${PREFIX} TS10`, status: "TODO", assignedToId: assignee.id, createdById: bystander.id,
+      departmentId: "BAGIMSIZ_DENETIM",
+    });
+
+    sessionOf(bystander);
+    const res = await taskPATCH(patchReq(taskId, { status: "IN_PROGRESS" }), { params: { id: taskId } });
+    expect(res.status).toBe(403);
+    const data = await json(res);
+    expect(data.error).toMatch(/yetkiniz yok/i);
+
+    const task = await prisma.task.findUnique({ where: { id: taskId }, select: { status: true } });
+    expect(task?.status).toBe("TODO");
   });
 });

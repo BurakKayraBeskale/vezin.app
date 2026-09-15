@@ -6,6 +6,7 @@ import { computeCompletedAt } from "@/lib/task-status";
 import {
   canDeleteTask,
   canManageTask,
+  canReopenTask,
   canReviewTask,
   canSubmitForReview,
   canTakeOverReview,
@@ -28,6 +29,10 @@ const taskInclude = {
     include: {
       submittedBy: { select: { id: true, name: true } },
       reviewedBy: { select: { id: true, name: true } },
+      attachments: {
+        include: { uploadedBy: { select: { id: true, name: true } } },
+        orderBy: { createdAt: "asc" as const },
+      },
     },
     orderBy: { roundNumber: "asc" as const },
   },
@@ -39,6 +44,25 @@ const taskInclude = {
 
 async function getSession(req: NextRequest) {
   return getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+}
+
+/**
+ * submit_review/request_revision aksiyonlarındaki opsiyonel OneDrive/SharePoint
+ * link ekini ayrıştırır. Dosya eki için ayrı bir multipart uç kullanılır
+ * (bkz. /api/tasks/[id]/attachments) — PATCH gövdesi JSON olduğundan link
+ * burada, dosya orada işlenir.
+ */
+function parseOptionalLink(body: any): { url: string; name: string } | null | "invalid" {
+  const raw = (body.attachmentUrl as string | undefined)?.trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "invalid";
+  } catch {
+    return "invalid";
+  }
+  const name = (body.attachmentName as string | undefined)?.trim() || raw;
+  return { url: raw, name };
 }
 
 function sessionFields(token: NonNullable<Awaited<ReturnType<typeof getSession>>>) {
@@ -76,10 +100,23 @@ function makeWorkflowUser(fields: ReturnType<typeof sessionFields>) {
   };
 }
 
-/** parent/children'daki görünmeyen ilişkili görevleri süzüp yanıtı döner. */
+/**
+ * parent/children'daki görünmeyen ilişkili görevleri süzer, reviewOwner'ın
+ * kıdem seviyesini ekler (canTakeOverReview UI kararı için — reviewOwner'a
+ * ayrı bir Prisma ilişkisi tanımlamamak için tek satır ek sorgu kullanılır)
+ * ve yanıtı döner.
+ */
 async function respondTask(fields: ReturnType<typeof sessionFields>, task: NonNullable<Awaited<ReturnType<typeof prisma.task.findFirst>>>) {
   const [sanitized] = await filterRelatedTaskVisibility([task as any], makeVisUser(fields));
-  return NextResponse.json(sanitized);
+  let reviewOwnerSeniorityLevel: number | null = null;
+  if ((sanitized as any).reviewOwnerId) {
+    const owner = await prisma.user.findUnique({
+      where: { id: (sanitized as any).reviewOwnerId },
+      select: { seniorityLevel: true },
+    });
+    reviewOwnerSeniorityLevel = owner?.seniorityLevel ?? null;
+  }
+  return NextResponse.json({ ...sanitized, reviewOwnerSeniorityLevel });
 }
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -106,8 +143,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const body = await req.json();
     const fields = sessionFields(token);
-    const { userId, isAdmin } = fields;
-    const canManage = isAdmin || fields.canViewAllProjects || fields.overseesDepartment != null;
+    const { userId } = fields;
     const wfUser = makeWorkflowUser(fields);
 
     // Mevcut görevi çek — görünürlük zorla
@@ -156,6 +192,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         return NextResponse.json({ error: "Gönderim notu zorunludur" }, { status: 400 });
       }
 
+      // Opsiyonel OneDrive/SharePoint linki — geçersizse net hata ver (sessizce yutma)
+      const submissionLink = parseOptionalLink(body);
+      if (submissionLink === "invalid") {
+        return NextResponse.json({ error: "Geçersiz link — yalnızca http(s) URL'leri desteklenir" }, { status: 400 });
+      }
+
       // Açık alt görev kontrolü — herhangi bir torun DONE değilse 409
       const openChildren = await prisma.task.findFirst({
         where: { parentTaskId: params.id, status: { not: "DONE" }, deletedAt: null },
@@ -170,7 +212,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
       // Mevcut tur sayısını bul
       const roundCount = await prisma.taskReviewRound.count({ where: { taskId: params.id } });
-      await prisma.taskReviewRound.create({
+      const round = await prisma.taskReviewRound.create({
         data: {
           taskId: params.id,
           roundNumber: roundCount + 1,
@@ -178,6 +220,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           submissionNote: body.submissionNote.trim(),
         },
       });
+      if (submissionLink) {
+        await prisma.taskAttachment.create({
+          data: {
+            taskId: params.id,
+            reviewRoundId: round.id,
+            kind: "SUBMISSION",
+            type: "LINK",
+            name: submissionLink.name,
+            url: submissionLink.url,
+            uploadedById: userId,
+          },
+        });
+      }
 
       const updated = await prisma.task.update({
         where: { id: params.id },
@@ -288,6 +343,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         return NextResponse.json({ error: "Revizyon notu zorunludur" }, { status: 400 });
       }
 
+      const revisionLink = parseOptionalLink(body);
+      if (revisionLink === "invalid") {
+        return NextResponse.json({ error: "Geçersiz link — yalnızca http(s) URL'leri desteklenir" }, { status: 400 });
+      }
+
       // En son turu güncelle
       const lastRound = await prisma.taskReviewRound.findFirst({
         where: { taskId: params.id },
@@ -303,6 +363,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
             reviewedAt: new Date(),
           },
         });
+        if (revisionLink) {
+          await prisma.taskAttachment.create({
+            data: {
+              taskId: params.id,
+              reviewRoundId: lastRound.id,
+              kind: "FEEDBACK",
+              type: "LINK",
+              name: revisionLink.name,
+              url: revisionLink.url,
+              uploadedById: userId,
+            },
+          });
+        }
       }
 
       const updated = await prisma.task.update({
@@ -324,7 +397,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     if (body.action === "reopen") {
       // DONE → TODO: reopenReason zorunlu
-      if (!canManage && current.reviewOwnerId !== userId) {
+      if (!canReopenTask(wfUser, { reviewOwnerId: current.reviewOwnerId })) {
         return NextResponse.json({ error: "Yeniden açma yetkisi yok" }, { status: 403 });
       }
       if (current.status !== "DONE") {
@@ -405,41 +478,54 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const newStatus = body.status as string;
       const fromStatus = current.status;
 
-      // IN_PROGRESS→REVIEW yalnızca action:"submit_review" ile yapılabilir —
-      // genel PATCH'ten gelirse kim olursa olsun reddet (submissionNote/alt görev
-      // kontrolü/inceleme turu kaydı bu yoldan atlanamaz)
-      if (fromStatus === "IN_PROGRESS" && newStatus === "REVIEW") {
+      // REVIEW'a giriş yalnızca action:"submit_review" ile yapılabilir — kaynak
+      // durum ne olursa olsun (submissionNote/alt görev kontrolü/inceleme turu
+      // kaydı bu yoldan atlanamaz)
+      if (newStatus === "REVIEW") {
         return NextResponse.json(
           { error: "İncelemeye göndermek için 'İncelemeye Gönder' butonunu kullanın" },
           { status: 400 }
         );
       }
 
-      // REVIEW'dan çıkış (IN_PROGRESS veya TODO) yalnızca action:"request_revision" ile
-      // yapılabilir — genel PATCH'ten reddet
-      if (fromStatus === "REVIEW" && (newStatus === "IN_PROGRESS" || newStatus === "TODO")) {
-        return NextResponse.json(
-          { error: "Revizyon istemek için 'Revizyon İste' aksiyonunu kullanın" },
-          { status: 400 }
-        );
-      }
-
-      // REVIEW→DONE yalnızca action:"approve" ile yapılabilir — genel PATCH'ten
-      // gelirse canReviewTask'ı olsa bile reddet (onay turu kaydı/bildirim/retention
-      // bu yoldan atlanamaz)
-      if (fromStatus === "REVIEW" && newStatus === "DONE") {
+      // DONE'a giriş yalnızca action:"approve" ile yapılabilir — kaynak durum ne
+      // olursa olsun (onay turu kaydı/bildirim/retention bu yoldan atlanamaz).
+      // NOT: bu kontrol olmadan atanan kişi TODO/IN_PROGRESS'ten doğrudan DONE'a
+      // geçerek tüm onay akışını atlayabiliyordu.
+      if (newStatus === "DONE") {
         return NextResponse.json(
           { error: "Onaylamak için 'Onayla' butonunu kullanın" },
           { status: 400 }
         );
       }
 
-      // DONE→TODO için reopen aksiyonu gerekli
-      if (fromStatus === "DONE" && newStatus === "TODO") {
+      // REVIEW'dan çıkış (IN_PROGRESS veya TODO) yalnızca action:"request_revision" ile
+      if (fromStatus === "REVIEW" && newStatus !== fromStatus) {
+        return NextResponse.json(
+          { error: "Revizyon istemek için 'Revizyon İste' aksiyonunu kullanın" },
+          { status: 400 }
+        );
+      }
+
+      // DONE'dan çıkış yalnızca action:"reopen" ile
+      if (fromStatus === "DONE" && newStatus !== fromStatus) {
         return NextResponse.json(
           { error: "Yeniden açmak için 'Yeniden Aç' aksiyonunu kullanın" },
           { status: 400 }
         );
+      }
+
+      // Kalan geçişler (TODO ↔ IN_PROGRESS): yalnızca atanan kişi veya yönetim
+      // yetkisi olan (canManageTask) yapabilir — görevle ilgisiz, görünürlüğü
+      // olan herhangi bir kullanıcı durumu değiştiremez.
+      if (newStatus !== fromStatus) {
+        const isAssigneeActor = current.assignedToId === userId;
+        if (!isAssigneeActor && !canManageTask(wfUser, current)) {
+          return NextResponse.json(
+            { error: "Bu durum değişikliğini yapma yetkiniz yok" },
+            { status: 403 }
+          );
+        }
       }
 
       allowed.status = newStatus;
