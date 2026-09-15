@@ -14,6 +14,7 @@ type Priority = "HIGH" | "MEDIUM" | "LOW";
 type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
 type SortCol = "title" | "priority" | "status" | "assignedTo" | "dueDate" | "files";
 type SortDir = "asc" | "desc";
+type QuickFilter = "open" | "done" | "high" | null;
 
 const PRIORITY_ORDER: Record<Priority, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 const STATUS_ORDER: Record<Status, number> = { TODO: 0, IN_PROGRESS: 1, REVIEW: 2, DONE: 3 };
@@ -68,6 +69,7 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
   const [filterPriority, setFilterPriority] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(null);
   const [sortCol, setSortCol] = useState<SortCol>("priority");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [viewTask, setViewTask] = useState<TaskFull | null>(null);
@@ -92,7 +94,12 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
       const matchP = !filterPriority || t.priority === filterPriority;
       const matchS = !filterStatus || t.status === filterStatus;
       const matchA = !filterAssignee || (filterAssignee === "__none__" ? !t.assignedToId : t.assignedToId === filterAssignee);
-      return matchQ && matchP && matchS && matchA;
+      const matchQuick =
+        quickFilter === "open" ? t.status !== "DONE" :
+        quickFilter === "done" ? t.status === "DONE" :
+        quickFilter === "high" ? t.priority === "HIGH" :
+        true;
+      return matchQ && matchP && matchS && matchA && matchQuick;
     });
 
     result.sort((a, b) => {
@@ -114,7 +121,11 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
     });
 
     return result;
-  }, [tasks, search, filterPriority, filterStatus, filterAssignee, sortCol, sortDir]);
+  }, [tasks, search, filterPriority, filterStatus, filterAssignee, quickFilter, sortCol, sortDir]);
+
+  function toggleQuickFilter(key: QuickFilter) {
+    setQuickFilter((prev) => (prev === key ? null : key));
+  }
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
 
@@ -196,8 +207,53 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
   const thClass = "px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap select-none";
   const thSortable = `${thClass} cursor-pointer hover:text-[#F57C28] transition-colors`;
 
+  const openCount = tasks.filter((t) => t.status !== "DONE").length;
+  const doneCount = tasks.filter((t) => t.status === "DONE").length;
+  const highCount = tasks.filter((t) => t.priority === "HIGH").length;
+  const highOpenCount = tasks.filter((t) => t.priority === "HIGH" && t.status !== "DONE").length;
+
+  const summaryChips: { key: QuickFilter; label: string; value: number; cls: string }[] = [
+    { key: null, label: "Toplam", value: tasks.length, cls: "bg-gray-100 text-gray-600" },
+    { key: "open", label: "Açık", value: openCount, cls: "bg-orange-50 text-orange-600 border border-orange-200" },
+    { key: "done", label: "Tamamlandı", value: doneCount, cls: "bg-emerald-50 text-emerald-600 border border-emerald-200" },
+    { key: "high", label: "Yüksek Öncelik", value: highCount, cls: "bg-red-50 text-red-600 border border-red-200" },
+  ];
+
   return (
     <div className="space-y-4">
+      {/* Başlık + özet kutucukları (tıklanabilir hızlı filtre) */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Backlog</h1>
+          <p className="text-sm text-gray-400 mt-1">
+            {openCount} açık görev · {highOpenCount} yüksek öncelikli
+          </p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {summaryChips.map((chip) => {
+            const isActive = quickFilter === chip.key;
+            return (
+              <button
+                key={chip.label}
+                type="button"
+                onClick={() => toggleQuickFilter(chip.key)}
+                aria-pressed={isActive}
+                title={isActive ? "Filtreyi kaldırmak için tekrar tıklayın" : `${chip.label} olarak filtrele`}
+                className={clsx(
+                  "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F57C28] focus-visible:ring-offset-2",
+                  chip.cls,
+                  isActive && "ring-2 ring-[#F57C28] ring-offset-1 shadow-sm shadow-[#F57C28]/30"
+                )}
+              >
+                <span className="font-bold">{chip.value}</span>
+                <span className="opacity-70">{chip.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Toast */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-xl animate-in fade-in slide-in-from-bottom-2">

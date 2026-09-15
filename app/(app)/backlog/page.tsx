@@ -67,33 +67,10 @@ export default async function BacklogPage() {
   // Görünür kullanıcılar (@mention için): görev katılımcıları ∪ atanabilir kullanıcılar
   const visibleUsers = users;
 
-  const open = tasks.filter((t) => t.status !== "DONE").length;
-  const highPriority = tasks.filter((t) => t.priority === "HIGH" && t.status !== "DONE").length;
-
   return (
     <div className="max-w-screen-xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-5">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Backlog</h1>
-          <p className="text-sm text-gray-400 mt-1">
-            {open} açık görev · {highPriority} yüksek öncelikli
-          </p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {[
-            { label: "Toplam", value: tasks.length, cls: "bg-gray-100 text-gray-600" },
-            { label: "Açık", value: open, cls: "bg-orange-50 text-orange-600 border border-orange-200" },
-            { label: "Tamamlandı", value: tasks.filter(t=>t.status==="DONE").length, cls: "bg-emerald-50 text-emerald-600 border border-emerald-200" },
-            { label: "Yüksek Öncelik", value: tasks.filter(t=>t.priority==="HIGH").length, cls: "bg-red-50 text-red-600 border border-red-200" },
-          ].map((chip) => (
-            <div key={chip.label} className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${chip.cls}`}>
-              <span className="font-bold">{chip.value}</span>
-              <span className="opacity-70">{chip.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
+      {/* Başlık, özet kutucukları ve tablo — tıklanabilir/etkileşimli oldukları için
+          BacklogTable (client component) içinde, tasks state'iyle birlikte render edilir. */}
       <BacklogTable
         initialTasks={JSON.parse(JSON.stringify(tasks))}
         users={JSON.parse(JSON.stringify(visibleUsers))}

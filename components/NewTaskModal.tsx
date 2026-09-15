@@ -2,6 +2,7 @@
 
 import { useState, useEffect, FormEvent } from "react";
 import { useSession } from "next-auth/react";
+import { userDeptToProjectDept } from "@/lib/access";
 import { TaskFull } from "./TaskModal";
 
 interface AssignableUser {
@@ -56,6 +57,7 @@ export default function NewTaskModal({
   const { data: session } = useSession();
   const isAdmin = (session?.user as any)?.role === "ADMIN";
   const ownDepartment = (session?.user as any)?.department as string | undefined;
+  const overseesDepartment = (session?.user as any)?.overseesDepartment as string | null | undefined;
 
   // Form state
   const [title, setTitle] = useState("");
@@ -81,20 +83,43 @@ export default function NewTaskModal({
   // Atanan listesi filtrelemesi için proje ID / departman
   const effectiveProjectId = fixedProjectId || projectId || undefined;
 
-  // Proje listesini yükle (sabit proje yoksa, ve alt görev modunda değilsek)
+  // Proje listesini yükle (sabit proje yoksa, ve alt görev modunda değilsek).
+  // ADMIN: departman seçilmeden proje listesi hiç çekilmez (kademeli seçim).
+  // Normal kullanıcı: /api/projects zaten getVisibleProjectIds ile üyesi
+  // olduğu projelere/departmanına daraltıyor — burada ayrıca kendi departmanı
+  // (veya gözetim departmanı varsa o) ile ek bir server-side filtre uygulanır;
+  // bu salt savunma amaçlıdır, visWhere zaten daraltıyor, sonucu genişletmez.
   useEffect(() => {
     if (fixedProjectId || parentTaskId) return;
+
+    if (isAdmin) {
+      if (!departmentId) {
+        setProjects([]);
+        setProjectsLoading(false);
+        return;
+      }
+      setProjectsLoading(true);
+      fetch(`/api/projects?department=${encodeURIComponent(departmentId)}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data: any[]) => {
+          if (Array.isArray(data)) setProjects(data.filter((p) => p.status === "ACTIVE"));
+        })
+        .catch(() => {})
+        .finally(() => setProjectsLoading(false));
+      return;
+    }
+
     setProjectsLoading(true);
-    fetch("/api/projects")
+    const effectiveDept = overseesDepartment || userDeptToProjectDept(ownDepartment ?? "") || "";
+    const qs = effectiveDept ? `?department=${encodeURIComponent(effectiveDept)}` : "";
+    fetch(`/api/projects${qs}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((data: any[]) => {
-        if (Array.isArray(data)) {
-          setProjects(data.filter((p) => p.status === "ACTIVE"));
-        }
+        if (Array.isArray(data)) setProjects(data.filter((p) => p.status === "ACTIVE"));
       })
       .catch(() => {})
       .finally(() => setProjectsLoading(false));
-  }, [fixedProjectId]);
+  }, [fixedProjectId, parentTaskId, isAdmin, departmentId, overseesDepartment, ownDepartment]);
 
   // Atanabilir kullanıcıları yükle — proje/departman değişince yeniden çek
   useEffect(() => {
@@ -246,6 +271,33 @@ export default function NewTaskModal({
             </div>
           ) : (
             <>
+              {/* Departman — ADMIN için EN ÜSTTE, proje seçiminden önce zorunlu */}
+              {isAdmin && !fixedProjectId && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Departman *
+                  </label>
+                  <select
+                    value={departmentId}
+                    onChange={(e) => {
+                      setDepartmentId(e.target.value);
+                      // Departman değişince proje ve atanan seçimleri sıfırlanır
+                      // (atanan zaten assignee-fetch effect'inde otomatik sıfırlanıyor)
+                      setProjectId("");
+                    }}
+                    required
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
+                  >
+                    <option value="">— Departman seçin —</option>
+                    {Object.entries(DEPT_LABELS).map(([val, label]) => (
+                      <option key={val} value={val}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Proje */}
               {fixedProjectId ? (
                 <div>
@@ -257,7 +309,11 @@ export default function NewTaskModal({
               ) : (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Proje</label>
-                  {projectsLoading ? (
+                  {isAdmin && !departmentId ? (
+                    <div className="px-3.5 py-2.5 rounded-xl border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-400 italic">
+                      Önce departman seçin
+                    </div>
+                  ) : projectsLoading ? (
                     <div className="text-sm text-gray-400 py-2.5">Yükleniyor...</div>
                   ) : (
                     <select
@@ -273,28 +329,6 @@ export default function NewTaskModal({
                       ))}
                     </select>
                   )}
-                </div>
-              )}
-
-              {/* Departman — sadece ADMIN + projesiz */}
-              {isAdmin && !projectId && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Departman *
-                  </label>
-                  <select
-                    value={departmentId}
-                    onChange={(e) => setDepartmentId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
-                  >
-                    <option value="">— Departman seçin —</option>
-                    {Object.entries(DEPT_LABELS).map(([val, label]) => (
-                      <option key={val} value={val}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
                 </div>
               )}
             </>
