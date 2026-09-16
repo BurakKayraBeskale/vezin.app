@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, FormEvent } from "react";
+import { useState, useMemo, useEffect, FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { TITLES, DEPARTMENTS, DEPARTMENT_LABELS, type DeptKey } from "@/lib/hierarchy";
 import { TITLE_TO_SENIORITY } from "@/lib/access";
@@ -76,12 +77,29 @@ function deptLabel(dept: string): string {
   return DEPARTMENT_LABELS[dept as DeptKey] ?? dept;
 }
 
+type FilterStatus = "ACTIVE" | "INACTIVE" | "DELETED" | "ALL";
+
+/** ?status= URL parametresini durum filtresine çevirir (dashboard "Aktif Kullanıcılar" kartından gelir). */
+function parseStatusParam(searchParams: URLSearchParams): FilterStatus {
+  const s = searchParams.get("status")?.toLowerCase();
+  if (s === "active") return "ACTIVE";
+  if (s === "inactive") return "INACTIVE";
+  if (s === "deleted") return "DELETED";
+  if (s === "all") return "ALL";
+  return "ACTIVE";
+}
+
 export default function UserTable({ initialUsers, currentUserId }: Props) {
+  const searchParams = useSearchParams();
   const [users, setUsers] = useState<UserRecord[]>(initialUsers);
   const [search, setSearch] = useState("");
   const [filterDept, setFilterDept] = useState("ALL");
   const [filterTitle, setFilterTitle] = useState("ALL");
-  const [filterStatus, setFilterStatus] = useState<"ACTIVE" | "INACTIVE" | "DELETED" | "ALL">("ACTIVE");
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>(() => parseStatusParam(searchParams));
+
+  useEffect(() => {
+    setFilterStatus(parseStatusParam(searchParams));
+  }, [searchParams]);
 
   const [showForm, setShowForm] = useState(false);
   const [editUser, setEditUser] = useState<UserRecord | null>(null);

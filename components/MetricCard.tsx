@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 interface Props {
   title: string;
   value: number;
@@ -7,16 +9,20 @@ interface Props {
   sub: string;
   /** delta: geçen haftaya göre fark. higherIsBetter: true ise artış yeşil, false ise azalış yeşil */
   trend?: { delta: number; higherIsBetter: boolean };
+  /** verilirse kart tıklanabilir/link olur (klavye erişilebilir, focus halkalı) */
+  href?: string;
+  /** ekran okuyucular için anlamlı etiket — verilmezse title kullanılır */
+  ariaLabel?: string;
 }
 
-export default function MetricCard({ title, value, icon, accentColor, bgColor, sub, trend }: Props) {
+export default function MetricCard({ title, value, icon, accentColor, bgColor, sub, trend, href, ariaLabel }: Props) {
   const showTrend = trend && trend.delta !== 0;
   const isGood = showTrend
     ? trend!.higherIsBetter ? trend!.delta > 0 : trend!.delta < 0
     : false;
 
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow">
+  const content = (
+    <>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm font-medium text-gray-500">{title}</p>
         <div
@@ -40,6 +46,24 @@ export default function MetricCard({ title, value, icon, accentColor, bgColor, s
           </span>
         )}
       </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        aria-label={ariaLabel ?? title}
+        className="block text-left bg-white rounded-2xl border border-gray-100 shadow-sm p-5 transition-all hover:shadow-md hover:border-gray-200 hover:-translate-y-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F57C28] focus-visible:ring-offset-2"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow">
+      {content}
     </div>
   );
 }

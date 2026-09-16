@@ -82,6 +82,7 @@ export interface TaskFull {
   reviewOwnerSeniorityLevel?: number | null;
   assignees: AssigneeRecord[];
   dueDate: string | null;
+  completedAt?: string | null;
   projectId?: string | null;
   departmentId?: string | null;
   createdBy: { id: string; name: string };

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import PriorityBadge from "./PriorityBadge";
 import StatusBadge from "./StatusBadge";
@@ -14,7 +14,28 @@ type Priority = "HIGH" | "MEDIUM" | "LOW";
 type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
 type SortCol = "title" | "priority" | "status" | "assignedTo" | "dueDate" | "files";
 type SortDir = "asc" | "desc";
-type QuickFilter = "open" | "done" | "high" | null;
+type QuickFilter = "open" | "done" | "high" | "overdue" | null;
+
+/** Haftanın Pazartesi 00:00'ı — dashboard'daki weekBounds(0) ile birebir aynı hesap. */
+function thisWeekStartClient(): Date {
+  const now = new Date();
+  const day = now.getDay(); // 0=Paz,1=Pzt,...
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diffToMonday);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+/** Dashboard kartı → backlog URL parametrelerini quickFilter/weekOnly durumuna çevirir. */
+function parseQuickFilterFromParams(params: URLSearchParams): { quickFilter: QuickFilter; weekOnly: boolean } {
+  const status = params.get("status");
+  if (status === "open") return { quickFilter: "open", weekOnly: false };
+  if (status === "done") return { quickFilter: "done", weekOnly: params.get("period") === "week" };
+  if (params.get("overdue") === "true") return { quickFilter: "overdue", weekOnly: false };
+  if (params.get("priority") === "high") return { quickFilter: "high", weekOnly: false };
+  return { quickFilter: null, weekOnly: false };
+}
 
 const PRIORITY_ORDER: Record<Priority, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 const STATUS_ORDER: Record<Status, number> = { TODO: 0, IN_PROGRESS: 1, REVIEW: 2, DONE: 3 };
@@ -63,13 +84,20 @@ function SortIcon({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol; s
 
 export default function BacklogTable({ initialTasks, users, isAdmin, currentUserId, canDeleteFiles }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [tasks, setTasks] = useState<TaskFull[]>(initialTasks);
   const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>(null);
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(
+    () => parseQuickFilterFromParams(searchParams).quickFilter
+  );
+  const [weekOnly, setWeekOnly] = useState<boolean>(
+    () => parseQuickFilterFromParams(searchParams).weekOnly
+  );
   const [sortCol, setSortCol] = useState<SortCol>("priority");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [viewTask, setViewTask] = useState<TaskFull | null>(null);
@@ -87,7 +115,17 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
     else { setSortCol(col); setSortDir("asc"); }
   }
 
+  // Dashboard kartlarından (veya tarayıcı ileri/geri tuşuyla) URL değiştiğinde
+  // quickFilter/weekOnly durumunu senkronize eder — ilk render lazy initializer'la
+  // zaten doğru değeri alır, bu effect sonraki URL değişikliklerini yakalar.
+  useEffect(() => {
+    const parsed = parseQuickFilterFromParams(searchParams);
+    setQuickFilter(parsed.quickFilter);
+    setWeekOnly(parsed.weekOnly);
+  }, [searchParams]);
+
   const filtered = useMemo(() => {
+    const weekStart = thisWeekStartClient();
     const result = tasks.filter((t) => {
       const q = search.toLowerCase();
       const matchQ = !q || t.title.toLowerCase().includes(q) || (t.description ?? "").toLowerCase().includes(q) || (t.assignedTo?.name ?? "").toLowerCase().includes(q);
@@ -96,8 +134,9 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
       const matchA = !filterAssignee || (filterAssignee === "__none__" ? !t.assignedToId : t.assignedToId === filterAssignee);
       const matchQuick =
         quickFilter === "open" ? t.status !== "DONE" :
-        quickFilter === "done" ? t.status === "DONE" :
+        quickFilter === "done" ? t.status === "DONE" && (!weekOnly || (!!t.completedAt && new Date(t.completedAt) >= weekStart)) :
         quickFilter === "high" ? t.priority === "HIGH" :
+        quickFilter === "overdue" ? isOverdue(t.dueDate, t.status as Status) :
         true;
       return matchQ && matchP && matchS && matchA && matchQuick;
     });
@@ -121,10 +160,26 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
     });
 
     return result;
-  }, [tasks, search, filterPriority, filterStatus, filterAssignee, quickFilter, sortCol, sortDir]);
+  }, [tasks, search, filterPriority, filterStatus, filterAssignee, quickFilter, weekOnly, sortCol, sortDir]);
+
+  // Hızlı filtreyi hem state'e hem URL'e yazar — böylece bağlantı paylaşılabilir
+  // olur ve tarayıcı geri/ileri tuşu filtre geçmişinde doğru çalışır.
+  function applyQuickFilter(key: QuickFilter) {
+    setQuickFilter(key);
+    setWeekOnly(false);
+
+    const params = new URLSearchParams();
+    if (key === "open") params.set("status", "open");
+    else if (key === "done") params.set("status", "done");
+    else if (key === "overdue") params.set("overdue", "true");
+    else if (key === "high") params.set("priority", "high");
+
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
 
   function toggleQuickFilter(key: QuickFilter) {
-    setQuickFilter((prev) => (prev === key ? null : key));
+    applyQuickFilter(quickFilter === key ? null : key);
   }
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
@@ -211,12 +266,19 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
   const doneCount = tasks.filter((t) => t.status === "DONE").length;
   const highCount = tasks.filter((t) => t.priority === "HIGH").length;
   const highOpenCount = tasks.filter((t) => t.priority === "HIGH" && t.status !== "DONE").length;
+  const overdueCount = tasks.filter((t) => isOverdue(t.dueDate, t.status as Status)).length;
 
   const summaryChips: { key: QuickFilter; label: string; value: number; cls: string }[] = [
     { key: null, label: "Toplam", value: tasks.length, cls: "bg-gray-100 text-gray-600" },
     { key: "open", label: "Açık", value: openCount, cls: "bg-orange-50 text-orange-600 border border-orange-200" },
-    { key: "done", label: "Tamamlandı", value: doneCount, cls: "bg-emerald-50 text-emerald-600 border border-emerald-200" },
+    {
+      key: "done",
+      label: quickFilter === "done" && weekOnly ? "Tamamlandı · Bu Hafta" : "Tamamlandı",
+      value: doneCount,
+      cls: "bg-emerald-50 text-emerald-600 border border-emerald-200",
+    },
     { key: "high", label: "Yüksek Öncelik", value: highCount, cls: "bg-red-50 text-red-600 border border-red-200" },
+    { key: "overdue", label: "Geciken", value: overdueCount, cls: "bg-red-50 text-red-600 border border-red-200" },
   ];
 
   return (
@@ -234,7 +296,7 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
             const isActive = quickFilter === chip.key;
             return (
               <button
-                key={chip.label}
+                key={String(chip.key)}
                 type="button"
                 onClick={() => toggleQuickFilter(chip.key)}
                 aria-pressed={isActive}

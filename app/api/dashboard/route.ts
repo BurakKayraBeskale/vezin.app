@@ -31,12 +31,10 @@ export async function GET() {
   const thisWeekStart = weekBounds(0).start;
   const { start: lastStart, end: lastEnd } = weekBounds(1);
 
-  // Görünürlük filtresi — tüm sayaç, groupBy ve liste sorgularında kullanılır
+  // Görünürlük filtresi — tüm sayaç, groupBy ve liste sorgularında kullanılır.
+  // Backlog sayfasıyla (buildTaskVisibilityWhere) BİREBİR AYNI filtre: dashboard
+  // kartlarındaki sayı ile backlog'a geçince görünen liste sayısı tutmalı.
   const visibilityWhere = buildTaskVisibilityWhereForUser({ id: userId, role: userRole, canViewAllProjects, overseesDepartment, department, seniorityLevel });
-
-  // Sayaç kartları: görünürlük filtresi AND kişisel filtre (assignedToId)
-  // Kullanıcı yalnızca görebildiği ve kendisine atanmış görevleri sayar.
-  const myVisibleTasks = { AND: [visibilityWhere, { assignedToId: userId }] };
 
   const [
     openTasks,
@@ -48,27 +46,26 @@ export async function GET() {
     tasksByStatus,
   ] = await Promise.all([
     prisma.task.count({
-      where: { ...myVisibleTasks, status: { not: "DONE" } },
+      where: { ...visibilityWhere, status: { not: "DONE" } } as any,
+    }),
+    // completedAt: DONE'a geçildiğinde set edilir (bkz. computeCompletedAt) — updatedAt
+    // görevle ilgisiz düzenlemelerde de değiştiği için "bu hafta tamamlanan" ölçütü olamaz.
+    prisma.task.count({
+      where: { ...visibilityWhere, status: "DONE", completedAt: { gte: thisWeekStart } } as any,
     }),
     prisma.task.count({
-      where: { ...myVisibleTasks, status: "DONE", updatedAt: { gte: thisWeekStart } },
+      where: { ...visibilityWhere, dueDate: { lt: now }, status: { not: "DONE" } } as any,
     }),
-    prisma.task.count({
-      where: { ...myVisibleTasks, dueDate: { lt: now }, status: { not: "DONE" } },
-    }),
-    // Aktif Kullanıcılar: sadece admin için hesaplanır
+    // Aktif Kullanıcılar: sadece admin için hesaplanır — /admin/users sayfasındaki
+    // "aktif kullanıcı" tanımıyla (user.status === "ACTIVE") birebir aynı olmalı.
     userRole === "ADMIN"
-      ? prisma.user.count({
-          where: {
-            assignedTasks: { some: { status: { in: ["IN_PROGRESS", "REVIEW"] } } },
-          },
-        })
+      ? prisma.user.count({ where: { status: "ACTIVE" } })
       : Promise.resolve(0),
     prisma.task.count({
-      where: { ...myVisibleTasks, status: "DONE", updatedAt: { gte: lastStart, lt: lastEnd } },
+      where: { ...visibilityWhere, status: "DONE", completedAt: { gte: lastStart, lt: lastEnd } } as any,
     }),
     prisma.task.count({
-      where: { ...myVisibleTasks, dueDate: { lt: lastEnd }, status: { not: "DONE" }, createdAt: { lt: lastEnd } },
+      where: { ...visibilityWhere, dueDate: { lt: lastEnd }, status: { not: "DONE" }, createdAt: { lt: lastEnd } } as any,
     }),
     prisma.task.groupBy({
       by: ["status"],

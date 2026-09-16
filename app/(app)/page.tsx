@@ -222,6 +222,8 @@ export default function DashboardPage() {
       sub: "Tamamlanmamış görevler",
       accentColor: "var(--badge-orange-text)",
       bgColor: "var(--badge-orange-bg)",
+      href: "/backlog?status=open",
+      ariaLabel: `Açık görevler: ${data.openTasks}. Backlog'da açık görevleri görüntüle.`,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12l2 2 4-4" />
@@ -235,6 +237,8 @@ export default function DashboardPage() {
       accentColor: "var(--badge-emerald-text)",
       bgColor: "var(--badge-emerald-bg)",
       trend: { delta: data.completedThisWeek - data.completedLastWeek, higherIsBetter: true },
+      href: "/backlog?status=done&period=week",
+      ariaLabel: `Bu hafta tamamlanan görevler: ${data.completedThisWeek}. Backlog'da bu hafta tamamlananları görüntüle.`,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -248,6 +252,8 @@ export default function DashboardPage() {
       accentColor: "var(--badge-red-text)",
       bgColor: "var(--badge-red-bg)",
       trend: { delta: data.overdueTasks - data.overdueLastWeek, higherIsBetter: false },
+      href: "/backlog?overdue=true",
+      ariaLabel: `Geciken işler: ${data.overdueTasks}. Backlog'da geciken görevleri görüntüle.`,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -257,9 +263,11 @@ export default function DashboardPage() {
     ...(isAdmin ? [{
       title: "Aktif Kullanıcılar",
       value: data.activeUsers,
-      sub: "Devam eden görevi olan kişiler",
+      sub: "Sistemde aktif durumdaki kullanıcılar",
       accentColor: "var(--badge-indigo-text)",
       bgColor: "var(--badge-indigo-bg)",
+      href: "/admin/users?status=active",
+      ariaLabel: `Aktif kullanıcılar: ${data.activeUsers}. Kullanıcı yönetiminde aktif kullanıcıları görüntüle.`,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
