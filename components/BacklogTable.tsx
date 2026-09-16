@@ -15,6 +15,7 @@ type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
 type SortCol = "title" | "priority" | "status" | "assignedTo" | "dueDate" | "files";
 type SortDir = "asc" | "desc";
 type QuickFilter = "open" | "done" | "high" | "overdue" | null;
+type BlockedTask = { id: string; title: string; reason: string };
 
 /** Haftanın Pazartesi 00:00'ı — dashboard'daki weekBounds(0) ile birebir aynı hesap. */
 function thisWeekStartClient(): Date {
@@ -109,6 +110,9 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
   const [bulkAssignId, setBulkAssignId] = useState("");
   const [bulkStatus, setBulkStatus] = useState<Status>("TODO");
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
+  const [bulkDeleteBlocked, setBulkDeleteBlocked] = useState<{ message: string; items: BlockedTask[] } | null>(null);
 
   function handleSort(col: SortCol) {
     if (col === sortCol) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -235,6 +239,43 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
     }
   }
 
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    setBulkDeleteLoading(true);
+    setBulkDeleteBlocked(null);
+    try {
+      const ids = Array.from(selectedIds);
+      const res = await fetch("/api/tasks/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, action: "delete" }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setShowBulkDeleteConfirm(false);
+        setBulkDeleteBlocked({
+          message: data.error ?? "Görevler silinemedi",
+          items: Array.isArray(data.blocked) ? data.blocked : [],
+        });
+        return;
+      }
+
+      const deletedIds: string[] = Array.isArray(data.deletedIds) ? data.deletedIds : ids;
+      const deletedSet = new Set(deletedIds);
+      setTasks((prev) => prev.filter((t) => !deletedSet.has(t.id)));
+      setSelectedIds(new Set());
+      setShowBulkDeleteConfirm(false);
+      setToast(`${deletedIds.length} görev silindi`);
+      setTimeout(() => setToast(null), 2500);
+    } catch {
+      setShowBulkDeleteConfirm(false);
+      setBulkDeleteBlocked({ message: "Sunucu hatası", items: [] });
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  }
+
   function handleUpdate(updated: TaskFull) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     if (viewTask?.id === updated.id) setViewTask(updated);
@@ -340,6 +381,10 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
                   className="text-xs bg-indigo-600 text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">
                   Toplu Durum Değiştir
                 </button>
+                <button onClick={() => { setBulkDeleteBlocked(null); setShowBulkDeleteConfirm(true); }}
+                  className="text-xs bg-red-600 text-white font-semibold px-3 py-1.5 rounded-lg hover:bg-red-700 transition-colors">
+                  Seçilenleri Sil
+                </button>
               </>
             ) : bulkAction === "assign" ? (
               <>
@@ -369,6 +414,27 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
             )}
           </div>
           <button onClick={() => setSelectedIds(new Set())} className="text-xs text-gray-400 hover:text-gray-600 ml-auto">Seçimi Temizle</button>
+        </div>
+      )}
+
+      {/* Toplu silme engellendiğinde: hangi görevlerin neden engellendiği */}
+      {bulkDeleteBlocked && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm font-semibold text-red-700">{bulkDeleteBlocked.message}</p>
+            <button onClick={() => setBulkDeleteBlocked(null)} className="text-red-400 hover:text-red-600 flex-shrink-0" aria-label="Kapat">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          {bulkDeleteBlocked.items.length > 0 && (
+            <ul className="text-xs text-red-600 space-y-1">
+              {bulkDeleteBlocked.items.map((it) => (
+                <li key={it.id}>• {it.title} — {it.reason}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -563,6 +629,58 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
       {showCreate && (
         <NewTaskModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />
       )}
+
+      {/* Toplu silme onay diyaloğu */}
+      {showBulkDeleteConfirm && (() => {
+        const selectedTasks = tasks.filter((t) => selectedIds.has(t.id));
+        const shown = selectedTasks.slice(0, 10);
+        const extra = selectedTasks.length - shown.length;
+        return (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+              <div className="p-6 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-gray-800">{selectedTasks.length} görevi sil</h2>
+                    <p className="text-sm text-gray-500 mt-1">Bu işlem geri alınamaz. Aşağıdaki görevler silinecek:</p>
+                  </div>
+                </div>
+                <ul className="text-sm text-gray-600 max-h-56 overflow-y-auto space-y-1 border border-gray-100 rounded-xl p-3 bg-gray-50">
+                  {shown.map((t) => (
+                    <li key={t.id} className="truncate">• {t.title}</li>
+                  ))}
+                  {extra > 0 && (
+                    <li className="text-gray-400">ve {extra} görev daha</li>
+                  )}
+                </ul>
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    autoFocus
+                    onClick={() => setShowBulkDeleteConfirm(false)}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    Vazgeç
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkDelete}
+                    disabled={bulkDeleteLoading}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-sm font-semibold transition-colors"
+                  >
+                    {bulkDeleteLoading ? "Siliniyor..." : "Sil"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
