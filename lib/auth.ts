@@ -73,7 +73,7 @@ export const authOptions: NextAuthOptions = {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: { role: true, department: true, mustChangePassword: true, canViewAllTasks: true, seniorityLevel: true, canViewAllProjects: true, overseesDepartment: true, canManageCompanies: true, status: true },
+            select: { role: true, department: true, mustChangePassword: true, canViewAllTasks: true, seniorityLevel: true, canViewAllProjects: true, overseesDepartment: true, canManageCompanies: true, canAccessRotasyon: true, status: true },
           });
           if (dbUser) {
             token.role = dbUser.role as "ADMIN" | "EMPLOYEE";
@@ -84,6 +84,7 @@ export const authOptions: NextAuthOptions = {
             token.canViewAllProjects = dbUser.canViewAllProjects ?? false;
             token.overseesDepartment = dbUser.overseesDepartment ?? null;
             token.canManageCompanies = dbUser.canManageCompanies ?? false;
+            token.canAccessRotasyon = dbUser.canAccessRotasyon ?? false;
             token.status = dbUser.status ?? "ACTIVE";
           } else {
             // Kullanıcı DB'den silinmişse oturumu geçersiz say
@@ -110,6 +111,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).canViewAllProjects = token.canViewAllProjects as boolean ?? false;
         (session.user as any).overseesDepartment = token.overseesDepartment as string | null ?? null;
         (session.user as any).canManageCompanies = token.canManageCompanies as boolean ?? false;
+        (session.user as any).canAccessRotasyon = token.canAccessRotasyon as boolean ?? false;
       }
       return session;
     },

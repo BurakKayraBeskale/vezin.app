@@ -15,57 +15,58 @@ datasource db {
 // Project department: "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YMM"
 
 model User {
-  id                  String   @id @default(cuid())
-  name                String
-  email               String   @unique
-  password            String
-  role                String   @default("EMPLOYEE")
-  department          String   @default("OUTSOURCE")
-  mustChangePassword  Boolean  @default(true)
-  title               String   @default("")
-  seniorityLevel      Int      @default(0)
-  canViewAllTasks     Boolean  @default(false)
-  canViewAllProjects  Boolean  @default(false)
-  overseesDepartment  String?  // "BAGIMSIZ_DENETIM" | "VERGI" | null
-  canManageCompanies  Boolean  @default(false)
-  canBeAssignedTasks  Boolean  @default(true)
-  showInPerformance   Boolean  @default(true)
-  status              String   @default("ACTIVE")
-  createdAt           DateTime @default(now())
-  assignedTasks       Task[]            @relation("AssignedTo")
-  createdTasks        Task[]            @relation("CreatedBy")
-  taskAssignees       TaskAssignee[]
-  feedbacks           Feedback[]
-  files               File[]
-  taskLogs            TaskLog[]
-  petitions           Petition[]
-  leaveRequests       LeaveRequest[]    @relation("LeaveRequests")
-  leaveBalances       LeaveBalance[]    @relation("LeaveBalances")
-  manages             UserRelation[]    @relation("manages")
-  subordinateTo       UserRelation[]    @relation("subordinateTo")
-  notifications       Notification[]
-  meetingsCreated     Meeting[]         @relation("MeetingCreator")
-  meetingAttendees    MeetingAttendee[]
-  templates           TaskTemplate[]    @relation("TemplateCreator")
-  taskComments        TaskComment[]
-  loginLogs           LoginLog[]
-  companyAssignments  CompanyAssignment[]
-  projectMembers      ProjectMember[]
-  projectsCreated     Project[]         @relation("ProjectCreatedBy")
-  karsitIncelemeler   KarsitInceleme[]
-  reviewRoundsSubmitted TaskReviewRound[] @relation("ReviewRoundSubmitter")
-  reviewRoundsReviewed  TaskReviewRound[] @relation("ReviewRoundReviewer")
-  taskSources         TaskSource[]
-  taskAttachments     TaskAttachment[]
-  ownedSeries         RecurringSeries[] @relation("SeriesOwner")
-  assignedSeries      RecurringSeries[] @relation("SeriesAssignee")
+  id                    String              @id @default(cuid())
+  name                  String
+  email                 String              @unique
+  password              String
+  role                  String              @default("EMPLOYEE")
+  department            String              @default("OUTSOURCE")
+  mustChangePassword    Boolean             @default(true)
+  title                 String              @default("")
+  seniorityLevel        Int                 @default(0)
+  canViewAllTasks       Boolean             @default(false)
+  canViewAllProjects    Boolean             @default(false)
+  overseesDepartment    String? // "BAGIMSIZ_DENETIM" | "VERGI" | null
+  canManageCompanies    Boolean             @default(false)
+  canBeAssignedTasks    Boolean             @default(true)
+  showInPerformance     Boolean             @default(true)
+  canAccessRotasyon     Boolean             @default(false)
+  status                String              @default("ACTIVE")
+  createdAt             DateTime            @default(now())
+  assignedTasks         Task[]              @relation("AssignedTo")
+  createdTasks          Task[]              @relation("CreatedBy")
+  taskAssignees         TaskAssignee[]
+  feedbacks             Feedback[]
+  files                 File[]
+  taskLogs              TaskLog[]
+  petitions             Petition[]
+  leaveRequests         LeaveRequest[]      @relation("LeaveRequests")
+  leaveBalances         LeaveBalance[]      @relation("LeaveBalances")
+  manages               UserRelation[]      @relation("manages")
+  subordinateTo         UserRelation[]      @relation("subordinateTo")
+  notifications         Notification[]
+  meetingsCreated       Meeting[]           @relation("MeetingCreator")
+  meetingAttendees      MeetingAttendee[]
+  templates             TaskTemplate[]      @relation("TemplateCreator")
+  taskComments          TaskComment[]
+  loginLogs             LoginLog[]
+  companyAssignments    CompanyAssignment[]
+  projectMembers        ProjectMember[]
+  projectsCreated       Project[]           @relation("ProjectCreatedBy")
+  karsitIncelemeler     KarsitInceleme[]
+  reviewRoundsSubmitted TaskReviewRound[]   @relation("ReviewRoundSubmitter")
+  reviewRoundsReviewed  TaskReviewRound[]   @relation("ReviewRoundReviewer")
+  taskSources           TaskSource[]
+  taskAttachments       TaskAttachment[]
+  ownedSeries           RecurringSeries[]   @relation("SeriesOwner")
+  assignedSeries        RecurringSeries[]   @relation("SeriesAssignee")
 }
 
 model Notification {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  type      String   // TASK_ASSIGNED | LEAVE_APPROVED | LEAVE_REJECTED | FEEDBACK_RECEIVED | MENTIONED | COMMENTED | COMPANY_5_YEARS
+  type      String // TASK_ASSIGNED | LEAVE_APPROVED | LEAVE_REJECTED | FEEDBACK_RECEIVED | MENTIONED | COMMENTED | COMPANY_5_YEARS
   message   String
   isRead    Boolean  @default(false)
   relatedId String?
@@ -81,43 +82,44 @@ model UserRelation {
   manager       User     @relation("manages", fields: [managerId], references: [id], onDelete: Cascade)
   subordinate   User     @relation("subordinateTo", fields: [subordinateId], references: [id], onDelete: Cascade)
   createdAt     DateTime @default(now())
+
   @@unique([managerId, subordinateId])
 }
 
 // recurringType: "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY"
 // recurringDay: 1-31 for MONTHLY, 0-6 for WEEKLY (0=Mon)
 model Task {
-  id                      String    @id @default(cuid())
+  id                      String            @id @default(cuid())
   title                   String
   description             String?
-  status                  String    @default("TODO")
-  priority                String    @default("MEDIUM")
-  assignedTo              User?     @relation("AssignedTo", fields: [assignedToId], references: [id])
+  status                  String            @default("TODO")
+  priority                String            @default("MEDIUM")
+  assignedTo              User?             @relation("AssignedTo", fields: [assignedToId], references: [id])
   assignedToId            String?
-  reviewOwnerId           String?   // inceleme sahibi (varsayılan: createdById)
-  assignmentLevelSnapshot Int?      // atama anındaki atayan kıdem seviyesi
-  departmentId            String?   // proje dışı görevler için departman (user dept formatı)
+  reviewOwnerId           String? // inceleme sahibi (varsayılan: createdById)
+  assignmentLevelSnapshot Int? // atama anındaki atayan kıdem seviyesi
+  departmentId            String? // proje dışı görevler için departman (user dept formatı)
   deletedAt               DateTime? // yumuşak silme
-  reopenReason            String?   // DONE→TODO geçişinde zorunlu sebep
+  reopenReason            String? // DONE→TODO geçişinde zorunlu sebep
   dueDate                 DateTime?
-  createdBy               User      @relation("CreatedBy", fields: [createdById], references: [id])
+  createdBy               User              @relation("CreatedBy", fields: [createdById], references: [id])
   createdById             String
   parentTaskId            String?
-  parent                  Task?     @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
-  children                Task[]    @relation("TaskHierarchy")
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  parent                  Task?             @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  children                Task[]            @relation("TaskHierarchy")
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
   completedAt             DateTime?
-  isRecurring             Boolean   @default(false)
+  isRecurring             Boolean           @default(false)
   recurringType           String?
   recurringDay            Int?
   nextOccurrence          DateTime?
   recurringSeriesId       String?
-  recurringSeries         RecurringSeries? @relation("SeriesTasks", fields: [recurringSeriesId], references: [id], onDelete: SetNull)
+  recurringSeries         RecurringSeries?  @relation("SeriesTasks", fields: [recurringSeriesId], references: [id], onDelete: SetNull)
   companyId               String?
-  company                 Company?  @relation(fields: [companyId], references: [id])
+  company                 Company?          @relation(fields: [companyId], references: [id])
   projectId               String?
-  project                 Project?  @relation(fields: [projectId], references: [id])
+  project                 Project?          @relation(fields: [projectId], references: [id])
   assignees               TaskAssignee[]
   feedbacks               Feedback[]
   files                   File[]
@@ -155,15 +157,15 @@ model RecurringSeries {
 
 // reviewAction: "APPROVED" | "REVISION_REQUESTED"
 model TaskReviewRound {
-  id             String    @id @default(cuid())
-  task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  id             String           @id @default(cuid())
+  task           Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
   taskId         String
   roundNumber    Int
-  submittedBy    User      @relation("ReviewRoundSubmitter", fields: [submittedById], references: [id])
+  submittedBy    User             @relation("ReviewRoundSubmitter", fields: [submittedById], references: [id])
   submittedById  String
   submissionNote String
-  submittedAt    DateTime  @default(now())
-  reviewedBy     User?     @relation("ReviewRoundReviewer", fields: [reviewedById], references: [id])
+  submittedAt    DateTime         @default(now())
+  reviewedBy     User?            @relation("ReviewRoundReviewer", fields: [reviewedById], references: [id])
   reviewedById   String?
   reviewAction   String?
   reviewNote     String?
@@ -255,7 +257,7 @@ model TaskLog {
   taskId          String
   user            User      @relation(fields: [userId], references: [id])
   userId          String
-  action          String    // STARTED | COMPLETED | STATUS_CHANGED | MANUAL_TIME
+  action          String // STARTED | COMPLETED | STATUS_CHANGED | MANUAL_TIME
   fromStatus      String?
   toStatus        String?
   timestamp       DateTime  @default(now())
@@ -294,7 +296,7 @@ model Petition {
   id          String   @id @default(cuid())
   user        User?    @relation(fields: [userId], references: [id])
   userId      String?
-  category    String   // SUGGESTION | COMPLAINT | PETITION
+  category    String // SUGGESTION | COMPLAINT | PETITION
   message     String
   isAnonymous Boolean  @default(false)
   isRead      Boolean  @default(false)
@@ -304,17 +306,17 @@ model Petition {
 // type: "ANNUAL" | "EXCUSE" | "UNPAID"
 // status: "PENDING" | "APPROVED" | "REJECTED"
 model LeaveRequest {
-  id          String    @id @default(cuid())
-  user        User      @relation("LeaveRequests", fields: [userId], references: [id])
-  userId      String
-  startDate   DateTime
-  endDate     DateTime
-  days        Int
-  type        String    // ANNUAL | EXCUSE | UNPAID
-  note        String?
-  status      String    @default("PENDING")
-  reviewedBy  String?
-  createdAt   DateTime  @default(now())
+  id         String   @id @default(cuid())
+  user       User     @relation("LeaveRequests", fields: [userId], references: [id])
+  userId     String
+  startDate  DateTime
+  endDate    DateTime
+  days       Int
+  type       String // ANNUAL | EXCUSE | UNPAID
+  note       String?
+  status     String   @default("PENDING")
+  reviewedBy String?
+  createdAt  DateTime @default(now())
 }
 
 model LeaveBalance {
@@ -332,16 +334,16 @@ model LeaveBalance {
 // date: "YYYY-MM-DD" | time: "HH:MM" | duration in minutes
 // department: hangi departman davet edildi
 model Meeting {
-  id          String   @id @default(cuid())
+  id          String            @id @default(cuid())
   title       String
   description String?
-  date        String   // YYYY-MM-DD
-  time        String   // HH:MM
-  duration    Int      // 30 | 60 | 120
+  date        String // YYYY-MM-DD
+  time        String // HH:MM
+  duration    Int // 30 | 60 | 120
   department  String
-  createdBy   User     @relation("MeetingCreator", fields: [createdById], references: [id])
+  createdBy   User              @relation("MeetingCreator", fields: [createdById], references: [id])
   createdById String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime          @default(now())
   attendees   MeetingAttendee[]
 }
 
@@ -358,15 +360,15 @@ model MeetingAttendee {
 }
 
 model Company {
-  id          String    @id @default(cuid())
+  id          String              @id @default(cuid())
   name        String
   taxNumber   String?
   sector      String?
   startDate   DateTime?
   notes       String?
   about       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
   assignments CompanyAssignment[]
   tasks       Task[]
 }
@@ -374,10 +376,10 @@ model Company {
 // department: "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YMM"
 // status: "ACTIVE" | "DONE" | "ARCHIVED" | "DELETED"
 model Project {
-  id          String    @id @default(cuid())
+  id          String          @id @default(cuid())
   name        String
-  department  String    // "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YMM"
-  status      String    @default("ACTIVE") // "ACTIVE" | "DONE" | "ARCHIVED" | "DELETED"
+  department  String // "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YMM"
+  status      String          @default("ACTIVE") // "ACTIVE" | "DONE" | "ARCHIVED" | "DELETED"
   deletedAt   DateTime?
   taxNumber   String?
   sector      String?
@@ -386,9 +388,9 @@ model Project {
   notes       String?
   about       String?
   createdById String
-  createdBy   User      @relation("ProjectCreatedBy", fields: [createdById], references: [id])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdBy   User            @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
   members     ProjectMember[]
   tasks       Task[]
 }
@@ -412,14 +414,14 @@ model CompanyAssignment {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId     String
   assignedAt DateTime @default(now())
-  assignedBy String   // userId of assigner
+  assignedBy String // userId of assigner
 
   @@unique([companyId, userId])
 }
 
 model KdvIadeKayit {
   id           String   @id @default(cuid())
-  tur          String   // "indirilecek" | "yuklenilen" | "satis"
+  tur          String // "indirilecek" | "yuklenilen" | "satis"
   faturaSayisi Int
   toplamKdv    Float
   haricTutulan Int      @default(0)
@@ -441,18 +443,72 @@ model KarsitInceleme {
   mukellefUnvan  String
   mukellefVkn    String
   mukellefVD     String
-  konu           String    // "KDV_IADE" | "TAM_TASDIK"
-  donemBas       String    // "YYYY/MM"
-  donemBit       String    // "YYYY/MM"
+  konu           String // "KDV_IADE" | "TAM_TASDIK"
+  donemBas       String // "YYYY/MM"
+  donemBit       String // "YYYY/MM"
   durum          String    @default("HAZIRLANDI")
   gonderimTarihi DateTime?
   ymmAdi         String    @default("")
   ymmSicilNo     String    @default("")
   ymmVergiNo     String    @default("")
-  faturalar      String    @default("[]")  // JSON array of KarsitFatura
+  faturalar      String    @default("[]") // JSON array of KarsitFatura
   notlar         String    @default("")
   olusturanId    String
   olusturan      User      @relation(fields: [olusturanId], references: [id])
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+}
+
+// ── ROTASYON TAKİP MODÜLÜ ─────────────────────────────────────────────────────
+// Denetçi rotasyonu takibi: işletme başına sözleşme dönemleri ve kadro (asıl/yedek).
+// Erişim: User.canAccessRotasyon (bkz. lib/access.ts canAccessRotasyon) — kıdem/
+// departman/e-postadan ASLA türetilmez.
+//
+// tur (RotasyonSozlesme): "TTK_ZORUNLU" | "SPK_ZORUNLU" | "IHTIYARI_TFRS" | "GUVENCE" | "SURDURULEBILIRLIK"
+// tip (RotasyonKadro)   : "ASIL" | "YEDEK"
+
+model RotasyonIsletme {
+  id                    String             @id @default(cuid())
+  unvan                 String
+  vkn                   String             @unique
+  oncekiDenetciIlkDonem Int?
+  oncekiDenetciSonDonem Int?
+  not                   String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  deletedAt             DateTime? // yumuşak silme
+  sozlesmeler           RotasyonSozlesme[]
+}
+
+model RotasyonSozlesme {
+  id         String          @id @default(cuid())
+  isletme    RotasyonIsletme @relation(fields: [isletmeId], references: [id])
+  isletmeId  String
+  sozlesmeNo String
+  donem      Int // tek hesap dönemi (yıl)
+  tur        String // RotasyonSozlesmeTuru
+  not        String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  kadrolar   RotasyonKadro[]
+
+  @@unique([isletmeId, donem]) // aynı işletme + aynı dönem için mükerrer sözleşme koruması
+}
+
+model RotasyonKadro {
+  id              String           @id @default(cuid())
+  sozlesme        RotasyonSozlesme @relation(fields: [sozlesmeId], references: [id], onDelete: Cascade)
+  sozlesmeId      String
+  adSoyad         String
+  unvan           String
+  tip             String // "ASIL" | "YEDEK"
+  fiilenGorevAldi Boolean          @default(true)
+}
+
+// Tek satırlık genel ayar tablosu — id sabit "singleton" değeriyle upsert edilir.
+model RotasyonAyar {
+  id         String @id @default("singleton")
+  azamiSure  Int    @default(7)
+  zorunluAra Int    @default(3)
+  uyariEsigi Int    @default(3)
 }

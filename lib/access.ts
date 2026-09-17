@@ -42,6 +42,17 @@ export function canAccessCompanies(user: { role: string; canManageCompanies?: bo
   return user.role === "ADMIN" || user.canManageCompanies === true;
 }
 
+/**
+ * /rotasyon sayfalarına ve /api/rotasyon/* uçlarına erişim.
+ *
+ * Yalnızca ADMIN rolü veya canAccessRotasyon=true olan kullanıcılar erişebilir.
+ * Kıdemden, departmandan veya e-postadan ASLA türetilmez — proje kuralı.
+ * Yetkisiz erişimde çağıran taraf 404 döner (403 değil).
+ */
+export function canAccessRotasyon(user: { role: string; canAccessRotasyon?: boolean }): boolean {
+  return user.role === "ADMIN" || user.canAccessRotasyon === true;
+}
+
 // ── Kıdem Seviyesi Sistemi ──────────────────────────────────────────────────
 
 /**

@@ -15,6 +15,7 @@ interface AppShellProps {
   userDepartment: string;
   canViewAllTasks: boolean;
   canViewAllProjects: boolean;
+  canAccessRotasyon: boolean;
   overseesDepartment: string | null;
   overdueCount: number;
   unreadPetitions: number;
@@ -32,6 +33,7 @@ export default function AppShell({
   userDepartment,
   canViewAllTasks,
   canViewAllProjects,
+  canAccessRotasyon,
   overseesDepartment,
   overdueCount: initOverdue,
   unreadPetitions: initPetitions,
@@ -178,6 +180,7 @@ export default function AppShell({
         userDepartment={userDepartment}
         canViewAllTasks={canViewAllTasks}
         canViewAllProjects={canViewAllProjects}
+        canAccessRotasyon={canAccessRotasyon}
         overseesDepartment={overseesDepartment}
         overdueCount={backlogBadge}
         unreadPetitions={badges.unreadPetitions}

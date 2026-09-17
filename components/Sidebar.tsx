@@ -6,7 +6,7 @@ import { signOut } from "next-auth/react";
 import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
-import { isManagerOrAdmin, canAccessProjects } from "@/lib/access";
+import { isManagerOrAdmin, canAccessProjects, canAccessRotasyon } from "@/lib/access";
 
 interface SidebarProps {
   userName: string;
@@ -15,6 +15,7 @@ interface SidebarProps {
   userDepartment: string;
   canViewAllTasks: boolean;
   canViewAllProjects: boolean;
+  canAccessRotasyon: boolean;
   overseesDepartment: string | null;
   overdueCount: number;
   unreadPetitions: number;
@@ -187,7 +188,7 @@ function NavLink({ href, label, icon, active, badge }: NavLinkProps) {
 }
 
 export default function Sidebar({
-  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, overseesDepartment,
+  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, canAccessRotasyon: canAccessRotasyonFlag, overseesDepartment,
   overdueCount, unreadPetitions, pendingLeave, unreadNotifications, isOpen = false, onClose,
 }: SidebarProps) {
   const pathname = usePathname();
@@ -262,6 +263,19 @@ export default function Sidebar({
               </svg>
             }
             active={pathname.startsWith("/projeler")}
+          />
+        )}
+
+        {(BYPASS_AUTH_ROLES || canAccessRotasyon({ role: userRole, canAccessRotasyon: canAccessRotasyonFlag })) && (
+          <NavLink
+            href="/rotasyon"
+            label="Rotasyon"
+            icon={
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M4.582 9a8 8 0 0113.657-3.657L20 9M4 15l1.761 3.657A8 8 0 0019.418 15" />
+              </svg>
+            }
+            active={pathname.startsWith("/rotasyon")}
           />
         )}
 
