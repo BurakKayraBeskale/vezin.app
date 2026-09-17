@@ -171,6 +171,15 @@ export async function POST(req: NextRequest) {
 type BlockedTask = { id: string; title: string; reason: string };
 
 /**
+ * Engellenen görev girdisini oluşturur. Başlık DAİMA görevin gerçek title'ıdır;
+ * title boşsa (teorik olarak Task.title NOT NULL ama savunmacı olarak) id'ye
+ * düşer — asla dizideki sırayı/indeksi göstermez.
+ */
+function blockedTaskEntry(t: { id: string; title: string }, reason: string): BlockedTask {
+  return { id: t.id, title: t.title || t.id, reason };
+}
+
+/**
  * Toplu silme — tekil /api/tasks/[id] DELETE ucuyla BİREBİR AYNI kural sırası
  * (görünürlük → DONE/admin → açık alt görev → canDeleteTask), tek farkla:
  * yetki reddi burada 403 döner (tekil uçtaki 404 gizleme burada gerekmez —
@@ -216,7 +225,7 @@ async function bulkDeleteTasks(token: any, userId: string, ids: string[]): Promi
   if (blockedByChildren.size > 0) {
     const blocked: BlockedTask[] = deletable
       .filter((t) => blockedByChildren.has(t.id))
-      .map((t) => ({ id: t.id, title: t.title, reason: "Tamamlanmamış alt görevleri var" }));
+      .map((t) => blockedTaskEntry(t, "Tamamlanmamış alt görevleri var"));
     return NextResponse.json(
       { error: "Tamamlanmamış alt görevleri olan görevler var; önce onları kapatın", blocked },
       { status: 409 }
@@ -229,7 +238,7 @@ async function bulkDeleteTasks(token: any, userId: string, ids: string[]): Promi
     (t) => !canDeleteTask(deleteUser, { createdById: t.createdById, assignedToId: t.assignedToId }, t.project)
   );
   if (permBlocked.length > 0) {
-    const blocked: BlockedTask[] = permBlocked.map((t) => ({ id: t.id, title: t.title, reason: "Silme yetkiniz yok" }));
+    const blocked: BlockedTask[] = permBlocked.map((t) => blockedTaskEntry(t, "Silme yetkiniz yok"));
     return NextResponse.json({ error: "Bazı görevleri silme yetkiniz yok", blocked }, { status: 403 });
   }
 

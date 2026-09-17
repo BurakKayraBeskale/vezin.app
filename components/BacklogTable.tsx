@@ -431,7 +431,7 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
           {bulkDeleteBlocked.items.length > 0 && (
             <ul className="text-xs text-red-600 space-y-1">
               {bulkDeleteBlocked.items.map((it) => (
-                <li key={it.id}>• {it.title} — {it.reason}</li>
+                <li key={it.id}>• {it.title || it.id} — {it.reason}</li>
               ))}
             </ul>
           )}
