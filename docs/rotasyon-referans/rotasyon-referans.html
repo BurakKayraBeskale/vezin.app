@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vezin Bağımsız Denetim A.Ş. — Rotasyon Takip Panosu</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --ink:#14213D; --ink-soft:#46536E; --paper:#EEF1F5; --card:#FFFFFF;
+  --line:rgba(20,33,61,0.14); --brass:#A9812D;
+  --green:#1F7A5C; --green-bg:#E6F2EC;
+  --amber:#B7791F; --amber-bg:#FBF0DD;
+  --orange:#C2570C; --orange-bg:#FBEBDF;
+  --red:#B3261E; --red-bg:#FBE8E6;
+  --blue:#2B5C8A; --blue-bg:#E7EFF6;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;line-height:1.5;}
+.mono{font-family:'IBM Plex Mono',monospace;}
+h1,h2,h3{font-family:'Source Serif 4',serif;margin:0;}
+.wrap{max-width:1280px;margin:0 auto;padding:26px 22px 60px;}
+
+.topbar{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid var(--ink);padding-bottom:15px;margin-bottom:16px;gap:16px;flex-wrap:wrap;}
+.brand-mark{display:flex;align-items:center;gap:15px;}
+.brand-mark .logo{height:46px;width:auto;flex-shrink:0;display:block;}
+.brand-text{padding-left:15px;border-left:1px solid var(--line);}
+.brand-mark h1{font-size:21px;font-weight:600;letter-spacing:-0.01em;}
+.brand-mark p{margin:2px 0 0;color:var(--ink-soft);font-size:12.5px;}
+.topbar-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+
+button{font-family:'IBM Plex Sans',sans-serif;font-size:13px;cursor:pointer;border-radius:5px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 13px;transition:background .15s,border-color .15s;}
+button:hover{border-color:var(--ink);}
+button:focus-visible{outline:2px solid var(--brass);outline-offset:2px;}
+.btn-primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+.btn-primary:hover{background:#0c1830;}
+.btn-danger-outline{color:var(--red);border-color:rgba(179,38,30,.35);}
+.btn-danger-outline:hover{border-color:var(--red);background:var(--red-bg);}
+.btn-small{padding:5px 9px;font-size:12px;}
+
+.storage-note{font-size:12px;color:var(--ink-soft);margin-bottom:16px;display:flex;align-items:center;gap:7px;}
+.storage-note .dot{width:7px;height:7px;border-radius:50%;background:var(--green);}
+.storage-note.local .dot{background:var(--amber);}
+
+.alerts{border:1px solid var(--line);border-radius:7px;background:var(--card);margin-bottom:22px;overflow:hidden;}
+.alerts-head{display:flex;align-items:center;justify-content:space-between;padding:13px 17px;border-bottom:1px solid var(--line);background:#F7F8FA;gap:12px;flex-wrap:wrap;}
+.alerts-head h2{font-size:16px;font-weight:600;}
+.alerts-head .meta{color:var(--ink-soft);font-size:12.5px;}
+.alerts-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));}
+.alert-col{border-right:1px solid var(--line);padding:14px 16px 16px;min-height:118px;}
+.alert-col:last-child{border-right:none;}
+.alert-col .count{font-family:'Source Serif 4',serif;font-size:32px;font-weight:600;line-height:1;}
+.alert-col .cap{font-size:12.5px;font-weight:500;margin-top:3px;}
+.alert-col ul{list-style:none;margin:11px 0 0;padding:0;}
+.alert-col li{font-size:12.5px;padding:4px 0;border-top:1px solid var(--line);line-height:1.35;}
+.alert-col li:first-child{border-top:none;}
+.alert-col li .who{display:block;font-weight:500;}
+.alert-col li .what{color:var(--ink-soft);font-size:11.5px;}
+.alert-col .more{font-size:11.5px;color:var(--ink-soft);padding-top:6px;}
+.alert-col .none{font-size:12.5px;color:var(--ink-soft);margin-top:10px;}
+.alert-col.c0{background:linear-gradient(180deg,var(--red-bg) 0 4px,transparent 4px);}
+.alert-col.c0 .count,.alert-col.c0 .cap{color:var(--red);}
+.alert-col.c1 .count,.alert-col.c1 .cap{color:var(--orange);}
+.alert-col.c2 .count,.alert-col.c2 .cap{color:var(--amber);}
+.alert-col.c3 .count,.alert-col.c3 .cap{color:var(--blue);}
+.alert-col.cb .count,.alert-col.cb .cap{color:var(--ink-soft);}
+.alerts.calm .alerts-head{background:var(--green-bg);}
+.alerts.calm .alerts-head h2{color:var(--green);}
+
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:20px;}
+.stat-card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:13px 15px;}
+.stat-card .num{font-family:'Source Serif 4',serif;font-size:27px;font-weight:600;line-height:1;}
+.stat-card.wide .num{font-size:20px;letter-spacing:-0.01em;}
+.stat-card .lbl{color:var(--ink-soft);font-size:12px;margin-top:4px;}
+
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:15px;flex-wrap:wrap;}
+.tab{padding:9px 16px;cursor:pointer;font-size:13.5px;border:none;background:none;border-bottom:2px solid transparent;border-radius:0;color:var(--ink-soft);}
+.tab.active{border-bottom-color:var(--ink);color:var(--ink);font-weight:600;}
+
+.controls{display:flex;gap:9px;margin-bottom:13px;flex-wrap:wrap;align-items:center;}
+.controls input[type=text],.controls select{font-family:'IBM Plex Sans',sans-serif;font-size:13px;border:1px solid var(--line);border-radius:5px;padding:8px 10px;background:var(--card);color:var(--ink);}
+.controls input[type=text]{flex:1;min-width:180px;}
+.controls .spacer{flex:1;}
+
+.ledger{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);}
+.ledger thead th{text-align:left;font-weight:600;font-size:11.5px;color:var(--ink-soft);padding:10px 11px;border-bottom:1.5px solid var(--ink);background:#F7F8FA;}
+.ledger tbody td{padding:11px;border-bottom:1px solid var(--line);vertical-align:middle;font-size:13px;}
+.ledger tbody tr:hover{background:#FAFBFC;}
+.ledger tbody tr[data-flag=crit]{box-shadow:inset 3px 0 0 var(--red);}
+.ledger tbody tr[data-flag=warn]{box-shadow:inset 3px 0 0 var(--amber);}
+.ledger tbody tr.grup-basi td{border-top:1.5px solid rgba(20,33,61,.28);}
+.ledger tbody tr.grup-basi:first-child td{border-top:none;}
+.client-name{font-weight:600;}
+.sub-name{color:var(--ink-soft);font-size:12px;margin-top:1px;}
+.contract-tag{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--ink-soft);}
+.tur-pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;background:var(--blue-bg);color:var(--blue);white-space:nowrap;margin:1px 0;}
+.uyari-not{display:inline-block;margin-top:3px;font-size:11px;color:var(--amber);background:var(--amber-bg);padding:1px 6px;border-radius:3px;}
+.tablo-not{margin-top:10px;padding:10px 13px;border:1px solid var(--line);border-left:3px solid var(--brass);border-radius:5px;background:var(--card);color:var(--ink-soft);font-size:12px;line-height:1.55;}
+
+.countdown{display:flex;align-items:center;gap:8px;}
+.bars{display:flex;gap:2px;}
+.bars i{width:7px;height:16px;border-radius:1px;background:var(--line);display:block;}
+.bars i.on{background:var(--green);}
+.bars i.on.w{background:var(--amber);}
+.bars i.on.c{background:var(--red);}
+.countdown .val{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:500;white-space:nowrap;}
+
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:500;white-space:nowrap;}
+.pill.ok{background:var(--green-bg);color:var(--green);}
+.pill.warn{background:var(--amber-bg);color:var(--amber);}
+.pill.crit{background:var(--red-bg);color:var(--red);}
+.pill.brk{background:var(--blue-bg);color:var(--blue);}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;background:#EEF0F3;color:var(--ink-soft);margin:1px 2px 1px 0;}
+.tag.asil{background:var(--blue-bg);color:var(--blue);}
+.row-actions{display:flex;gap:6px;}
+
+.empty-state{text-align:center;padding:46px 20px;color:var(--ink-soft);background:var(--card);border:1px solid var(--line);}
+.empty-state h3{font-size:17px;margin-bottom:6px;color:var(--ink);}
+
+.legal{margin-top:26px;padding:16px 18px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink-soft);font-size:12px;line-height:1.65;}
+.legal strong{color:var(--ink);}
+
+.overlay{position:fixed;inset:0;background:rgba(20,33,61,.45);display:none;align-items:flex-start;justify-content:center;padding:36px 14px;overflow-y:auto;z-index:50;}
+.overlay.show{display:flex;}
+.modal{background:var(--card);border-radius:8px;width:100%;max-width:600px;padding:24px;border:1px solid var(--line);}
+.modal h2{font-size:19px;margin-bottom:3px;}
+.modal-eyebrow{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;margin-bottom:7px;display:inline-block;padding:3px 9px;border-radius:3px;}
+.modal-eyebrow.firma{background:var(--amber-bg);color:var(--brass);}
+.modal-eyebrow.sozlesme{background:var(--blue-bg);color:var(--blue);}
+.modal-alt{margin:0 0 16px;color:var(--ink-soft);font-size:12.5px;}
+#overlayFirm .modal{border-top:3px solid var(--brass);}
+#overlay .modal{border-top:3px solid var(--blue);}
+#overlayFirm{z-index:60;}
+.field{margin-bottom:13px;}
+.field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;font-weight:500;}
+.field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:5px;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;background:#fff;color:var(--ink);}
+.field textarea{resize:vertical;min-height:52px;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:13px;}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:13px;}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+.hint{font-size:11.5px;color:var(--ink-soft);margin-top:4px;}
+.section-head{font-family:'Source Serif 4',serif;font-size:15px;font-weight:600;margin:20px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line);}
+.member-row{display:grid;grid-template-columns:22px 1fr 150px auto;gap:9px;align-items:center;margin-bottom:8px;}
+.member-row .idx{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-soft);}
+.member-row input[type=text]{padding:7px 9px;font-size:13px;}
+.member-row select{padding:7px 9px;font-size:12.5px;border:1px solid var(--line);border-radius:5px;background:#fff;font-family:'IBM Plex Sans',sans-serif;}
+.chk{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink-soft);white-space:nowrap;}
+.chk input{width:auto;}
+.firma-ozet{background:#F7F8FA;border:1px solid var(--line);border-radius:5px;padding:10px 12px;font-size:12.5px;color:var(--ink-soft);margin-top:-6px;margin-bottom:13px;}
+.firma-ozet strong{color:var(--ink);}
+.firma-ozet.uyari{background:var(--amber-bg);border-color:rgba(183,121,31,.3);color:#7a5412;}
+.ozet-kopya{margin-top:6px;padding-top:6px;border-top:1px solid var(--line);color:var(--blue);}
+
+@media (max-width:760px){
+  .stats{grid-template-columns:repeat(2,1fr);}
+  .two-col,.three-col{grid-template-columns:1fr;}
+  .alert-col{border-right:none;border-bottom:1px solid var(--line);}
+  .member-row{grid-template-columns:20px 1fr;grid-auto-rows:auto;}
+  .ledger thead{display:none;}
+  .ledger,.ledger tbody,.ledger tr,.ledger td{display:block;width:100%;}
+  .ledger tbody tr{border-bottom:2px solid var(--line);padding:8px 0;}
+  .ledger tbody td{border-bottom:none;padding:4px 11px;}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+@media print{
+  .topbar-actions,.controls,.row-actions,.storage-note,.tabs,.tablo-not{display:none;}
+  body{background:#fff;} .alerts,.ledger{break-inside:avoid;}
+  .wrap{padding:0;max-width:none;}
+  .ledger{font-size:11px;} .ledger tbody td{padding:6px 7px;}
+  .brand-mark .logo{height:38px;}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand-mark">
+      <img class="logo" src="data:image/png;base64,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" alt="Vezin Bağımsız Denetim A.Ş.">
+      <div class="brand-text">
+        <h1>Vezin Bağımsız Denetim A.Ş.</h1>
+        <p>Rotasyon Takip Panosu — denetim kuruluşu ve denetçi sürelerinin izlenmesi</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btnImport">Veri yükle</button>
+      <button id="btnExportJson">Yedek al</button>
+      <button id="btnSettings">Ayarlar</button>
+      <button id="btnAddFirm">+ İşletme tanımla</button>
+      <button class="btn-primary" id="btnAdd">+ Sözleşme ekle</button>
+    </div>
+  </div>
+
+  <div class="storage-note" id="storageNote"><span class="dot"></span><span id="storageText">Kayıtlar yükleniyor...</span></div>
+
+  <div class="alerts" id="alerts">
+    <div class="alerts-head">
+      <h2 id="alertsTitle">Uyarı merkezi</h2>
+      <span class="meta" id="alertsMeta"></span>
+    </div>
+    <div class="alerts-body" id="alertsBody"></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card"><div class="num mono" id="statFirms">0</div><div class="lbl">Tanımlı işletme</div></div>
+    <div class="stat-card"><div class="num mono" id="statContracts">0</div><div class="lbl">Sözleşme dönemi</div></div>
+    <div class="stat-card"><div class="num mono" id="statPeople">0</div><div class="lbl">Kayıtlı denetçi</div></div>
+    <div class="stat-card"><div class="num mono" id="statActive">0</div><div class="lbl">Cari dönem sözleşmesi</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="contracts">Sözleşme dönemleri</button>
+    <button class="tab" data-tab="firms">İşletmeler ve rotasyon</button>
+    <button class="tab" data-tab="auditors">Denetçi rotasyonu</button>
+    <button class="tab" data-tab="timeline">Yıl planı</button>
+  </div>
+
+  <div class="controls">
+    <input type="text" id="search" placeholder="İşletme, denetçi veya sözleşme numarası ara...">
+    <select id="filterStatus">
+      <option value="all">Tüm durumlar</option>
+      <option value="crit">Süre doldu</option>
+      <option value="warn">Yaklaşan</option>
+      <option value="ok">Normal</option>
+      <option value="brk">Ara veriliyor</option>
+    </select>
+    <div class="spacer"></div>
+    <button class="btn-small" id="btnPrint">Yazdır</button>
+    <button class="btn-small" id="btnExportCsv">CSV indir</button>
+  </div>
+
+  <div id="viewContracts"></div>
+  <div id="viewFirms" style="display:none;"></div>
+  <div id="viewAuditors" style="display:none;"></div>
+  <div id="viewTimeline" style="display:none;"></div>
+
+  <div class="legal">
+    <strong>Hesaplama esası.</strong> Her sözleşme kaydı tek bir hesap dönemini temsil eder. Rotasyon süresi tek tek
+    sözleşmeler üzerinden değil, aynı işletme adına kayıtlı bütün dönemler arka planda toplanarak hesaplanır ve aynı
+    kural hem denetim kuruluşuna hem kadrodaki denetçilere uygulanır (varsayılan: <span id="legalRule">7 yıl görev,
+    ardından 3 yıl kesintisiz ara</span>). Kadroda adı geçmekle birlikte fiilen denetim çalışmalarına katılmayan
+    denetçiler için "fiilen görev aldı" işareti kaldırıldığında ilgili dönem süreye dahil edilmez. Azami süre
+    dolduğunda yeniden üstlenme yılı, son denetlenen hesap dönemine ara süresi eklenerek bulunur. Pano kapalı devre
+    çalışır. Nihai değerlendirmede Bağımsız Denetim Yönetmeliği ve KGK'nın rotasyona ilişkin güncel düzenleme ve
+    duyuruları esas alınmalıdır.
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);color:var(--ink-soft);">
+      Vezin Bağımsız Denetim A.Ş. · iç kullanım içindir
+    </div>
+  </div>
+</div>
+
+<!-- İşletme tanımı -->
+<div class="overlay" id="overlayFirm">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-eyebrow firma">İşletme kartı</div>
+    <h2 id="firmModalTitle">İşletme tanımla</h2>
+    <p class="modal-alt">Her işletme bir kez tanımlanır. Sözleşme dönemleri bu karta bağlanır.</p>
+    <input type="hidden" id="firmEditId">
+    <div class="two-col">
+      <div class="field">
+        <label>İşletme unvanı</label>
+        <input type="text" id="gName" placeholder="Örn. ABC Sanayi ve Ticaret A.Ş.">
+      </div>
+      <div class="field">
+        <label>Vergi kimlik numarası</label>
+        <input type="text" id="gVkn" placeholder="10 haneli VKN" inputmode="numeric" maxlength="11">
+        <p class="hint" id="vknHint"></p>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="field">
+        <label>Önceki denetçinin ilk dönemi</label>
+        <input type="text" id="gPrevStart" placeholder="2016">
+      </div>
+      <div class="field">
+        <label>Önceki denetçinin son dönemi</label>
+        <input type="text" id="gPrevEnd" placeholder="2020">
+      </div>
+    </div>
+    <p class="hint" style="margin-top:-6px;">Bilgi amaçlıdır; önceki denetçinin süresi kendi rotasyon sürenize eklenmez.</p>
+    <div class="field" style="margin-top:13px;">
+      <label>Not</label>
+      <input type="text" id="gNote" placeholder="İç not">
+    </div>
+    <div class="modal-actions">
+      <button id="btnFirmCancel">Vazgeç</button>
+      <button class="btn-primary" id="btnFirmSave">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sözleşme dönemi -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-eyebrow sozlesme">Sözleşme dönemi</div>
+    <h2 id="modalTitle">Sözleşme dönemi ekle</h2>
+    <p class="modal-alt">Tek bir hesap dönemini kaydeder. Rotasyon süresi işletme kartında toplanır.</p>
+    <input type="hidden" id="editId">
+    <div class="field">
+      <label>Denetlenen işletme</label>
+      <select id="fFirm"></select>
+    </div>
+    <div class="firma-ozet" id="firmaOzet" style="display:none;"></div>
+    <div class="field">
+      <label>Sözleşme türü</label>
+      <select id="fType">
+        <option value="TTK-Zorunlu Denetim">TTK — Zorunlu Denetim</option>
+        <option value="SPK-Zorunlu Denetim">SPK — Zorunlu Denetim</option>
+        <option value="İhtiyari Denetim (TFRS-IFRS)">İhtiyari Denetim (TFRS-IFRS)</option>
+        <option value="Güvence Denetimi">Güvence Denetimi</option>
+        <option value="Sürdürülebilirlik Denetimi">Sürdürülebilirlik Denetimi</option>
+      </select>
+    </div>
+    <div class="two-col">
+      <div class="field">
+        <label>Sözleşme numarası</label>
+        <input type="text" id="fContract" placeholder="Örn. 2026/014">
+      </div>
+      <div class="field">
+        <label>Hesap dönemi</label>
+        <select id="fYear"></select>
+      </div>
+    </div>
+
+    <div class="section-head">Asıl kadro</div>
+    <div id="asilRows"></div>
+    <div class="section-head">Yedek kadro</div>
+    <div id="yedekRows"></div>
+
+    <div class="field" style="margin-top:16px;">
+      <label>Not</label>
+      <textarea id="fNote" placeholder="İç notlar..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button id="btnCancel">Vazgeç</button>
+      <button class="btn-primary" id="btnSave">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ayarlar -->
+<div class="overlay" id="overlaySettings">
+  <div class="modal" style="max-width:520px;">
+    <h2>Ayarlar</h2>
+    <div class="three-col">
+      <div class="field">
+        <label>Cari hesap dönemi</label>
+        <input type="text" id="sYear">
+      </div>
+      <div class="field">
+        <label>Azami denetim süresi (yıl)</label>
+        <input type="text" id="sMaxYears">
+      </div>
+      <div class="field">
+        <label>Zorunlu ara (yıl)</label>
+        <input type="text" id="sBreakYears">
+      </div>
+    </div>
+    <div class="field">
+      <label>Kaç yıl kala uyarı verilsin</label>
+      <select id="sWarnYears">
+        <option value="1">1 yıl kala</option>
+        <option value="2">2 yıl kala</option>
+        <option value="3">3 yıl kala</option>
+        <option value="4">4 yıl kala</option>
+      </select>
+      <p class="hint">Aynı eşik hem kuruluş hem denetçi rotasyonu için geçerlidir.</p>
+    </div>
+    <div class="modal-actions">
+      <button id="btnCancelSettings">Kapat</button>
+      <button class="btn-primary" id="btnSaveSettings">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept=".json" style="display:none;">
+
+<script>
+/* ---------- Depolama ---------- */
+const hasClaudeStorage = typeof window.storage !== 'undefined' && window.storage !== null;
+const KEY_F = 'rotasyon-isletmeler';
+const KEY_C = 'rotasyon-sozlesmeler';
+const KEY_S = 'rotasyon-ayarlar';
+let mode = 'local', docVersion = 0, currentUser = '', lastSavedAt = null;
+
+const localStore = {
+  async get(key){
+    if(hasClaudeStorage){
+      try{ const r = await window.storage.get(key, true); return r && r.value ? r.value : null; }catch(e){ return null; }
+    }
+    try{ return window.localStorage.getItem(key); }catch(e){ return null; }
+  },
+  async set(key, val){
+    if(hasClaudeStorage){ await window.storage.set(key, val, true); return; }
+    window.localStorage.setItem(key, val);
+  }
+};
+
+let firms = [];
+let contracts = [];
+let settings = { year:new Date().getFullYear(), maxYears:7, breakYears:3, warnYears:3 };
+let activeTab = 'contracts';
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+async function detectMode(){
+  try{
+    const r = await fetch('api/ping', { cache:'no-store' });
+    if(r.ok){ const j = await r.json(); if(j && j.app === 'rotasyon'){ mode='server'; currentUser=j.user||''; return; } }
+  }catch(e){}
+  mode = hasClaudeStorage ? 'claude' : 'local';
+}
+function setStorageNote(extra){
+  const note = document.getElementById('storageNote'), txt = document.getElementById('storageText');
+  note.classList.remove('local');
+  if(mode === 'server'){
+    txt.textContent = 'Kayıtlar şirket içi sunucuda tutuluyor'
+      + (currentUser ? ' — oturum: ' + currentUser : '')
+      + (lastSavedAt ? ' · son kayıt ' + lastSavedAt : '')
+      + (extra ? ' · ' + extra : '');
+  } else if(mode === 'claude'){
+    txt.textContent = 'Kayıtlar paylaşımlı depolamada tutuluyor — bu panoya erişen herkes aynı verileri görür.';
+  } else {
+    note.classList.add('local');
+    txt.textContent = 'Kayıtlar yalnızca bu tarayıcıda tutuluyor. Düzenli olarak "Yedek al" ile dışa aktarın.';
+  }
+}
+function applyDoc(d){
+  firms = Array.isArray(d.firms) ? d.firms : [];
+  contracts = Array.isArray(d.contracts) ? d.contracts : [];
+  if(d.settings) settings = Object.assign(settings, d.settings);
+  docVersion = d.version || 0;
+  lastSavedAt = d.updatedAt ? new Date(d.updatedAt).toLocaleString('tr-TR') : null;
+  temizle();
+}
+function temizle(){ ['emails','webhook'].forEach(k => delete settings[k]); }
+
+/* Eski biçimdeki kayıtları (client + startYear/endYear) yeni yapıya çevirir */
+function eskiVeriyiDonustur(){
+  const eskiler = contracts.filter(c => c.firmId == null && c.client);
+  if(!eskiler.length) return 0;
+  const korunan = contracts.filter(c => c.firmId != null);
+  const yeniler = [];
+  eskiler.forEach(c => {
+    const ad = String(c.client).trim();
+    let f = firms.find(x => x.name.trim().toLocaleLowerCase('tr') === ad.toLocaleLowerCase('tr'));
+    if(!f){
+      f = { id:uid(), name:ad, vkn:(c.vkn || ''), prevStart:(c.prev && c.prev.startYear) || null, prevEnd:(c.prev && c.prev.endYear) || null, note:'' };
+      firms.push(f);
+    }
+    const ilk = parseInt(c.startYear,10);
+    const son = c.active ? settings.year : (parseInt(c.endYear,10) || ilk);
+    for(let y = ilk; y <= son; y++){
+      if(korunan.concat(yeniler).some(x => x.firmId === f.id && x.year === y)) continue;
+      yeniler.push({
+        id: uid(), firmId: f.id, contractType: c.contractType || 'TTK-Zorunlu Denetim',
+        contractNo: c.contractNo || '', year: y,
+        team: c.team || [], note: c.note || ''
+      });
+    }
+  });
+  contracts = korunan.concat(yeniler);
+  return yeniler.length;
+}
+
+async function loadAll(){
+  await detectMode();
+  if(mode === 'server'){
+    try{
+      const r = await fetch('api/data', { cache:'no-store' });
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      applyDoc(await r.json());
+    }catch(e){ alert('Sunucudaki veriler okunamadı: ' + e.message); }
+  } else {
+    const f = await localStore.get(KEY_F);
+    if(f){ try{ firms = JSON.parse(f); }catch(e){ firms = []; } }
+    const c = await localStore.get(KEY_C);
+    if(c){ try{ contracts = JSON.parse(c); }catch(e){ contracts = []; } }
+    const s = await localStore.get(KEY_S);
+    if(s){ try{ settings = Object.assign(settings, JSON.parse(s)); }catch(e){} }
+    temizle();
+  }
+  const donusen = eskiVeriyiDonustur();
+  fillSettingsForm();
+  setStorageNote();
+  render();
+  if(donusen){
+    await persist();
+    alert('Önceki sürümden gelen kayıtlar yeni yapıya aktarıldı:\n' +
+          firms.length + ' işletme tanımlandı, ' + donusen + ' sözleşme dönemi oluşturuldu.\n\n' +
+          'Çok yıllık kayıtlarda ücret yalnızca ilk döneme yazıldı; dönem ücretlerini düzenleyip güncelleyebilirsiniz.');
+  }
+  if(mode === 'server') startPolling();
+}
+
+async function persist(){
+  if(mode === 'server'){
+    let r;
+    try{
+      r = await fetch('api/data', { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ version: docVersion, firms, contracts, settings }) });
+    }catch(e){
+      alert('Sunucuya ulaşılamadı, değişiklik KAYDEDİLMEDİ.\nBağlantıyı kontrol edip tekrar deneyin.\n\n' + e.message);
+      return false;
+    }
+    if(r.status === 409){
+      applyDoc(await r.json());
+      fillSettingsForm(); setStorageNote(); render();
+      alert('Bu kayıt siz çalışırken başka bir kullanıcı tarafından değiştirilmiş.\nEkrandaki veriler güncellendi; değişikliğinizi tekrar yapın.');
+      return false;
+    }
+    if(!r.ok){ alert('Kaydedilemedi (HTTP ' + r.status + '). Yetkiniz olmayabilir.'); return false; }
+    const j = await r.json();
+    docVersion = j.version;
+    lastSavedAt = j.updatedAt ? new Date(j.updatedAt).toLocaleString('tr-TR') : null;
+    setStorageNote();
+    return true;
+  }
+  try{
+    await localStore.set(KEY_F, JSON.stringify(firms));
+    await localStore.set(KEY_C, JSON.stringify(contracts));
+    await localStore.set(KEY_S, JSON.stringify(settings));
+    return true;
+  }catch(e){ alert('Kaydedilemedi: ' + e.message); return false; }
+}
+
+let pollTimer = null;
+function startPolling(){
+  if(pollTimer) return;
+  pollTimer = setInterval(async () => {
+    if(document.querySelector('.overlay.show') || document.hidden) return;
+    try{
+      const r = await fetch('api/version', { cache:'no-store' });
+      if(!r.ok) return;
+      const j = await r.json();
+      if(j.version !== docVersion){
+        applyDoc(await (await fetch('api/data', { cache:'no-store' })).json());
+        fillSettingsForm(); setStorageNote('başka bir kullanıcının değişikliği alındı'); render();
+      }
+    }catch(e){}
+  }, 30000);
+}
+
+/* ---------- Rotasyon hesabı ---------- */
+function firmById(id){ return firms.find(f => f.id === id); }
+function firmName(id){ const f = firmById(id); return f ? f.name : '(silinmiş işletme)'; }
+
+function evaluate(yearSet){
+  const max = settings.maxYears, brk = settings.breakYears, warn = settings.warnYears;
+  const years = Array.from(yearSet).sort((a,b)=>a-b);
+  const served = years.length;
+  const lastYear = years.length ? years[years.length-1] : null;
+  const ongoing = years.includes(settings.year);
+  const remaining = max - served;
+  if(!ongoing && lastYear !== null && served >= max){
+    const eligible = lastYear + brk + 1;
+    if(settings.year < eligible)
+      return { key:'brk', label:'Ara veriliyor · '+eligible+'\u2019den itibaren', served, remaining:0, eligible, lastYear };
+    return { key:'ok', label:'Yeniden üstlenilebilir', served, remaining:max, eligible, lastYear };
+  }
+  if(remaining <= 0)
+    return { key:'crit', label:'Azami süre doldu', served, remaining:0, lastYear, eligible:(lastYear!==null?lastYear+brk+1:null) };
+  if(remaining <= warn)
+    return { key:'warn', label:remaining+' yıl kaldı', served, remaining, lastYear, lastPossible:settings.year+remaining-1 };
+  return { key:'ok', label:remaining+' yıl kaldı', served, remaining, lastYear };
+}
+
+/* Her işletme için: dönemler, toplam süre, ücretler, durum */
+function firmRows(){
+  const map = {};
+  firms.forEach(f => { map[f.id] = { kind:'firm', id:f.id, client:f.name, firm:f, years:new Set(), periods:0, contractNos:[], types:new Set(), duplicate:false }; });
+  contracts.forEach(c => {
+    let g = map[c.firmId];
+    if(!g){ g = map[c.firmId] = { kind:'firm', id:c.firmId, client:firmName(c.firmId), firm:null, years:new Set(), periods:0, contractNos:[], types:new Set(), duplicate:false }; }
+    g.periods++;
+    if(g.years.has(c.year)) g.duplicate = true;
+    g.years.add(c.year);
+    if(c.contractNo) g.contractNos.push(c.contractNo);
+    if(c.contractType) g.types.add(c.contractType);
+  });
+  return Object.values(map).map(g => ({ ...g, status:evaluate(g.years) }));
+}
+
+/* Denetçi × işletme */
+function auditorRows(){
+  const map = {};
+  contracts.forEach(c => {
+    (c.team||[]).forEach(m => {
+      if(!m.name || !m.name.trim() || !m.counts) return;
+      const key = m.name.trim().toLocaleLowerCase('tr') + '||' + c.firmId;
+      if(!map[key]) map[key] = { kind:'auditor', name:m.name.trim(), client:firmName(c.firmId), firmId:c.firmId, years:new Set(), roles:new Set() };
+      map[key].years.add(c.year);
+      map[key].roles.add(m.kind === 'asil' ? 'Asıl kadro' : 'Yedek kadro');
+      if(m.title) map[key].roles.add(m.title);
+    });
+  });
+  return Object.values(map).map(g => ({ ...g, status:evaluate(g.years) }));
+}
+
+/* ---------- Biçimleme ---------- */
+function esc(s){ const d=document.createElement('div'); d.textContent = s==null?'':s; return d.innerHTML; }
+function pill(st){ return '<span class="pill '+st.key+'"><span class="dot"></span>'+esc(st.label)+'</span>'; }
+function countdown(st){
+  if(st.key === 'brk') return '<span class="countdown"><span class="val" style="color:var(--blue)">ara dönemi</span></span>';
+  const max = settings.maxYears, used = Math.min(st.served, max);
+  const cls = st.remaining === 0 ? 'c' : (st.remaining <= settings.warnYears ? 'w' : '');
+  let bars = '';
+  for(let i=0;i<max;i++) bars += '<i class="'+(i<used?('on '+cls):'')+'"></i>';
+  return '<span class="countdown"><span class="bars">'+bars+'</span><span class="val">'+(st.remaining===0?'0 yıl':st.remaining+' yıl')+'</span></span>';
+}
+function donemAraligi(yearsSet){
+  const y = Array.from(yearsSet).sort((a,b)=>a-b);
+  if(!y.length) return '—';
+  if(y.length === 1) return String(y[0]);
+  // kesintisiz mi?
+  const kesintisiz = y[y.length-1] - y[0] + 1 === y.length;
+  return kesintisiz ? (y[0] + '–' + y[y.length-1]) : y.join(', ');
+}
+function labelOf(x){ return x.kind === 'firm' ? x.client : (x.name + ' — ' + x.client); }
+function subOf(x){
+  const st = x.status;
+  return st.served + ' dönem denetlendi' + (st.lastPossible ? ' · son dönem ' + st.lastPossible : '');
+}
+
+/* ---------- Uyarı merkezi ---------- */
+function renderAlerts(all){
+  const warn = settings.warnYears;
+  const groups = [{ cls:'c0', cap:'Azami süre doldu', items: all.filter(x=>x.status.key==='crit') }];
+  for(let r = 1; r <= warn; r++)
+    groups.push({ cls:'c'+Math.min(r,3), cap: r + ' yıl kaldı', items: all.filter(x=>x.status.key==='warn' && x.status.remaining===r) });
+  groups.push({ cls:'cb', cap:'Ara veriliyor', items: all.filter(x=>x.status.key==='brk') });
+
+  document.getElementById('alertsBody').innerHTML = groups.map(g => {
+    const items = g.items.slice(0,4).map(x => '<li><span class="who">'+esc(labelOf(x))+'</span><span class="what">'+esc(subOf(x))+'</span></li>').join('');
+    const more = g.items.length > 4 ? '<div class="more">+ '+(g.items.length-4)+' kayıt daha</div>' : '';
+    const none = g.items.length ? '' : '<div class="none">Kayıt yok</div>';
+    return '<div class="alert-col '+g.cls+'"><div class="count">'+g.items.length+'</div><div class="cap">'+g.cap+'</div><ul>'+items+'</ul>'+more+none+'</div>';
+  }).join('');
+
+  const acted = all.filter(x=>x.status.key==='crit' || x.status.key==='warn').length;
+  const box = document.getElementById('alerts'), title = document.getElementById('alertsTitle');
+  if(acted === 0){ box.classList.add('calm'); title.textContent = 'Eylem gerektiren rotasyon yok'; }
+  else { box.classList.remove('calm'); title.textContent = acted + ' kayıt eylem bekliyor'; }
+  document.getElementById('alertsMeta').textContent = settings.year + ' hesap dönemi · ' + settings.maxYears +
+    ' yıl azami süre, ' + settings.breakYears + ' yıl zorunlu ara · uyarı eşiği ' + warn + ' yıl';
+}
+
+/* ---------- Ana render ---------- */
+function render(){
+  const q = document.getElementById('search').value.trim().toLocaleLowerCase('tr');
+  const fs = document.getElementById('filterStatus').value;
+  const fr = firmRows(), auds = auditorRows();
+  const all = fr.concat(auds);
+  const ozet = {}; fr.forEach(f => ozet[f.id] = f);
+
+  document.getElementById('statFirms').textContent = firms.length;
+  document.getElementById('statContracts').textContent = contracts.length;
+  document.getElementById('statPeople').textContent = new Set(auds.map(a=>a.name.toLocaleLowerCase('tr'))).size;
+  document.getElementById('statActive').textContent = contracts.filter(c => c.year === settings.year).length;
+  document.getElementById('legalRule').textContent = settings.maxYears+' yıl görev, ardından '+settings.breakYears+' yıl kesintisiz ara';
+
+  renderAlerts(fr);
+
+  const matchQ = s => !q || s.toLocaleLowerCase('tr').includes(q);
+  const matchS = st => fs==='all' || st.key===fs;
+  const flag = st => (st.key==='crit' || st.key==='warn') ? ' data-flag="'+st.key+'"' : '';
+
+  /* --- Sözleşme dönemleri --- */
+  const vc = document.getElementById('viewContracts');
+  if(!firms.length){
+    vc.innerHTML = '<div class="empty-state"><h3>Önce işletmeleri tanımlayın</h3><p>"+ İşletme tanımla" ile denetlediğiniz işletmeleri girin, sonra her hesap dönemi için sözleşme ekleyin.</p></div>';
+  } else if(!contracts.length){
+    vc.innerHTML = '<div class="empty-state"><h3>Henüz sözleşme dönemi yok</h3><p>"+ Sözleşme ekle" ile ilk hesap dönemini girin.</p></div>';
+  } else {
+    let rows = '', oncekiFirma = null;
+    contracts
+      .map(c => ({ c, g: ozet[c.firmId], st: (ozet[c.firmId] ? ozet[c.firmId].status : evaluate(new Set([c.year]))) }))
+      .filter(o => matchQ(firmName(o.c.firmId)+' '+(o.c.contractNo||'')+' '+(o.c.team||[]).map(m=>m.name).join(' ')))
+      .filter(o => matchS(o.st))
+      .sort((a,b) => (a.st.remaining - b.st.remaining)
+                  || firmName(a.c.firmId).localeCompare(firmName(b.c.firmId),'tr')
+                  || (b.c.year - a.c.year))
+      .forEach(({c, g, st}) => {
+        const yeniFirma = c.firmId !== oncekiFirma; oncekiFirma = c.firmId;
+        const mk = k => (c.team||[]).filter(m=>m.kind===k&&m.name)
+          .map(m=>'<span class="tag'+(k==='asil'?' asil':'')+'">'+esc(m.name)+(m.counts?'':' · süreye dahil değil')+'</span>').join('');
+        const mukerrer = contracts.filter(x => x.firmId===c.firmId && x.year===c.year).length > 1;
+        rows += '<tr'+(yeniFirma ? ' class="grup-basi"' : '')+flag(st)+'>'+
+          '<td><div class="client-name">'+esc(firmName(c.firmId))+'</div>'+
+            '<div class="contract-tag">'+esc(c.contractNo || 'sözleşme no girilmedi')+'</div>'+
+            (g && g.periods>1 ? '<div class="sub-name">'+g.periods+' dönem kayıtlı</div>' : '')+
+            (c.note ? '<div class="sub-name">'+esc(c.note)+'</div>' : '')+
+            (mukerrer ? '<div class="uyari-not">bu dönem birden fazla kayıtlı</div>' : '')+'</td>'+
+          '<td class="mono" style="font-size:14px;font-weight:600;">'+c.year+'</td>'+
+          '<td>'+(c.contractType ? '<span class="tur-pill">'+esc(c.contractType)+'</span>' : '<span class="sub-name">—</span>')+'</td>'+
+          '<td>'+(mk('asil')||'<span class="sub-name">—</span>')+'</td>'+
+          '<td>'+(mk('yedek')||'<span class="sub-name">—</span>')+'</td>'+
+          '<td><div class="mono" style="font-size:12.5px;margin-bottom:3px;">'+st.served+' / '+settings.maxYears+' dönem</div>'+countdown(st)+'</td>'+
+          '<td>'+pill(st)+'</td>'+
+          '<td><div class="row-actions"><button class="btn-small" data-edit="'+c.id+'">Düzenle</button>'+
+            '<button class="btn-small" data-copy="'+c.id+'" title="Bir sonraki hesap dönemi için kopyala">Yeni dönem</button>'+
+            '<button class="btn-small btn-danger-outline" data-del="'+c.id+'">Sil</button></div></td>'+
+        '</tr>';
+      });
+    vc.innerHTML = '<table class="ledger"><thead><tr><th>İşletme / sözleşme no</th><th>Hesap dönemi</th><th>Sözleşme türü</th><th>Asıl kadro</th><th>Yedek kadro</th><th>İşletmedeki toplam süre</th><th>Rotasyon durumu</th><th></th></tr></thead><tbody>'+
+      (rows || '<tr><td colspan="8" style="text-align:center;color:var(--ink-soft);padding:30px;">Filtreye uyan kayıt yok</td></tr>')+'</tbody></table>'+
+      '<div class="tablo-not">Her satır tek bir hesap dönemine ait sözleşmedir. Rotasyon süresi, aynı işletme adına kayıtlı bütün dönemler arka planda toplanarak hesaplanır; "İşletmedeki toplam süre" sütunu bu birikimi gösterir.</div>';
+    vc.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click',()=>openEdit(b.dataset.edit)));
+    vc.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',()=>yeniDonem(b.dataset.copy)));
+    vc.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>del(b.dataset.del)));
+  }
+
+  /* --- İşletmeler ve rotasyon --- */
+  const vf = document.getElementById('viewFirms');
+  if(!firms.length){
+    vf.innerHTML = '<div class="empty-state"><h3>Tanımlı işletme yok</h3><p>"+ İşletme tanımla" ile başlayın.</p></div>';
+  } else {
+    let rr = '';
+    fr.filter(f=>matchQ(f.client)).filter(f=>matchS(f.status))
+      .sort((a,b)=>(a.status.remaining-b.status.remaining) || a.client.localeCompare(b.client,'tr'))
+      .forEach(f => {
+        const p = f.firm || {};
+        const onceki = (p.prevStart || p.prevEnd)
+          ? 'Önceki denetçi: ' + (p.prevStart||'?') + '–' + (p.prevEnd||'?')
+          : '';
+        const turler = Array.from(f.types || []).map(t=>'<span class="tur-pill">'+esc(t)+'</span>').join(' ');
+        rr += '<tr'+flag(f.status)+'>'+
+          '<td><div class="client-name">'+esc(f.client)+'</div>'+
+            (p.vkn ? '<div class="contract-tag">VKN '+esc(p.vkn)+'</div>' : '')+
+            (onceki ? '<div class="sub-name">'+esc(onceki)+'</div>' : '')+
+            (p.note ? '<div class="sub-name">'+esc(p.note)+'</div>' : '')+
+            (f.duplicate ? '<div class="uyari-not">aynı dönem birden fazla kayıtlı</div>' : '')+'</td>'+
+          '<td class="mono">'+donemAraligi(f.years)+'<div class="sub-name">'+f.periods+' sözleşme</div></td>'+
+          '<td>'+(turler || '<span class="sub-name">—</span>')+'</td>'+
+          '<td class="mono">'+f.status.served+' / '+settings.maxYears+' dönem</td>'+
+          '<td>'+countdown(f.status)+'</td>'+
+          '<td class="mono">'+(f.status.lastPossible ? f.status.lastPossible : (f.status.key==='crit' ? (f.status.lastYear||'—') : '—'))+'</td>'+
+          '<td class="mono">'+(f.status.eligible || '—')+'</td>'+
+          '<td>'+pill(f.status)+'</td>'+
+          '<td><div class="row-actions">'+(f.firm ? '<button class="btn-small" data-fedit="'+f.id+'">Düzenle</button><button class="btn-small btn-danger-outline" data-fdel="'+f.id+'">Sil</button>' : '')+'</div></td>'+
+        '</tr>';
+      });
+    vf.innerHTML = '<table class="ledger"><thead><tr><th>İşletme</th><th>Kayıtlı dönemler</th><th>Sözleşme türleri</th><th>Denetlenen süre</th><th>Kalan süre</th><th>Son denetlenebilir dönem</th><th>Yeniden üstlenme</th><th>Durum</th><th></th></tr></thead><tbody>'+
+      (rr || '<tr><td colspan="9" style="text-align:center;color:var(--ink-soft);padding:30px;">Filtreye uyan kayıt yok</td></tr>')+'</tbody></table>';
+    vf.querySelectorAll('[data-fedit]').forEach(b=>b.addEventListener('click',()=>openFirmEdit(b.dataset.fedit)));
+    vf.querySelectorAll('[data-fdel]').forEach(b=>b.addEventListener('click',()=>delFirm(b.dataset.fdel)));
+  }
+
+  /* --- Denetçi görev geçmişi (yalnızca bilgi amaçlı; uyarı/planlamaya dahil değil) --- */
+  const va = document.getElementById('viewAuditors');
+  let ar = '';
+  auds.filter(a=>matchQ(a.name+' '+a.client))
+    .sort((a,b)=> a.name.localeCompare(b.name,'tr') || a.client.localeCompare(b.client,'tr'))
+    .forEach(a => {
+      ar += '<tr>'+
+        '<td><div class="client-name">'+esc(a.name)+'</div><div class="sub-name">'+esc(Array.from(a.roles).join(' · '))+'</div></td>'+
+        '<td>'+esc(a.client)+'</td>'+
+        '<td class="mono">'+donemAraligi(a.years)+'</td>'+
+        '<td class="mono">'+a.status.served+' dönem</td></tr>';
+    });
+  va.innerHTML = '<div class="tablo-not" style="margin:0 0 12px;">Bu bölüm yalnızca bilgi amaçlıdır; denetçi süreleri kayıt altına alınır ancak uyarı merkezinde ve yıl planında dikkate alınmaz.</div>'+
+    (auds.length ? '<table class="ledger"><thead><tr><th>Denetçi</th><th>İşletme</th><th>Görev dönemleri</th><th>Toplam görev</th></tr></thead><tbody>'+
+    ar+'</tbody></table>'
+    : '<div class="empty-state"><h3>Veri yok</h3><p>Kadro bilgisi girilen sözleşmeler burada denetçi bazında listelenir.</p></div>');
+
+  renderTimeline(fr);
+
+  document.getElementById('viewContracts').style.display = activeTab==='contracts'?'block':'none';
+  document.getElementById('viewFirms').style.display = activeTab==='firms'?'block':'none';
+  document.getElementById('viewAuditors').style.display = activeTab==='auditors'?'block':'none';
+  document.getElementById('viewTimeline').style.display = activeTab==='timeline'?'block':'none';
+}
+
+function renderTimeline(all){
+  const vt = document.getElementById('viewTimeline');
+  const span = Math.max(settings.warnYears, 4);
+  const buckets = {};
+  all.forEach(x => {
+    const st = x.status;
+    let y = null, what = '';
+    if(st.key === 'crit'){ y = settings.year; what = 'Rotasyon gerekiyor — süre doldu'; }
+    else if((st.key === 'warn' || st.key === 'ok') && st.remaining > 0 && st.remaining <= span){
+      y = settings.year + st.remaining; what = 'Bu dönemden itibaren rotasyon';
+    }
+    else if(st.key === 'brk' && st.eligible && st.eligible <= settings.year + span){ y = st.eligible; what = 'Yeniden üstlenilebilir'; }
+    if(y === null) return;
+    (buckets[y] = buckets[y] || []).push({ x, what });
+  });
+  const years = Object.keys(buckets).map(Number).sort((a,b)=>a-b);
+  if(!years.length){
+    vt.innerHTML = '<div class="empty-state"><h3>Yaklaşan rotasyon yok</h3><p>Önümüzdeki '+span+' yıl içinde rotasyon gerektiren kayıt bulunmuyor.</p></div>';
+    return;
+  }
+  let rows = '';
+  years.forEach(y => {
+    buckets[y].forEach((it, i) => {
+      rows += '<tr>'+
+        (i===0 ? '<td rowspan="'+buckets[y].length+'" class="mono" style="font-size:16px;font-weight:600;vertical-align:top;">'+y+'</td>' : '')+
+        '<td>'+(it.x.kind==='firm'?'Kuruluş':'Denetçi')+'</td>'+
+        '<td><div class="client-name">'+esc(labelOf(it.x))+'</div><div class="sub-name">'+esc(subOf(it.x))+'</div></td>'+
+        '<td>'+esc(it.what)+'</td>'+
+        '<td>'+pill(it.x.status)+'</td></tr>';
+    });
+  });
+  vt.innerHTML = '<table class="ledger"><thead><tr><th>Dönem</th><th>Tür</th><th>Kayıt</th><th>Yapılması gereken</th><th>Bugünkü durum</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+
+/* ---------- Kadro ---------- */
+const TITLES = ['Sorumlu denetçi','Kıdemli denetçi','Denetçi','Denetçi yardımcısı'];
+function buildRows(containerId, kind){
+  const el = document.getElementById(containerId); el.innerHTML = '';
+  for(let i=0;i<3;i++){
+    const row = document.createElement('div');
+    row.className = 'member-row';
+    row.innerHTML = '<div class="idx">'+(i+1)+'</div>'+
+      '<input type="text" data-name="'+kind+'-'+i+'" placeholder="'+(kind==='asil'?'Asıl':'Yedek')+' kadro '+(i+1)+' — ad soyad">'+
+      '<select data-title="'+kind+'-'+i+'">'+TITLES.map(t=>'<option>'+t+'</option>').join('')+'</select>'+
+      '<label class="chk"><input type="checkbox" data-counts="'+kind+'-'+i+'" '+(kind==='asil'?'checked':'')+'> fiilen görev aldı</label>';
+    el.appendChild(row);
+  }
+}
+function readTeam(){
+  const out = [];
+  ['asil','yedek'].forEach(kind => {
+    for(let i=0;i<3;i++) out.push({
+      kind, slot:i,
+      name: document.querySelector('[data-name="'+kind+'-'+i+'"]').value.trim(),
+      title: document.querySelector('[data-title="'+kind+'-'+i+'"]').value,
+      counts: document.querySelector('[data-counts="'+kind+'-'+i+'"]').checked
+    });
+  });
+  return out;
+}
+function writeTeam(team){
+  buildRows('asilRows','asil'); buildRows('yedekRows','yedek');
+  (team||[]).forEach(m => {
+    const n = document.querySelector('[data-name="'+m.kind+'-'+m.slot+'"]'); if(!n) return;
+    n.value = m.name || '';
+    document.querySelector('[data-title="'+m.kind+'-'+m.slot+'"]').value = m.title || TITLES[2];
+    document.querySelector('[data-counts="'+m.kind+'-'+m.slot+'"]').checked = !!m.counts;
+  });
+}
+
+/* ---------- İşletme modalı ---------- */
+const overlayFirm = document.getElementById('overlayFirm');
+let firmSonrasiSozlesme = false;   // yeni işletme tanımından sonra sözleşme formuna dön
+
+function openFirmAdd(sonrasindaSozlesme){
+  firmSonrasiSozlesme = !!sonrasindaSozlesme;
+  document.getElementById('firmModalTitle').textContent = 'İşletme tanımla';
+  document.getElementById('firmEditId').value = '';
+  ['gName','gVkn','gPrevStart','gPrevEnd','gNote'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('vknHint').textContent = '';
+  overlayFirm.classList.add('show');
+  document.getElementById('gName').focus();
+}
+function openFirmEdit(id){
+  const f = firmById(id); if(!f) return;
+  firmSonrasiSozlesme = false;
+  document.getElementById('firmModalTitle').textContent = 'İşletmeyi düzenle';
+  document.getElementById('firmEditId').value = f.id;
+  document.getElementById('gName').value = f.name;
+  document.getElementById('gVkn').value = f.vkn || '';
+  document.getElementById('gPrevStart').value = f.prevStart || '';
+  document.getElementById('gPrevEnd').value = f.prevEnd || '';
+  document.getElementById('gNote').value = f.note || '';
+  document.getElementById('vknHint').textContent = '';
+  overlayFirm.classList.add('show');
+}
+/* VKN: yalnızca rakam, 10 hane (tüzel kişi) veya 11 hane (TCKN — şahıs işletmesi) */
+function vknNormalize(v){ return String(v||'').replace(/\D/g,''); }
+document.getElementById('gVkn').addEventListener('input', e => {
+  const t = vknNormalize(e.target.value);
+  e.target.value = t;
+  const h = document.getElementById('vknHint');
+  if(!t){ h.textContent = ''; h.style.color = ''; return; }
+  if(t.length === 10 || t.length === 11){ h.textContent = '✓ ' + t.length + ' hane'; h.style.color = 'var(--green)'; }
+  else { h.textContent = t.length + ' hane — VKN 10, TCKN 11 hane olmalı'; h.style.color = 'var(--amber)'; }
+});
+document.getElementById('btnAddFirm').addEventListener('click', ()=>openFirmAdd(overlay.classList.contains('show')));
+document.getElementById('btnFirmCancel').addEventListener('click', () => {
+  overlayFirm.classList.remove('show');
+  if(firmSonrasiSozlesme){ firmSonrasiSozlesme = false; fillFirmSelect(); }
+});
+document.getElementById('btnFirmSave').addEventListener('click', async () => {
+  const ad = document.getElementById('gName').value.trim();
+  if(!ad){ alert('İşletme unvanı zorunludur.'); return; }
+  const vkn = vknNormalize(document.getElementById('gVkn').value);
+  if(!vkn){ alert('Vergi kimlik numarası zorunludur. Mükerrer kayıtları önlemek için bu alan kullanılır.'); return; }
+  if(vkn.length !== 10 && vkn.length !== 11){ alert('Vergi kimlik numarası 10 hane (VKN) veya 11 hane (TCKN) olmalıdır.'); return; }
+  const id = document.getElementById('firmEditId').value;
+  const vknAyni = firms.find(f => f.id !== id && vknNormalize(f.vkn) === vkn);
+  if(vknAyni){ alert('Bu vergi kimlik numarası “' + vknAyni.name + '” için zaten kayıtlı.\nAynı işletmeyi iki kez tanımlayamazsınız.'); return; }
+  const adAyni = firms.find(f => f.id !== id && f.name.trim().toLocaleLowerCase('tr') === ad.toLocaleLowerCase('tr'));
+  if(adAyni && !confirm('Aynı unvanla (' + adAyni.name + ') başka bir işletme var, ancak VKN farklı.\nYine de yeni bir işletme olarak kaydedilsin mi?')) return;
+  const kayit = {
+    id: id || uid(), name: ad, vkn: vkn,
+    prevStart: parseInt(document.getElementById('gPrevStart').value,10) || null,
+    prevEnd: parseInt(document.getElementById('gPrevEnd').value,10) || null,
+    note: document.getElementById('gNote').value.trim()
+  };
+  if(id) firms[firms.findIndex(f=>f.id===id)] = kayit; else firms.push(kayit);
+  const ok = await persist();
+  overlayFirm.classList.remove('show');
+  render();
+  if(ok && firmSonrasiSozlesme){
+    firmSonrasiSozlesme = false;
+    fillFirmSelect(kayit.id);
+    if(!document.getElementById('editId').value) oncekiDonemdenDoldur(kayit.id);
+    firmaOzetiGoster();
+    if(!overlay.classList.contains('show')) overlay.classList.add('show');
+  } else {
+    fillFirmSelect();
+  }
+});
+async function delFirm(id){
+  const f = firmById(id); if(!f) return;
+  const bagli = contracts.filter(c => c.firmId === id).length;
+  const soru = bagli
+    ? f.name + ' işletmesine bağlı ' + bagli + ' sözleşme dönemi de silinecek.\nDevam edilsin mi?'
+    : f.name + ' silinecek. Devam edilsin mi?';
+  if(!confirm(soru)) return;
+  firms = firms.filter(x => x.id !== id);
+  contracts = contracts.filter(c => c.firmId !== id);
+  await persist(); fillFirmSelect(); render();
+}
+
+/* ---------- Sözleşme modalı ---------- */
+const overlay = document.getElementById('overlay');
+const YENI = '__yeni__';
+
+function fillFirmSelect(secili){
+  const sel = document.getElementById('fFirm');
+  const onceki = secili != null ? secili : sel.value;
+  const siralı = firms.slice().sort((a,b)=>a.name.localeCompare(b.name,'tr'));
+  sel.innerHTML = '<option value="">— işletme seçin —</option>'
+    + siralı.map(f => '<option value="'+f.id+'">'+esc(f.name)+'</option>').join('')
+    + '<option value="'+YENI+'">+ Yeni işletme tanımla…</option>';
+  if(onceki && onceki !== YENI) sel.value = onceki;
+}
+function fillYearSelect(secili){
+  const sel = document.getElementById('fYear');
+  const y0 = settings.year - 15, y1 = settings.year + 2;
+  let opts = '';
+  for(let y = y1; y >= y0; y--) opts += '<option value="'+y+'">'+y+'</option>';
+  sel.innerHTML = opts;
+  sel.value = String(secili || settings.year);
+}
+function firmaOzetiGoster(){
+  const kutu = document.getElementById('firmaOzet');
+  const id = document.getElementById('fFirm').value;
+  if(!id || id === YENI){
+    if(!firms.length){
+      kutu.style.display = 'block';
+      kutu.className = 'firma-ozet uyari';
+      kutu.innerHTML = 'Henüz tanımlı işletme yok. Listeden <strong>“+ Yeni işletme tanımla…”</strong> seçeneğiyle işletmeyi tanımlayın; kayıttan sonra bu forma geri dönülür.';
+    } else { kutu.style.display = 'none'; }
+    return;
+  }
+  const g = firmRows().find(x => x.id === id);
+  const duzenlenen = document.getElementById('editId').value;
+  const kopya = (!duzenlenen && kopyalananDonem)
+    ? '<div class="ozet-kopya">Sözleşme türü ve kadro <strong>' + kopyalananDonem + '</strong> döneminden getirildi — gerekiyorsa değiştirin.</div>'
+    : '';
+  kutu.className = 'firma-ozet';
+  kutu.style.display = 'block';
+  if(!g || !g.periods){
+    kutu.innerHTML = 'Bu işletme için henüz kayıtlı dönem yok. Bu sözleşme <strong>1. dönem</strong> olacak.' + kopya;
+    return;
+  }
+  const st = g.status;
+  const sira = duzenlenen ? st.served : st.served + 1;
+  kutu.innerHTML = 'Kayıtlı dönemler: <strong>' + donemAraligi(g.years) + '</strong> · toplam <strong>' +
+    st.served + ' / ' + settings.maxYears + ' dönem</strong>' +
+    (duzenlenen ? '' : ' · bu kayıt <strong>' + sira + '. dönem</strong> olacak') +
+    ' — ' + esc(st.label) + kopya;
+}
+function sonDonem(firmId){
+  const l = contracts.filter(c => c.firmId === firmId).sort((a,b) => b.year - a.year);
+  return l[0] || null;
+}
+/* Yeni sözleşme eklenirken aynı işletmenin son döneminden tür ve kadroyu taşır */
+let kopyalananDonem = null;
+function oncekiDonemdenDoldur(firmId){
+  kopyalananDonem = null;
+  const s = firmId ? sonDonem(firmId) : null;
+  if(!s){
+    fillYearSelect(settings.year);
+    writeTeam(null);
+    return;
+  }
+  fillYearSelect(Math.min(s.year + 1, settings.year + 2));
+  if(s.contractType) document.getElementById('fType').value = s.contractType;
+  writeTeam(s.team);
+  kopyalananDonem = s.year;
+}
+document.getElementById('fFirm').addEventListener('change', e => {
+  if(e.target.value === YENI){ e.target.value = ''; openFirmAdd(true); return; }
+  if(!document.getElementById('editId').value) oncekiDonemdenDoldur(e.target.value);
+  firmaOzetiGoster();
+});
+
+document.getElementById('btnAdd').addEventListener('click', () => {
+  document.getElementById('modalTitle').textContent = 'Sözleşme dönemi ekle';
+  document.getElementById('editId').value = '';
+  fillFirmSelect(''); document.getElementById('fFirm').value = '';
+  fillYearSelect(settings.year);
+  document.getElementById('fType').value = 'TTK-Zorunlu Denetim';
+  document.getElementById('fContract').value = '';
+  document.getElementById('fNote').value = '';
+  kopyalananDonem = null;
+  writeTeam(null);
+  firmaOzetiGoster();
+  overlay.classList.add('show');
+});
+document.getElementById('btnCancel').addEventListener('click', ()=>overlay.classList.remove('show'));
+
+function openEdit(id){
+  const c = contracts.find(x=>x.id===id); if(!c) return;
+  document.getElementById('modalTitle').textContent = 'Sözleşmeyi düzenle';
+  document.getElementById('editId').value = c.id;
+  fillFirmSelect(c.firmId);
+  fillYearSelect(c.year);
+  document.getElementById('fType').value = c.contractType || 'TTK-Zorunlu Denetim';
+  document.getElementById('fContract').value = c.contractNo || '';
+  document.getElementById('fNote').value = c.note || '';
+  kopyalananDonem = null;
+  writeTeam(c.team);
+  firmaOzetiGoster();
+  overlay.classList.add('show');
+}
+function yeniDonem(id){
+  const c = contracts.find(x=>x.id===id); if(!c) return;
+  document.getElementById('modalTitle').textContent = 'Yeni dönem — ' + firmName(c.firmId);
+  document.getElementById('editId').value = '';
+  fillFirmSelect(c.firmId);
+  fillYearSelect(c.year + 1);
+  document.getElementById('fType').value = c.contractType || 'TTK-Zorunlu Denetim';
+  document.getElementById('fContract').value = '';
+  document.getElementById('fNote').value = '';
+  kopyalananDonem = c.year;
+  writeTeam(c.team);
+  firmaOzetiGoster();
+  overlay.classList.add('show');
+  document.getElementById('fContract').focus();
+}
+
+document.getElementById('btnSave').addEventListener('click', async () => {
+  const firmId = document.getElementById('fFirm').value;
+  if(!firmId || firmId === YENI){ alert('Denetlenen işletmeyi seçin.'); return; }
+  const year = parseInt(document.getElementById('fYear').value,10);
+  const id = document.getElementById('editId').value;
+  const ayniDonem = contracts.find(c => c.id !== id && c.firmId === firmId && c.year === year);
+  if(ayniDonem && !confirm(firmName(firmId) + ' için ' + year + ' hesap dönemi zaten kayıtlı.\n' +
+      'Rotasyon süresinde bu dönem bir kez sayılır, ancak mükerrer kayıt karışıklık yaratabilir.\nYine de kaydedilsin mi?')) return;
+  const data = {
+    id: id || uid(), firmId, year,
+    contractType: document.getElementById('fType').value,
+    contractNo: document.getElementById('fContract').value.trim(),
+    team: readTeam(),
+    note: document.getElementById('fNote').value.trim()
+  };
+  if(id) contracts[contracts.findIndex(x=>x.id===id)] = data; else contracts.push(data);
+  await persist();
+  overlay.classList.remove('show');
+  render();
+});
+async function del(id){
+  if(!confirm('Bu sözleşme dönemini silmek istediğinize emin misiniz?')) return;
+  contracts = contracts.filter(x=>x.id!==id);
+  await persist(); render();
+}
+
+/* ---------- Ayarlar ---------- */
+const overlaySettings = document.getElementById('overlaySettings');
+function fillSettingsForm(){
+  document.getElementById('sYear').value = settings.year;
+  document.getElementById('sMaxYears').value = settings.maxYears;
+  document.getElementById('sBreakYears').value = settings.breakYears;
+  document.getElementById('sWarnYears').value = String(settings.warnYears);
+}
+document.getElementById('btnSettings').addEventListener('click',()=>overlaySettings.classList.add('show'));
+document.getElementById('btnCancelSettings').addEventListener('click',()=>overlaySettings.classList.remove('show'));
+document.getElementById('btnSaveSettings').addEventListener('click', async () => {
+  settings.year = parseInt(document.getElementById('sYear').value,10) || settings.year;
+  settings.maxYears = parseInt(document.getElementById('sMaxYears').value,10) || settings.maxYears;
+  settings.breakYears = parseInt(document.getElementById('sBreakYears').value,10) || settings.breakYears;
+  settings.warnYears = parseInt(document.getElementById('sWarnYears').value,10) || settings.warnYears;
+  await persist();
+  overlaySettings.classList.remove('show');
+  render();
+});
+
+/* ---------- Sekmeler, filtreler ---------- */
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); activeTab = t.dataset.tab; render();
+}));
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('filterStatus').addEventListener('change', render);
+document.getElementById('btnPrint').addEventListener('click', ()=>window.print());
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape') document.querySelectorAll('.overlay.show').forEach(o=>o.classList.remove('show'));
+});
+
+/* ---------- Dışa / içe aktarma ---------- */
+function download(name, content, mime){
+  const blob = new Blob([content], {type:mime});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+}
+const csvOf = arr => arr.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(';')).join('\n');
+document.getElementById('btnExportCsv').addEventListener('click', () => {
+  const vknOf = fid => { const f = firmById(fid); return f && f.vkn ? f.vkn : ''; };
+  const soz = [['İşletme','VKN','Sözleşme no','Hesap dönemi','Sözleşme türü','Asıl kadro','Yedek kadro','Not']];
+  contracts.slice().sort((a,b)=> firmName(a.firmId).localeCompare(firmName(b.firmId),'tr') || a.year-b.year)
+    .forEach(c => {
+      const ad = k => (c.team||[]).filter(m=>m.kind===k&&m.name).map(m=>m.name+(m.counts?'':' (dahil değil)')).join(' | ');
+      soz.push([firmName(c.firmId), vknOf(c.firmId), c.contractNo||'', c.year, c.contractType||'', ad('asil'), ad('yedek'), c.note||'']);
+    });
+  const rot = [['İşletme','VKN','Dönemler','Süre','Azami','Kalan','Son denetlenebilir dönem','Yeniden üstlenme','Durum']];
+  firmRows().forEach(f => rot.push([f.client, (f.firm&&f.firm.vkn)||'', donemAraligi(f.years), f.status.served, settings.maxYears,
+    f.status.remaining, f.status.lastPossible||f.status.lastYear||'', f.status.eligible||'', f.status.label]));
+  const den = [['Denetçi','İşletme','Görev dönemleri','Toplam görev (bilgi amaçlı)']];
+  auditorRows().forEach(a => den.push([a.name, a.client, donemAraligi(a.years), a.status.served]));
+  download('sozlesmeler-'+settings.year+'.csv', '\uFEFF'+csvOf(soz), 'text/csv;charset=utf-8;');
+  download('rotasyon-'+settings.year+'.csv', '\uFEFF'+csvOf(rot), 'text/csv;charset=utf-8;');
+  download('denetci-gorevleri-'+settings.year+'.csv', '\uFEFF'+csvOf(den), 'text/csv;charset=utf-8;');
+});
+document.getElementById('btnExportJson').addEventListener('click', () => {
+  download('rotasyon-yedek-'+new Date().toISOString().slice(0,10)+'.json',
+    JSON.stringify({ firms, contracts, settings }, null, 2), 'application/json');
+});
+document.getElementById('btnImport').addEventListener('click', ()=>document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = async () => {
+    try{
+      const d = JSON.parse(r.result);
+      if(!Array.isArray(d.contracts)) throw new Error('Beklenen biçimde değil');
+      if(!confirm('Mevcut kayıtlar dosyadaki ' + d.contracts.length + ' sözleşme kaydıyla değiştirilecek. Devam edilsin mi?')) return;
+      firms = Array.isArray(d.firms) ? d.firms : [];
+      contracts = d.contracts;
+      if(d.settings) settings = Object.assign(settings, d.settings);
+      temizle();
+      eskiVeriyiDonustur();
+      await persist();
+      fillSettingsForm(); fillFirmSelect(); render();
+    }catch(err){ alert('Dosya okunamadı: ' + err.message); }
+  };
+  r.readAsText(f); e.target.value = '';
+});
+
+buildRows('asilRows','asil'); buildRows('yedekRows','yedek');
+fillYearSelect(settings.year);
+loadAll().then(fillFirmSelect);
+</script>
+</body>
+</html>

@@ -508,6 +508,7 @@ model RotasyonKadro {
 // Tek satırlık genel ayar tablosu — id sabit "singleton" değeriyle upsert edilir.
 model RotasyonAyar {
   id         String @id @default("singleton")
+  cariDonem  Int    @default(2026) // cari hesap dönemi — ARA/DOLDU ayrımı ve "yıl planı" bu yıla göre hesaplanır
   azamiSure  Int    @default(7)
   zorunluAra Int    @default(3)
   uyariEsigi Int    @default(3)

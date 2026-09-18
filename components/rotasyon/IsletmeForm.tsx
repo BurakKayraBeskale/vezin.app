@@ -56,8 +56,9 @@ export default function IsletmeForm({ isletme, onClose, onSaved }: Props) {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {isletme ? "İşletmeyi Düzenle" : "Yeni İşletme Tanımla"}
+            {isletme ? "İşletmeyi düzenle" : "İşletme tanımla"}
           </h2>
+          <p className="text-xs text-gray-400 mt-1">Her işletme bir kez tanımlanır. Sözleşme dönemleri bu karta bağlanır.</p>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
@@ -67,47 +68,66 @@ export default function IsletmeForm({ isletme, onClose, onSaved }: Props) {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unvan *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">İşletme unvanı *</label>
             <input
               value={unvan}
               onChange={(e) => setUnvan(e.target.value)}
               required
+              placeholder="Örn. ABC Sanayi ve Ticaret A.Ş."
               className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">VKN / TCKN *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vergi kimlik numarası *</label>
             <input
               value={vkn}
               onChange={(e) => setVkn(e.target.value.replace(/\D/g, ""))}
               required
+              inputMode="numeric"
               maxLength={11}
-              placeholder="10 (VKN) veya 11 (TCKN) hane"
+              placeholder="10 haneli VKN"
               className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             />
+            {vkn && (
+              <p
+                className={
+                  "text-xs mt-1 " +
+                  (vkn.length === 10 || vkn.length === 11
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-amber-600 dark:text-amber-400")
+                }
+              >
+                {vkn.length === 10 || vkn.length === 11
+                  ? `✓ ${vkn.length} hane`
+                  : `${vkn.length} hane — VKN 10, TCKN 11 hane olmalı`}
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Önceki Denetçi İlk Dönem</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Önceki denetçinin ilk dönemi</label>
               <input
                 type="number"
                 value={ilkDonem}
                 onChange={(e) => setIlkDonem(e.target.value)}
+                placeholder="2016"
                 className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Önceki Denetçi Son Dönem</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Önceki denetçinin son dönemi</label>
               <input
                 type="number"
                 value={sonDonem}
                 onChange={(e) => setSonDonem(e.target.value)}
+                placeholder="2020"
                 className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               />
             </div>
           </div>
+          <p className="text-xs text-gray-400 -mt-2">Bilgi amaçlıdır; önceki denetçinin süresi kendi rotasyon sürenize eklenmez.</p>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Not</label>
@@ -125,14 +145,14 @@ export default function IsletmeForm({ isletme, onClose, onSaved }: Props) {
               disabled={saving}
               className="flex-1 bg-[#F57C28] text-white rounded-lg py-2 text-sm font-medium hover:bg-[#e06d1f] disabled:opacity-50 transition-colors"
             >
-              {saving ? "Kaydediliyor..." : isletme ? "Güncelle" : "Oluştur"}
+              {saving ? "Kaydediliyor..." : "Kaydet"}
             </button>
             <button
               type="button"
               onClick={onClose}
               className="flex-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg py-2 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
-              İptal
+              Vazgeç
             </button>
           </div>
         </form>

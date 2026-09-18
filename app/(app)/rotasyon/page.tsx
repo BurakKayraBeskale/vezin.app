@@ -39,7 +39,12 @@ export default async function RotasyonPage() {
   return (
     <RotasyonClient
       initialIsletmeler={JSON.parse(JSON.stringify(isletmeler))}
-      ayar={{ azamiSure: ayarRow.azamiSure, zorunluAra: ayarRow.zorunluAra, uyariEsigi: ayarRow.uyariEsigi }}
+      ayar={{
+        cariDonem: ayarRow.cariDonem,
+        azamiSure: ayarRow.azamiSure,
+        zorunluAra: ayarRow.zorunluAra,
+        uyariEsigi: ayarRow.uyariEsigi,
+      }}
       isAdmin={user.role === "ADMIN"}
     />
   );

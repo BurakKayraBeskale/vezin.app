@@ -6,12 +6,14 @@
  */
 
 export interface RotasyonAyarlar {
+  cariDonem: number;
   azamiSure: number;
   zorunluAra: number;
   uyariEsigi: number;
 }
 
 export const VARSAYILAN_ROTASYON_AYARLARI: RotasyonAyarlar = {
+  cariDonem: new Date().getFullYear(),
   azamiSure: 7,
   zorunluAra: 3,
   uyariEsigi: 3,
@@ -35,6 +37,18 @@ export interface RotasyonHesap {
 /** Dönemleri distinct + yıla göre sıralı liste haline getirir. */
 export function distinctSortedDonemler(donemler: number[]): number[] {
   return Array.from(new Set(donemler)).sort((a, b) => a - b);
+}
+
+/**
+ * Dönem listesini okunabilir aralığa çevirir: tekse yıl, kesintisizse "y0–y1",
+ * aralıklıysa tüm yıllar virgülle ("2015, 2016, 2019" gibi).
+ */
+export function donemAraligi(donemlerRaw: number[]): string {
+  const y = distinctSortedDonemler(donemlerRaw);
+  if (y.length === 0) return "—";
+  if (y.length === 1) return String(y[0]);
+  const kesintisiz = y[y.length - 1] - y[0] + 1 === y.length;
+  return kesintisiz ? `${y[0]}–${y[y.length - 1]}` : y.join(", ");
 }
 
 /**
@@ -111,19 +125,26 @@ export function hesaplaRotasyon(
   };
 }
 
-/** Uyarı merkezi sütunları — yalnızca eylem gerektiren durumlar kategorize edilir. */
-export type UyariKategori = "DOLDU" | "ARA" | "KALAN_1" | "KALAN_2" | "KALAN_3";
+/**
+ * Uyarı merkezi sütunu — yalnızca eylem gerektiren durumlar kategorize edilir.
+ * "DOLDU" | "ARA" | "KALAN_N" (N = 1..uyariEsigi, ayarlardan dinamik).
+ */
+export type UyariKategori = "DOLDU" | "ARA" | `KALAN_${number}`;
 
-export function uyariKategori(hesap: RotasyonHesap): UyariKategori | null {
+export function uyariKategori(hesap: RotasyonHesap, ayar: RotasyonAyarlar): UyariKategori | null {
   if (hesap.durum === "DOLDU") return "DOLDU";
   if (hesap.durum === "ARA") return "ARA";
-  if (hesap.durum === "UYARI") {
-    if (hesap.kalanSure === 1) return "KALAN_1";
-    if (hesap.kalanSure === 2) return "KALAN_2";
-    if (hesap.kalanSure === 3) return "KALAN_3";
-    return null; // uyariEsigi varsayılandan farklı ayarlanmışsa (ör. 5) özet sütunlarının dışında kalır
+  if (hesap.durum === "UYARI" && hesap.kalanSure >= 1 && hesap.kalanSure <= ayar.uyariEsigi) {
+    return `KALAN_${hesap.kalanSure}`;
   }
-  return null; // NORMAL → eylem gerekmez
+  return null; // NORMAL → eylem gerekmez; uyariEsigi dışında kalan UYARI da özet dışıdır
+}
+
+/** Uyarı merkezinin sütun sırası: Azami süre doldu, 1..uyariEsigi yıl kaldı, Ara veriliyor. */
+export function uyariKategoriSirasi(uyariEsigi: number): UyariKategori[] {
+  const kalanlar: UyariKategori[] = [];
+  for (let r = 1; r <= uyariEsigi; r++) kalanlar.push(`KALAN_${r}`);
+  return ["DOLDU", ...kalanlar, "ARA"];
 }
 
 // ── VKN / TCKN doğrulama ──────────────────────────────────────────────────────
@@ -145,15 +166,23 @@ export const ROTASYON_SOZLESME_TURLERI = [
 export type RotasyonSozlesmeTuru = (typeof ROTASYON_SOZLESME_TURLERI)[number];
 
 export const ROTASYON_SOZLESME_TURU_LABELS: Record<RotasyonSozlesmeTuru, string> = {
-  TTK_ZORUNLU: "TTK Zorunlu",
-  SPK_ZORUNLU: "SPK Zorunlu",
-  IHTIYARI_TFRS: "İhtiyari (TFRS)",
-  GUVENCE: "Güvence",
-  SURDURULEBILIRLIK: "Sürdürülebilirlik",
+  TTK_ZORUNLU: "TTK — Zorunlu Denetim",
+  SPK_ZORUNLU: "SPK — Zorunlu Denetim",
+  IHTIYARI_TFRS: "İhtiyari Denetim (TFRS-IFRS)",
+  GUVENCE: "Güvence Denetimi",
+  SURDURULEBILIRLIK: "Sürdürülebilirlik Denetimi",
 };
 
 export const ROTASYON_KADRO_TIPLERI = ["ASIL", "YEDEK"] as const;
 export type RotasyonKadroTipi = (typeof ROTASYON_KADRO_TIPLERI)[number];
+
+/** Kadro formundaki unvan seçenekleri — sözleşme başına sabit 3 asıl + 3 yedek satır. */
+export const ROTASYON_KADRO_UNVANLARI = [
+  "Sorumlu denetçi",
+  "Kıdemli denetçi",
+  "Denetçi",
+  "Denetçi yardımcısı",
+] as const;
 
 /** Bir sözleşmedeki kadro satırlarının kuralı: en fazla 3 ASIL + 3 YEDEK. */
 export function kadroSayilariGecerliMi(kadrolar: { tip: string }[]): boolean {
