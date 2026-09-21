@@ -6,7 +6,7 @@ import { signOut } from "next-auth/react";
 import clsx from "clsx";
 import { useTheme } from "@/components/ThemeProvider";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
-import { isManagerOrAdmin, canAccessProjects, canAccessRotasyon } from "@/lib/access";
+import { isManagerOrAdmin, canAccessProjects, canAccessRotasyon, canUseYmmTools } from "@/lib/access";
 
 interface SidebarProps {
   userName: string;
@@ -323,7 +323,7 @@ export default function Sidebar({
           />
         )}
 
-        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole) || userDepartment === "YEMINLI_MALI_MUSAVIR") && (
+        {(BYPASS_AUTH_ROLES || canUseYmmTools({ role: userRole, department: userDepartment, canViewAllProjects })) && (
           <NavLink
             href="/beyanname"
             label="Beyanname"

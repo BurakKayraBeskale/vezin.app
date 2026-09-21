@@ -1,15 +1,15 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { redirect } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import BeyannameUploader from "@/components/BeyannameUploader";
-import { canAccess } from "@/lib/access";
+import { canUseYmmTools } from "@/lib/access";
 
 export default async function BeyannamePage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  const { role, department } = session.user as any;
-  if (!canAccess(role, department, "/beyanname")) redirect("/");
+  // YMM kadrosu / ADMIN / canViewAllProjects — yetkisiz erişimde 404 (403 değil)
+  if (!canUseYmmTools(session.user as any)) notFound();
 
   return (
     <div className="p-6 lg:p-8 max-w-3xl mx-auto">

@@ -55,6 +55,45 @@ export function canAccessRotasyon(user: { role: string; canAccessRotasyon?: bool
   return user.canAccessRotasyon === true;
 }
 
+/**
+ * YMM araçları (Beyanname sayfası ve KDV İade XML liste uçları) erişim kuralı —
+ * sayfa guard'ı, API uçları ve Sidebar bu tek fonksiyonu çağırır.
+ *
+ * Erişebilenler (aktif kullanıcılar):
+ *   - department === "YEMINLI_MALI_MUSAVIR" (kıdem sınırı YOK — asistan dahil)
+ *   - ADMIN
+ *   - canViewAllProjects === true
+ * Bağımsız Denetim, Muhasebe, İdari İşler, Outsource kullanamaz.
+ * Rol string'ine (MANAGER vb.) değil departmana bağlıdır.
+ * Yetkisiz erişimde çağıran taraf 404 döner (403 değil).
+ */
+export function canUseYmmTools(user: {
+  role?: string | null;
+  department?: string | null;
+  canViewAllProjects?: boolean | null;
+  status?: string | null;
+}): boolean {
+  if (user.status === "INACTIVE" || user.status === "DELETED") return false;
+  if (user.role === "ADMIN") return true;
+  if (user.canViewAllProjects === true) return true;
+  return user.department === "YEMINLI_MALI_MUSAVIR";
+}
+
+/**
+ * canUseYmmTools ile korunan path önekleri. Middleware bu yollarda departman
+ * kısıtını uygulamaz (redirect yerine sayfa/API kendi 404'ünü döner).
+ */
+export const YMM_TOOL_PATH_PREFIXES = [
+  "/beyanname",
+  "/api/kdv-iade/indirilecek-liste",
+  "/api/kdv-iade/yuklenilen-liste",
+  "/api/kdv-iade/satis-listesi",
+];
+
+export function isYmmToolPath(pathname: string): boolean {
+  return YMM_TOOL_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
 // ── Kıdem Seviyesi Sistemi ──────────────────────────────────────────────────
 
 /**

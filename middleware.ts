@@ -1,7 +1,7 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
-import { canAccess } from "@/lib/access";
+import { canAccess, isYmmToolPath } from "@/lib/access";
 
 export default withAuth(
   function middleware(req) {
@@ -17,7 +17,8 @@ export default withAuth(
       return NextResponse.redirect(new URL("/change-password", req.url));
     }
 
-    if (!BYPASS_AUTH_ROLES) {
+    // YMM araçları: yetkiyi sayfa/API canUseYmmTools ile 404 döndürerek uygular
+    if (!BYPASS_AUTH_ROLES && !isYmmToolPath(pathname)) {
       const role = String((token as any)?.role ?? "");
       const department = String((token as any)?.department ?? "");
 

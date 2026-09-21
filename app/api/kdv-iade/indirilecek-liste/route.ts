@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { canUseYmmTools } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -483,8 +484,7 @@ export async function POST(req: NextRequest) {
   // DEBUG — gerçek token değerlerini logla (karşılaştırma tamamlanınca kaldır)
   const { email: _dbgEmail } = token as any;
   console.log('[auth] user:', _dbgEmail, '| role:', (token as any).role, '| dept:', (token as any).department, '| api:', req.nextUrl?.pathname ?? req.url);
-  const { role } = token as any;
-  if (!BYPASS_AUTH_ROLES && role !== "ADMIN") return NextResponse.json({ error: "Bu işlem için yetkiniz yok" }, { status: 403 });
+  if (!BYPASS_AUTH_ROLES && !canUseYmmTools(token as any)) return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
 
   let formData: FormData;
   try { formData = await req.formData(); }
