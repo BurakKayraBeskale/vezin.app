@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import NewTaskModal from "./NewTaskModal";
+import TaskForm from "./TaskForm";
 import StatusBadge from "./StatusBadge";
 import { TaskFull } from "./TaskModal";
 
@@ -78,7 +78,8 @@ export default function SubtaskSection({ task, canCreateSubtask, onNavigate, onC
       )}
 
       {showAdd && (
-        <NewTaskModal
+        <TaskForm
+          mode="create"
           parentTaskId={task.id}
           parentTaskTitle={task.title}
           fixedProjectId={task.project?.id}

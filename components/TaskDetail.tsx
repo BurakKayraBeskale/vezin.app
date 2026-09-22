@@ -14,7 +14,7 @@ import {
 } from "@/lib/task-permissions";
 import StatusBadge from "./StatusBadge";
 import PriorityBadge from "./PriorityBadge";
-import TaskFormModal from "./TaskFormModal";
+import TaskForm from "./TaskForm";
 import ConfirmModal from "./ConfirmModal";
 import SubmitReviewModal from "./SubmitReviewModal";
 import RequestRevisionModal from "./RequestRevisionModal";
@@ -40,6 +40,8 @@ const ACTION_LABELS: Record<string, string> = {
   CREATED: "oluşturdu",
   ASSIGNED: "atandı",
   UPDATED: "güncelledi",
+  REASSIGNED: "atanan kişiyi değiştirdi",
+  PROJECT_CHANGED: "proje bağlantısını değiştirdi",
 };
 
 interface Props {
@@ -570,6 +572,12 @@ export default function TaskDetail({
                                 {STATUS_LABELS[l.toStatus] ?? l.toStatus})
                               </span>
                             )}
+                            {(l.action === "REASSIGNED" || l.action === "PROJECT_CHANGED") && l.fromValue && l.toValue && (
+                              <span className="text-gray-400">
+                                {" "}
+                                ({l.fromValue} → {l.toValue})
+                              </span>
+                            )}
                           </span>
                         </li>
                       ))
@@ -585,9 +593,9 @@ export default function TaskDetail({
       </div>
 
       {showEdit && task && (
-        <TaskFormModal
+        <TaskForm
+          mode="edit"
           task={task}
-          users={users}
           onClose={() => setShowEdit(false)}
           onUpdate={(updated) => {
             applyUpdate(updated);

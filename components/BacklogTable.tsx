@@ -2,13 +2,14 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import clsx from "clsx";
 import PriorityBadge from "./PriorityBadge";
 import StatusBadge from "./StatusBadge";
 import { TaskFull } from "./TaskModal";
 import TaskDetail from "./TaskDetail";
-import TaskFormModal from "./TaskFormModal";
-import NewTaskModal from "./NewTaskModal";
+import TaskForm from "./TaskForm";
+import { canManageTask } from "@/lib/task-permissions";
 
 type Priority = "HIGH" | "MEDIUM" | "LOW";
 type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
@@ -87,6 +88,17 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
+  const userIdentity = session
+    ? {
+        id: (session.user as any).id as string,
+        role: (session.user as any).role as string,
+        department: (session.user as any).department as string | undefined,
+        seniorityLevel: (session.user as any).seniorityLevel as number | undefined,
+        canViewAllProjects: ((session.user as any).canViewAllProjects as boolean) ?? false,
+        overseesDepartment: ((session.user as any).overseesDepartment as string | null) ?? null,
+      }
+    : null;
   const [tasks, setTasks] = useState<TaskFull[]>(initialTasks);
   const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -583,11 +595,17 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
                     {isAdmin && (
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-1">
-                          <button onClick={() => setEditTask(task)} className="p-1.5 rounded-lg text-gray-400 hover:text-[#F57C28] hover:bg-orange-50 transition-colors" title="Düzenle">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            </svg>
-                          </button>
+                          {userIdentity && canManageTask(userIdentity, {
+                            assignedToId: task.assignedToId,
+                            reviewOwnerId: task.reviewOwnerId,
+                            status: task.status,
+                          }) && (
+                            <button onClick={() => setEditTask(task)} className="p-1.5 rounded-lg text-gray-400 hover:text-[#F57C28] hover:bg-orange-50 transition-colors" title="Düzenle">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                          )}
                           <button onClick={() => handleDelete(task.id)} disabled={deleting === task.id}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50" title="Sil">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -624,10 +642,10 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
         />
       )}
       {editTask && (
-        <TaskFormModal task={editTask} users={users} onClose={() => setEditTask(null)} onUpdate={handleUpdate} />
+        <TaskForm mode="edit" task={editTask} onClose={() => setEditTask(null)} onUpdate={handleUpdate} />
       )}
       {showCreate && (
-        <NewTaskModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />
+        <TaskForm mode="create" onClose={() => setShowCreate(false)} onCreate={handleCreate} />
       )}
 
       {/* Toplu silme onay diyaloğu */}

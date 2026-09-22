@@ -6,14 +6,40 @@ import { computeCompletedAt } from "@/lib/task-status";
 import {
   canDeleteTask,
   canManageTask,
+  canMoveTaskToProject,
+  canReassignTask,
   canReopenTask,
   canReviewTask,
   canSubmitForReview,
   canTakeOverReview,
 } from "@/lib/task-permissions";
 import { isEligibleAssignee } from "@/lib/task-assignment";
+import { projectDeptToUserDept, userDeptToProjectDept } from "@/lib/access";
 import { sendNotification, sendNotificationToMany, TaskNotif } from "@/lib/notifications";
 import { computeRetentionUntil } from "@/lib/recurring";
+
+/**
+ * Bir görevin TÜM alt görev ağacını (torunlar dahil) iteratif BFS ile döner.
+ * Proje taşıma cascade'i ve doğrulaması için kullanılır — "Child task'ın
+ * projesi tek başına değiştirilemez" kuralı gereği alt görevler her zaman
+ * kök görevin projesini/departmanını yansıtır.
+ */
+async function fetchDescendantTasks(
+  rootId: string
+): Promise<{ id: string; title: string; assignedToId: string | null }[]> {
+  const result: { id: string; title: string; assignedToId: string | null }[] = [];
+  let frontier = [rootId];
+  while (frontier.length > 0) {
+    const children = await prisma.task.findMany({
+      where: { parentTaskId: { in: frontier }, deletedAt: null },
+      select: { id: true, title: true, assignedToId: true },
+    });
+    if (children.length === 0) break;
+    result.push(...children);
+    frontier = children.map((c) => c.id);
+  }
+  return result;
+}
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true, seniorityLevel: true } },
@@ -172,7 +198,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (current.status === "DONE" && !body.action) {
       // Herhangi bir alan güncellemesi → 403
       const editFields = ["title", "description", "priority", "dueDate", "status",
-        "assigneeIds", "assignedToId", "parentTaskId", "isRecurring"];
+        "assigneeIds", "assignedToId", "parentTaskId", "isRecurring", "projectId"];
       if (editFields.some((f) => body[f] !== undefined)) {
         return NextResponse.json({ error: "Tamamlanmış görev düzenlenemez" }, { status: 403 });
       }
@@ -532,9 +558,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       allowed.completedAt = computeCompletedAt(newStatus);
     }
 
-    const scope = current.projectId
-      ? { projectId: current.projectId }
-      : { departmentId: current.departmentId };
+    // ── PROJE / ATANAN KİŞİ DEĞİŞİKLİĞİ İçin toplanan yan etkiler ────────────
+    let projectChanged = false;
+    let newProjectId: string | null = current.projectId;
+    let newDepartmentId: string | null = current.departmentId;
+    let projectLogFrom: string | null = null;
+    let projectLogTo: string | null = null;
+    let reassigned = false;
+    let reassignLogFrom: string | null = null;
+    let reassignLogTo: string | null = null;
+    let descendantsToCascade: { id: string; title: string; assignedToId: string | null }[] = [];
 
     if (canManageTask(wfUser, current)) {
       if (body.title !== undefined) allowed.title = body.title;
@@ -546,91 +579,160 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (body.recurringDay !== undefined) allowed.recurringDay = body.recurringDay ?? null;
       if (body.nextOccurrence !== undefined) allowed.nextOccurrence = body.nextOccurrence ? new Date(body.nextOccurrence) : null;
       if (body.parentTaskId !== undefined) allowed.parentTaskId = body.parentTaskId || null;
+      // NOT: departmentId KASITLI olarak burada YOK — departman görevin güvenlik
+      // sınırıdır, PATCH gövdesinden asla okunmaz/yazılmaz (bkz. TASK EDIT FORM
+      // DÜZENLEMESİ #3). Proje değişince departman yalnızca aşağıdaki proje
+      // taşıma mantığıyla, projenin kendi departmanına göre türetilir.
 
-      // A BLOĞU: assignedToId tek kaynak — TaskAssignee artık yazılmıyor
-      if (Array.isArray(body.assigneeIds)) {
-        const newIds: string[] = body.assigneeIds.filter(Boolean);
-
-        if (newIds.length > 1) {
-          return NextResponse.json({ error: "Birden fazla kişiye atama yapılamaz" }, { status: 400 });
-        }
-
-        const assigner = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true },
-        });
-
-        for (const aid of newIds) {
-          if (aid === userId) continue; // self: uygunluk kontrolü atlanır
-          if (assigner && !(await isEligibleAssignee(
-            { id: userId, role: assigner.role, seniorityLevel: assigner.seniorityLevel, canViewAllProjects: assigner.canViewAllProjects, email: assigner.email },
-            aid,
-            scope
-          ))) {
-            return NextResponse.json({ error: "Bu kişiye atama yapamazsınız" }, { status: 403 });
-          }
-        }
-
-        const newAssignee = newIds[0] ?? null;
-        allowed.assignedToId = newAssignee;
-        // C+D BLOĞU: Yeniden atamada status → TODO, reviewOwnerId → atayan
-        if (newAssignee && newAssignee !== current.assignedToId) {
-          allowed.status = "TODO";
-          allowed.reviewOwnerId = userId;
-          // Bildirim: eski atanana görev alındı
-          if (current.assignedToId && current.assignedToId !== userId) {
-            const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
-            if (t) {
-              const takenNotif = TaskNotif.taskTaken(t.title, params.id);
-              await sendNotification(current.assignedToId, takenNotif.type, takenNotif.message, takenNotif.relatedId);
-            }
-          }
-        }
-        // Bildirim: yeni atanana görev atandı
-        if (newAssignee && newAssignee !== userId && newAssignee !== current.assignedToId) {
-          const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
-          if (t) {
-            const assignedNotif = TaskNotif.taskAssigned(t.title, params.id);
-            await sendNotification(newAssignee, assignedNotif.type, assignedNotif.message, assignedNotif.relatedId);
-          }
-        }
-      } else if (body.assignedToId !== undefined) {
-        const newId: string | null = body.assignedToId || null;
-        if (newId && newId !== userId) {
-          const assigner = await prisma.user.findUnique({
+      // Atama/proje değişikliği için ortak: atayanın güncel kaydı (kıdem, e-posta —
+      // isEligibleAssignee'nin ASSIGN_EXCEPTIONS kontrolü için gerekli).
+      const needsAssigner = body.assignedToId !== undefined || body.projectId !== undefined;
+      const assigner = needsAssigner
+        ? await prisma.user.findUnique({
             where: { id: userId },
             select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true },
+          })
+        : null;
+      const assignerEligibility = assigner
+        ? { id: userId, role: assigner.role, seniorityLevel: assigner.seniorityLevel, canViewAllProjects: assigner.canViewAllProjects, email: assigner.email }
+        : null;
+
+      // ── PROJE DEĞİŞİKLİĞİ (Projesiz ↔ Proje) ───────────────────────────────
+      // canMoveTaskToProject: canManageTask'tan DAHA DAR bir yetki — salt
+      // reviewOwner olmak (yönetici/Senior Manager+ değilse) yetmez.
+      if (body.projectId !== undefined) {
+        const targetProjectId: string | null = body.projectId || null;
+        if (targetProjectId !== current.projectId) {
+          if (current.parentTaskId) {
+            return NextResponse.json(
+              { error: "Alt görevin projesi tek başına değiştirilemez — üst görev üzerinden yönetilir" },
+              { status: 400 }
+            );
+          }
+          if (!canMoveTaskToProject(wfUser)) {
+            return NextResponse.json({ error: "Görevi projeye taşıma yetkiniz yok" }, { status: 403 });
+          }
+
+          // Görevin ŞU ANKİ (değişmeyen) departmanı — proje-departman formatında.
+          let currentProjDept: string | null;
+          if (current.projectId) {
+            const curProj = await prisma.project.findUnique({
+              where: { id: current.projectId },
+              select: { department: true, name: true },
+            });
+            currentProjDept = curProj?.department ?? null;
+            projectLogFrom = curProj?.name ?? "Projesiz";
+          } else {
+            currentProjDept = userDeptToProjectDept(current.departmentId ?? "");
+            projectLogFrom = "Projesiz";
+          }
+
+          if (targetProjectId) {
+            const targetProject = await prisma.project.findUnique({
+              where: { id: targetProjectId },
+              select: { id: true, name: true, department: true },
+            });
+            if (!targetProject) {
+              return NextResponse.json({ error: "Proje bulunamadı" }, { status: 404 });
+            }
+            // Proje, görevin departmanıyla eşleşmeli — departman güvenlik sınırı
+            // proje taşınırken de korunur.
+            if (targetProject.department !== currentProjDept) {
+              return NextResponse.json({ error: "Proje, görevin departmanıyla eşleşmiyor" }, { status: 400 });
+            }
+            newProjectId = targetProject.id;
+            newDepartmentId = null;
+            projectLogTo = targetProject.name;
+          } else {
+            // Proje -> Projesiz: departman AYNI kalır, yalnızca proje bağlantısı kopar
+            newProjectId = null;
+            newDepartmentId = projectDeptToUserDept(currentProjDept ?? "") ?? current.departmentId;
+            projectLogTo = "Projesiz";
+          }
+          projectChanged = true;
+        }
+      }
+
+      const targetScope = newProjectId ? { projectId: newProjectId } : { departmentId: newDepartmentId };
+
+      // ── Atanan kişi ─────────────────────────────────────────────────────
+      let finalAssigneeId = current.assignedToId;
+      if (body.assignedToId !== undefined) {
+        const newId: string | null = body.assignedToId || null;
+        if (!newId) {
+          return NextResponse.json({ error: "Atanan kişi zorunludur" }, { status: 400 });
+        }
+        if (newId !== current.assignedToId) {
+          const target = await prisma.user.findUnique({
+            where: { id: newId },
+            select: { id: true, name: true, seniorityLevel: true },
           });
-          if (assigner && !(await isEligibleAssignee(
-            { id: userId, role: assigner.role, seniorityLevel: assigner.seniorityLevel, canViewAllProjects: assigner.canViewAllProjects, email: assigner.email },
-            newId,
-            scope
-          ))) {
-            return NextResponse.json({ error: "Bu kişiye atama yapamazsınız" }, { status: 403 });
-          }
-        }
-        allowed.assignedToId = newId;
-        // C+D BLOĞU: Yeniden atamada status → TODO, reviewOwnerId → atayan
-        if (newId && newId !== current.assignedToId) {
-          allowed.status = "TODO";
-          allowed.reviewOwnerId = userId;
-          // Bildirim: eski atanana görev alındı
-          if (current.assignedToId && current.assignedToId !== userId) {
-            const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
-            if (t) {
-              const takenNotif = TaskNotif.taskTaken(t.title, params.id);
-              await sendNotification(current.assignedToId, takenNotif.type, takenNotif.message, takenNotif.relatedId);
+          if (!target) return NextResponse.json({ error: "Kullanıcı bulunamadı" }, { status: 404 });
+
+          if (newId !== userId) {
+            // Kapsam (proje üyeliği/departman) + kıdem/aktiflik uygunluğu — tek doğru kaynak
+            if (!assignerEligibility || !(await isEligibleAssignee(assignerEligibility, newId, targetScope))) {
+              return NextResponse.json({ error: "Bu kişiye atama yapamazsınız" }, { status: 403 });
+            }
+            // Kıdem kuralı — lib/task-permissions.ts → canReassignTask (tek doğru kaynak)
+            if (!canReassignTask(wfUser, target.seniorityLevel)) {
+              return NextResponse.json({ error: "Bu kişiye atama yapamazsınız" }, { status: 403 });
             }
           }
-          // Bildirim: yeni atanana görev atandı
-          if (newId && newId !== userId) {
-            const t = await prisma.task.findUnique({ where: { id: params.id }, select: { title: true } });
-            if (t) {
-              const assignedNotif = TaskNotif.taskAssigned(t.title, params.id);
-              await sendNotification(newId, assignedNotif.type, assignedNotif.message, assignedNotif.relatedId);
-            }
+
+          reassignLogFrom = current.assignedToId
+            ? (await prisma.user.findUnique({ where: { id: current.assignedToId }, select: { name: true } }))?.name ?? "—"
+            : "Atanmamış";
+          reassignLogTo = target.name;
+          finalAssigneeId = newId;
+          reassigned = true;
+        }
+      } else if (projectChanged && current.assignedToId) {
+        // Proje değişti ama atanan aynı kalıyor — mevcut atananın YENİ kapsamda
+        // (proje üyeliği/departman) hâlâ uygun olduğunu doğrula.
+        const stillEligible =
+          current.assignedToId === userId ||
+          (assignerEligibility != null && (await isEligibleAssignee(assignerEligibility, current.assignedToId, targetScope)));
+        if (!stillEligible) {
+          return NextResponse.json(
+            { error: "Mevcut atanan kişi hedef proje/departmanda uygun değil — önce atanan kişiyi değiştirin" },
+            { status: 400 }
+          );
+        }
+      }
+
+      // ── Alt görev ağacı (task tree) doğrulaması ────────────────────────────
+      // "Child task'ın projesi tek başına değiştirilemez" — proje taşınırken
+      // tüm alt görev ağacı aynı hedefe cascade edilir; her torunun atananı da
+      // hedef kapsamda uygun olmalı, aksi halde TÜM taşıma reddedilir.
+      if (projectChanged) {
+        descendantsToCascade = await fetchDescendantTasks(params.id);
+        for (const d of descendantsToCascade) {
+          if (!d.assignedToId) continue;
+          const ok =
+            d.assignedToId === userId ||
+            (assignerEligibility != null && (await isEligibleAssignee(assignerEligibility, d.assignedToId, targetScope)));
+          if (!ok) {
+            return NextResponse.json(
+              { error: `"${d.title}" alt görevinin atananı hedef proje/departmanda uygun değil` },
+              { status: 400 }
+            );
           }
         }
+      }
+
+      if (projectChanged) {
+        allowed.projectId = newProjectId;
+        allowed.departmentId = newDepartmentId;
+      }
+
+      if (reassigned) {
+        allowed.assignedToId = finalAssigneeId;
+        // C+D BLOĞU: Yeniden atamada status → TODO, reviewOwnerId → atayan,
+        // assignmentLevelSnapshot → atama anındaki atayan kıdem seviyesi
+        allowed.status = "TODO";
+        allowed.reviewOwnerId = userId;
+        allowed.assignmentLevelSnapshot = assigner?.seniorityLevel ?? null;
       }
     }
 
@@ -638,11 +740,52 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: "Güncellenecek alan yok" }, { status: 400 });
     }
 
-    const task = await prisma.task.update({
-      where: { id: params.id },
-      data: allowed,
-      include: taskInclude,
-    });
+    // Görev + (varsa) alt görev ağacı cascade'i tek atomik işlemde — hepsi ya da hiçbiri
+    const task = await (async () => {
+      if (projectChanged && descendantsToCascade.length > 0) {
+        const [updatedTask] = await prisma.$transaction([
+          prisma.task.update({ where: { id: params.id }, data: allowed, include: taskInclude }),
+          prisma.task.updateMany({
+            where: { id: { in: descendantsToCascade.map((d) => d.id) } },
+            data: { projectId: newProjectId, departmentId: newDepartmentId },
+          }),
+        ]);
+        return updatedTask;
+      }
+      return prisma.task.update({ where: { id: params.id }, data: allowed, include: taskInclude });
+    })();
+
+    // ── Yeniden atama / proje taşıma bildirimleri + denetim kaydı ───────────
+    if (reassigned) {
+      if (current.assignedToId && current.assignedToId !== userId) {
+        const takenNotif = TaskNotif.taskTaken(task.title, params.id);
+        await sendNotification(current.assignedToId, takenNotif.type, takenNotif.message, takenNotif.relatedId);
+      }
+      if (task.assignedToId && task.assignedToId !== userId && task.assignedToId !== current.assignedToId) {
+        const assignedNotif = TaskNotif.taskAssigned(task.title, params.id);
+        await sendNotification(task.assignedToId, assignedNotif.type, assignedNotif.message, assignedNotif.relatedId);
+      }
+      await prisma.taskLog.create({
+        data: {
+          taskId: params.id,
+          userId,
+          action: "REASSIGNED",
+          fromValue: reassignLogFrom,
+          toValue: reassignLogTo,
+        },
+      });
+    }
+    if (projectChanged) {
+      await prisma.taskLog.create({
+        data: {
+          taskId: params.id,
+          userId,
+          action: "PROJECT_CHANGED",
+          fromValue: projectLogFrom,
+          toValue: projectLogTo,
+        },
+      });
+    }
 
     // Durum değişikliği logu
     if (body.status !== undefined && body.status !== current.status) {
@@ -673,6 +816,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         return respondTask(fields, task);
       }
 
+      const taskWithLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
+      return respondTask(fields, taskWithLogs ?? task);
+    }
+
+    if (reassigned || projectChanged) {
+      // Az önce eklenen REASSIGNED/PROJECT_CHANGED denetim kaydı yanıtta görünsün
       const taskWithLogs = await prisma.task.findUnique({ where: { id: params.id }, include: taskInclude });
       return respondTask(fields, taskWithLogs ?? task);
     }

@@ -19,7 +19,7 @@ import clsx from "clsx";
 import PriorityBadge from "./PriorityBadge";
 import { TaskFull } from "./TaskModal";
 import TaskDetail from "./TaskDetail";
-import NewTaskModal from "./NewTaskModal";
+import TaskForm from "./TaskForm";
 
 type Status = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
 
@@ -560,7 +560,7 @@ export default function KanbanBoard({ initialTasks, users, isAdmin, currentUserI
       )}
 
       {showCreate && (
-        <NewTaskModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />
+        <TaskForm mode="create" onClose={() => setShowCreate(false)} onCreate={handleCreate} />
       )}
 
       {deleteTarget && (

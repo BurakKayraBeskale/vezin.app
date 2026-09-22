@@ -390,9 +390,12 @@ export function buildTaskVisibilityWhere(user: TaskPermUser): object {
     conditions.push({ project: { department: od } });
   }
 
-  // Proje dışı görevler: her zaman assignedToId veya createdById ile erişilebilir
+  // Proje dışı görevler: her zaman assignedToId, createdById veya reviewOwnerId ile
+  // erişilebilir (canViewTask'in Kural 9'uyla tutarlı — take_over_review ile reviewOwner
+  // devralan biri, ne atanan ne oluşturan olsa da projesiz görevi görebilmeli).
   conditions.push({ projectId: null, assignedToId: uid });
   conditions.push({ projectId: null, createdById: uid });
+  conditions.push({ projectId: null, reviewOwnerId: uid });
 
   if (conditions.length === 0) {
     return { ...notDeleted, id: "__no_access__" };

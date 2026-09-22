@@ -257,9 +257,14 @@ model TaskLog {
   taskId          String
   user            User      @relation(fields: [userId], references: [id])
   userId          String
-  action          String // STARTED | COMPLETED | STATUS_CHANGED | MANUAL_TIME
+  action          String // STARTED | COMPLETED | STATUS_CHANGED | MANUAL_TIME | REASSIGNED | PROJECT_CHANGED
   fromStatus      String?
   toStatus        String?
+  // Genel amaçlı önce/sonra metin anlık görüntüsü (ör. REASSIGNED: eski/yeni atanan adı,
+  // PROJECT_CHANGED: eski/yeni proje adı). fromStatus/toStatus yalnızca Task.status
+  // değerleri için kullanılır; bunlar isim/başlık gibi serbest metin değerler içindir.
+  fromValue       String?
+  toValue         String?
   timestamp       DateTime  @default(now())
   durationMinutes Int?
   startedAt       DateTime?

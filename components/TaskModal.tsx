@@ -22,6 +22,8 @@ interface LogRecord {
   action: string;
   fromStatus: string | null;
   toStatus: string | null;
+  fromValue?: string | null;
+  toValue?: string | null;
   timestamp: string;
   durationMinutes: number | null;
   startedAt?: string | null;

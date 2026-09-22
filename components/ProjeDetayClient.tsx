@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import TaskDetail from "./TaskDetail";
-import NewTaskModal from "./NewTaskModal";
+import TaskForm from "./TaskForm";
 
 type Member = {
   user: {
@@ -410,7 +410,8 @@ export default function ProjeDetayClient({
 
       {/* Yeni görev modalı */}
       {showNewTask && (
-        <NewTaskModal
+        <TaskForm
+          mode="create"
           fixedProjectId={projectId}
           fixedProjectName={projectName}
           onClose={() => setShowNewTask(false)}
