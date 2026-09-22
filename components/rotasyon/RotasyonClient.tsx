@@ -572,7 +572,10 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
                     sozlesmeSatirlari.map(({ soz, isl, hesap }, i) => {
                       const yeniGrup = i === 0 || sozlesmeSatirlari[i - 1].isl.id !== isl.id;
                       const periods = isl.sozlesmeler.length;
-                      const mukerrer = isl.sozlesmeler.filter((s) => s.donem === soz.donem).length > 1;
+                      // Aynı dönemde FARKLI türde sözleşme normaldir; yalnızca aynı dönem +
+                      // aynı tür tekrarı anomali sayılır (DB kısıtı bunu artık engeller, ama
+                      // eski/manuel kayıtlar için görsel uyarı korunur).
+                      const mukerrer = isl.sozlesmeler.filter((s) => s.donem === soz.donem && s.tur === soz.tur).length > 1;
                       const asil = soz.kadrolar.filter((k) => k.tip === "ASIL");
                       const yedek = soz.kadrolar.filter((k) => k.tip === "YEDEK");
                       return (
@@ -666,7 +669,9 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
                         ? `Önceki denetçi: ${isl.oncekiDenetciIlkDonem ?? "?"}–${isl.oncekiDenetciSonDonem ?? "?"}`
                         : null;
                       const turler = Array.from(new Set(isl.sozlesmeler.map((s) => s.tur)));
-                      const mukerrer = isl.sozlesmeler.some((s) => isl.sozlesmeler.filter((x) => x.donem === s.donem).length > 1);
+                      // Aynı dönemde FARKLI türde sözleşme normaldir; yalnızca aynı dönem +
+                      // aynı tür tekrarı anomali sayılır.
+                      const mukerrer = isl.sozlesmeler.some((s) => isl.sozlesmeler.filter((x) => x.donem === s.donem && x.tur === s.tur).length > 1);
                       return (
                         <tr key={isl.id} className={clsx("hover:bg-gray-50/50 dark:hover:bg-gray-700/30", rowFlagClass(hesap))}>
                           <td className={tdClass}>

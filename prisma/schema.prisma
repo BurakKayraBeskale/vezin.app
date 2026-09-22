@@ -497,7 +497,8 @@ model RotasyonSozlesme {
   updatedAt  DateTime        @updatedAt
   kadrolar   RotasyonKadro[]
 
-  @@unique([isletmeId, donem]) // aynı işletme + aynı dönem için mükerrer sözleşme koruması
+  @@unique([isletmeId, donem, tur]) // aynı işletme + aynı dönem + aynı TÜR için mükerrer sözleşme koruması —
+  // aynı dönemde farklı türde birden fazla sözleşme (ör. bağımsız denetim + özel amaçlı denetim) olabilir
 }
 
 model RotasyonKadro {

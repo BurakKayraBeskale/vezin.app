@@ -82,7 +82,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json(updated);
   } catch (err: any) {
     if (err?.code === "P2002") {
-      return NextResponse.json({ error: "Bu işletme için bu dönemde zaten bir sözleşme var" }, { status: 409 });
+      const effectiveDonem = (data.donem as number | undefined) ?? existing.donem;
+      return NextResponse.json(
+        { error: `Bu işletme için ${effectiveDonem} yılında bu türde bir sözleşme zaten var` },
+        { status: 409 }
+      );
     }
     throw err;
   }

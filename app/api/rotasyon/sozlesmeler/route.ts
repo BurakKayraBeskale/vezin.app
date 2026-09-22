@@ -67,7 +67,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(sozlesme, { status: 201 });
   } catch (err: any) {
     if (err?.code === "P2002") {
-      return NextResponse.json({ error: `Bu işletme için ${donem} döneminde zaten bir sözleşme var` }, { status: 409 });
+      return NextResponse.json(
+        { error: `Bu işletme için ${donem} yılında bu türde bir sözleşme zaten var` },
+        { status: 409 }
+      );
     }
     throw err;
   }
