@@ -1,9 +1,9 @@
 /**
- * Rotasyon modülü — aynı yıl için ikinci (farklı türde) sözleşme testleri
+ * Rotasyon modülü — sözleşme benzersizliği (yıl+tür) ve kadro isim öneri/tekillik testleri
  *
- * Kök sebep: RotasyonSozlesme.@@unique([isletmeId, donem]) yalnızca işletme+yıl
- * bazında benzersizlik kısıtlıyordu — aynı yılda farklı türde ikinci sözleşme de
- * engelleniyordu. Kısıt artık [isletmeId, donem, tur].
+ * Kök sebep (yıl+tür): RotasyonSozlesme.@@unique([isletmeId, donem]) yalnızca
+ * işletme+yıl bazında benzersizlik kısıtlıyordu — aynı yılda farklı türde ikinci
+ * sözleşme de engelleniyordu. Kısıt artık [isletmeId, donem, tur].
  *
  *   R1  Aynı işletme + aynı yıl + FARKLI tür → 201 (izin verilir)
  *   R2  Aynı işletme + aynı yıl + AYNI tür → 409, anlaşılır mesaj
@@ -11,6 +11,10 @@
  *   R4  GET listede aynı yıldaki iki sözleşme ayrı satır olarak, türleriyle döner
  *   R5  hesaplaRotasyon: aynı yıla ikinci (farklı türde) sözleşme eklenince
  *       denetlenenSure/aktifSeri artmıyor — dönem bazında tekilleştiriliyor
+ *   R6  Aynı kişi aynı sözleşmede hem Asıl hem Yedek kadroda → 400, anlaşılır mesaj
+ *   R7  Aynı kişi aynı kadroya (ör. Asıl) iki kez → 400
+ *   R8  Listede (ROTASYON_DENETCILER) olmayan isimle kayıt → 201 (elle yazım engellenmez)
+ *   R9  kadroIsimTekilligiGecerliMi / denetciOnerileri saf fonksiyon testleri
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -23,7 +27,13 @@ vi.mock("next-auth/jwt", () => ({ getToken: vi.fn() }));
 import { GET as sozlesmelerGET, POST as sozlesmelerPOST } from "../../app/api/rotasyon/sozlesmeler/route";
 import { PATCH as sozlesmePATCH } from "../../app/api/rotasyon/sozlesmeler/[id]/route";
 import { getToken } from "next-auth/jwt";
-import { hesaplaRotasyon, VARSAYILAN_ROTASYON_AYARLARI } from "../../lib/rotasyon";
+import {
+  hesaplaRotasyon,
+  VARSAYILAN_ROTASYON_AYARLARI,
+  ROTASYON_DENETCILER,
+  denetciOnerileri,
+  kadroIsimTekilligiGecerliMi,
+} from "../../lib/rotasyon";
 
 const prisma = new PrismaClient();
 const hash = (pw: string) => bcrypt.hash(pw, 10);
@@ -163,5 +173,93 @@ describe("R5 — rotasyon hesabı: aynı yıla ikinci sözleşme eklenince yıl 
     expect(ikiSozlesmeAyniYil!.donemler).toEqual([2023, 2024, 2025]);
     expect(ikiSozlesmeAyniYil!.kalanSure).toBe(tekYil!.kalanSure);
     expect(ikiSozlesmeAyniYil!.durum).toBe(tekYil!.durum);
+  });
+});
+
+describe("R6/R7 — kadro isim tekilliği (API)", () => {
+  it("R6: aynı kişi hem Asıl hem Yedek kadroda → 400, anlaşılır mesaj", async () => {
+    asUser(user);
+    const res = await sozlesmelerPOST(jsonReq(
+      "http://localhost/api/rotasyon/sozlesmeler", "POST",
+      {
+        isletmeId, sozlesmeNo: `${PREFIX}-kadro-1`, donem: 2030, tur: "TTK_ZORUNLU",
+        kadrolar: [
+          { adSoyad: "Ömer Duman", unvan: "Sorumlu denetçi", tip: "ASIL", fiilenGorevAldi: true },
+          { adSoyad: "ömer   duman", unvan: "Denetçi", tip: "YEDEK", fiilenGorevAldi: true },
+        ],
+      }
+    ));
+    expect(res.status).toBe(400);
+    const data = await json(res);
+    expect(data.error).toMatch(/hem asıl hem yedek/i);
+  });
+
+  it("R7: aynı kişi aynı kadroya (Asıl) iki kez → 400", async () => {
+    asUser(user);
+    const res = await sozlesmelerPOST(jsonReq(
+      "http://localhost/api/rotasyon/sozlesmeler", "POST",
+      {
+        isletmeId, sozlesmeNo: `${PREFIX}-kadro-2`, donem: 2031, tur: "TTK_ZORUNLU",
+        kadrolar: [
+          { adSoyad: "Ahmet Oruç", unvan: "Sorumlu denetçi", tip: "ASIL", fiilenGorevAldi: true },
+          { adSoyad: "Ahmet Oruç", unvan: "Kıdemli denetçi", tip: "ASIL", fiilenGorevAldi: true },
+        ],
+      }
+    ));
+    expect(res.status).toBe(400);
+    const data = await json(res);
+    expect(data.error).toMatch(/birden fazla eklenemez/i);
+  });
+});
+
+describe("R8 — listede olmayan isimle kayıt", () => {
+  it("ROTASYON_DENETCILER dışındaki bir isimle sözleşme oluşturulabiliyor → 201", async () => {
+    const serbest = "Zeynep Aydın Kaya"; // öneri listesinde YOK — elle yazım
+    expect(ROTASYON_DENETCILER as readonly string[]).not.toContain(serbest);
+
+    asUser(user);
+    const res = await sozlesmelerPOST(jsonReq(
+      "http://localhost/api/rotasyon/sozlesmeler", "POST",
+      {
+        isletmeId, sozlesmeNo: `${PREFIX}-kadro-3`, donem: 2032, tur: "TTK_ZORUNLU",
+        kadrolar: [
+          { adSoyad: serbest, unvan: "Denetçi", tip: "ASIL", fiilenGorevAldi: true },
+        ],
+      }
+    ));
+    expect(res.status).toBe(201);
+    const data = await json(res);
+    createdSozlesmeIds.push(data.id);
+    expect(data.kadrolar.some((k: any) => k.adSoyad === serbest)).toBe(true);
+  });
+});
+
+describe("R9 — kadroIsimTekilligiGecerliMi / denetciOnerileri (saf fonksiyonlar)", () => {
+  it("boş kadro listesi veya tek kişi → hata yok", () => {
+    expect(kadroIsimTekilligiGecerliMi([])).toBeNull();
+    expect(kadroIsimTekilligiGecerliMi([{ adSoyad: "Mustafa Ceylan" }])).toBeNull();
+  });
+
+  it("aynı kişi TR harf/boşluk farkıyla tekrar edince de yakalanır", () => {
+    const hata = kadroIsimTekilligiGecerliMi([
+      { adSoyad: "İsmail Koş" },
+      { adSoyad: "  ismail   koş " },
+    ]);
+    expect(hata).not.toBeNull();
+  });
+
+  it("farklı kişiler → hata yok", () => {
+    expect(kadroIsimTekilligiGecerliMi([
+      { adSoyad: "İsmail Koş" },
+      { adSoyad: "Ahmet Oruç" },
+    ])).toBeNull();
+  });
+
+  it("denetciOnerileri boş sorguda tüm listeyi, Türkçe karakter duyarlı sorguda filtrelenmiş listeyi döner", () => {
+    expect(denetciOnerileri("")).toEqual(ROTASYON_DENETCILER);
+    expect(denetciOnerileri("ömer")).toEqual(["Ömer Duman"]);
+    expect(denetciOnerileri("ÖMER")).toEqual(["Ömer Duman"]);
+    expect(denetciOnerileri("koş")).toEqual(["İsmail Koş", "Fatma Zehra Koş"]);
+    expect(denetciOnerileri("zzz")).toEqual([]);
   });
 });

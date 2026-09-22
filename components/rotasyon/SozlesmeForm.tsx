@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useMemo, FormEvent } from "react";
+import { useState, useMemo, FormEvent, KeyboardEvent } from "react";
 import {
   ROTASYON_SOZLESME_TURLERI,
   ROTASYON_SOZLESME_TURU_LABELS,
   ROTASYON_KADRO_UNVANLARI,
   hesaplaRotasyon,
   donemAraligi,
+  denetciOnerileri,
+  kadroIsimTekilligiGecerliMi,
   type RotasyonSozlesmeTuru,
   type RotasyonAyarlar,
 } from "@/lib/rotasyon";
@@ -154,6 +156,8 @@ export default function SozlesmeForm({
     if (!isletmeId) { setError("Denetlenen işletmeyi seçin."); return; }
     const gecerliKadrolar = [...asilRows, ...yedekRows].filter((k) => k.adSoyad.trim());
     if (gecerliKadrolar.length === 0) { setError("En az bir kadro satırı gerekli."); return; }
+    const tekillikHatasi = kadroIsimTekilligiGecerliMi(gecerliKadrolar);
+    if (tekillikHatasi) { setError(tekillikHatasi); return; }
 
     setSaving(true);
     try {
@@ -343,15 +347,72 @@ export default function SozlesmeForm({
 }
 
 function KadroSatiri({ idx, row, onChange }: { idx: number; row: KadroRow; onChange: (patch: Partial<KadroRow>) => void }) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const oneriler = useMemo(() => denetciOnerileri(row.adSoyad), [row.adSoyad]);
+
+  function selectOneri(ad: string) {
+    onChange({ adSoyad: ad });
+    setOpen(false);
+    setActiveIndex(-1);
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (!open || oneriler.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % oneriler.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => (i <= 0 ? oneriler.length - 1 : i - 1));
+    } else if (e.key === "Enter") {
+      if (activeIndex >= 0 && activeIndex < oneriler.length) {
+        e.preventDefault();
+        selectOneri(oneriler[activeIndex]);
+      }
+    } else if (e.key === "Escape") {
+      setOpen(false);
+      setActiveIndex(-1);
+    }
+  }
+
   return (
     <div className="grid grid-cols-[18px_1fr_130px_auto] gap-2 items-center">
       <span className="font-mono text-[11px] text-gray-400">{idx + 1}</span>
-      <input
-        value={row.adSoyad}
-        onChange={(e) => onChange({ adSoyad: e.target.value })}
-        placeholder={`${row.tip === "ASIL" ? "Asıl" : "Yedek"} kadro ${idx + 1} — ad soyad`}
-        className="min-w-0 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-      />
+      <div className="relative min-w-0">
+        <input
+          value={row.adSoyad}
+          onChange={(e) => { onChange({ adSoyad: e.target.value }); setOpen(true); setActiveIndex(-1); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          onKeyDown={handleKeyDown}
+          placeholder={`${row.tip === "ASIL" ? "Asıl" : "Yedek"} kadro ${idx + 1} — ad soyad`}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-autocomplete="list"
+          className="w-full min-w-0 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+        />
+        {open && oneriler.length > 0 && (
+          <ul className="absolute z-20 left-0 right-0 mt-1 max-h-36 overflow-y-auto rounded-md border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg">
+            {oneriler.map((ad, i) => (
+              <li key={ad}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => selectOneri(ad)}
+                  className={
+                    "w-full text-left px-2 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-orange-50 dark:hover:bg-gray-700 " +
+                    (i === activeIndex ? "bg-orange-50 dark:bg-gray-700" : "")
+                  }
+                >
+                  {ad}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <select
         value={row.unvan}
         onChange={(e) => onChange({ unvan: e.target.value })}

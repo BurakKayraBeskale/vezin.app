@@ -191,6 +191,57 @@ export function kadroSayilariGecerliMi(kadrolar: { tip: string }[]): boolean {
   return asil <= 3 && yedek <= 3;
 }
 
+/**
+ * Kadro isim öneri listesi — "Sözleşme Ekle/Düzenle" formundaki Asıl/Yedek
+ * kadro alanlarında otomatik tamamlama için. Bu kişilerin bir kısmı sistem
+ * kullanıcısı DEĞİL (User tablosunda karşılığı yok) — RotasyonAyar tablosunda
+ * bu tür bir liste tutacak alan bulunmadığından (yalnızca cariDonem/azamiSure/
+ * zorunluAra/uyariEsigi sabit sütunları var) sabit liste olarak tutulur; şema
+ * değişikliği/göç gerektirmez. Liste elle yazılabilirliği ENGELLEMEZ — yalnızca
+ * öneri sunar (bkz. components/rotasyon/SozlesmeForm.tsx).
+ */
+export const ROTASYON_DENETCILER = [
+  "İsmail Koş",
+  "Süleyman Hayri Balcı",
+  "Ahmet Oruç",
+  "Ömer Duman",
+  "Gülşen Gül Yılmaz",
+  "Mustafa Ceylan",
+  "Fatma Zehra Koş",
+] as const;
+
+/** Türkçe harf duyarlı küçültme — "İ"→"i", "I"→"ı" (varsayılan locale bunu bozar). */
+export function trKucult(s: string): string {
+  return s.toLocaleLowerCase("tr");
+}
+
+/** Girilen metne göre öneri listesini filtreler (Türkçe karakter duyarlı, alt dize eşleşmesi). */
+export function denetciOnerileri(query: string): readonly string[] {
+  const q = trKucult(query.trim());
+  if (!q) return ROTASYON_DENETCILER;
+  return ROTASYON_DENETCILER.filter((ad) => trKucult(ad).includes(q));
+}
+
+/**
+ * Bir sözleşmedeki kadro satırlarında aynı kişi (ad soyad, TR harf duyarsız +
+ * boşluk normalize) birden fazla kez geçemez — ne aynı kadroya (ASIL/YEDEK)
+ * iki kez, ne de hem ASIL hem YEDEK'e. Hata varsa mesajı, yoksa null döner.
+ * API ucu ve form burada aynı fonksiyonu kullanır (tek doğru kaynak).
+ */
+export function kadroIsimTekilligiGecerliMi(kadrolar: { adSoyad: string }[]): string | null {
+  const gorulen = new Set<string>();
+  for (const k of kadrolar) {
+    const ad = k.adSoyad.trim();
+    if (!ad) continue;
+    const norm = trKucult(ad).replace(/\s+/g, " ");
+    if (gorulen.has(norm)) {
+      return `"${ad}" kadroya birden fazla eklenemez — aynı kişi aynı sözleşmede hem asıl hem yedek kadroda ya da aynı kadroda iki kez yer alamaz.`;
+    }
+    gorulen.add(norm);
+  }
+  return null;
+}
+
 export interface RotasyonKadroInput {
   adSoyad: string;
   unvan: string;
@@ -222,5 +273,7 @@ export function parseKadroInput(
   if (!kadroSayilariGecerliMi(parsed)) {
     return { error: "Bir sözleşmede en fazla 3 ASIL + 3 YEDEK kadro olabilir" };
   }
+  const tekillikHatasi = kadroIsimTekilligiGecerliMi(parsed);
+  if (tekillikHatasi) return { error: tekillikHatasi };
   return { data: parsed };
 }
