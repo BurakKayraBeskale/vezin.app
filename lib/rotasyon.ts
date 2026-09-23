@@ -176,7 +176,7 @@ export const ROTASYON_SOZLESME_TURU_LABELS: Record<RotasyonSozlesmeTuru, string>
 export const ROTASYON_KADRO_TIPLERI = ["ASIL", "YEDEK"] as const;
 export type RotasyonKadroTipi = (typeof ROTASYON_KADRO_TIPLERI)[number];
 
-/** Kadro formundaki unvan seçenekleri — sözleşme başına sabit 3 asıl + 3 yedek satır. */
+/** Kadro formundaki unvan seçenekleri — sözleşme başına sabit MAX_KADRO_KISI asıl + MAX_KADRO_KISI yedek satır. */
 export const ROTASYON_KADRO_UNVANLARI = [
   "Sorumlu denetçi",
   "Kıdemli denetçi",
@@ -184,11 +184,14 @@ export const ROTASYON_KADRO_UNVANLARI = [
   "Denetçi yardımcısı",
 ] as const;
 
-/** Bir sözleşmedeki kadro satırlarının kuralı: en fazla 3 ASIL + 3 YEDEK. */
+/** Asıl/Yedek kadroların her birindeki azami kişi sayısı — tek doğru kaynak. */
+export const MAX_KADRO_KISI = 4;
+
+/** Bir sözleşmedeki kadro satırlarının kuralı: her kadroda en fazla MAX_KADRO_KISI kişi. */
 export function kadroSayilariGecerliMi(kadrolar: { tip: string }[]): boolean {
   const asil = kadrolar.filter((k) => k.tip === "ASIL").length;
   const yedek = kadrolar.filter((k) => k.tip === "YEDEK").length;
-  return asil <= 3 && yedek <= 3;
+  return asil <= MAX_KADRO_KISI && yedek <= MAX_KADRO_KISI;
 }
 
 /**
@@ -211,6 +214,7 @@ export const ROTASYON_DENETCILER = [
   "Sacit Ak",
   "Mehmed Baki Emre",
   "Özgür İneci",
+  "Mehmet Salih Bilge",
 ] as const;
 
 /** Türkçe harf duyarlı küçültme — "İ"→"i", "I"→"ı" (varsayılan locale bunu bozar). */
@@ -274,7 +278,7 @@ export function parseKadroInput(
   }
 
   if (!kadroSayilariGecerliMi(parsed)) {
-    return { error: "Bir sözleşmede en fazla 3 ASIL + 3 YEDEK kadro olabilir" };
+    return { error: `Bir kadroda (Asıl veya Yedek) en fazla ${MAX_KADRO_KISI} kişi olabilir` };
   }
   const tekillikHatasi = kadroIsimTekilligiGecerliMi(parsed);
   if (tekillikHatasi) return { error: tekillikHatasi };

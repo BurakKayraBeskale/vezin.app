@@ -5,6 +5,7 @@ import {
   ROTASYON_SOZLESME_TURLERI,
   ROTASYON_SOZLESME_TURU_LABELS,
   ROTASYON_KADRO_UNVANLARI,
+  MAX_KADRO_KISI,
   hesaplaRotasyon,
   donemAraligi,
   denetciOnerileri,
@@ -44,7 +45,7 @@ interface Props {
 const YENI = "__yeni__";
 
 function bosRows(kind: "ASIL" | "YEDEK"): KadroRow[] {
-  return [0, 1, 2].map(() => ({ adSoyad: "", unvan: ROTASYON_KADRO_UNVANLARI[2], tip: kind, fiilenGorevAldi: kind === "ASIL" }));
+  return Array.from({ length: MAX_KADRO_KISI }, () => ({ adSoyad: "", unvan: ROTASYON_KADRO_UNVANLARI[2], tip: kind, fiilenGorevAldi: kind === "ASIL" }));
 }
 
 export default function SozlesmeForm({

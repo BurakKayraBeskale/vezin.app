@@ -15,6 +15,8 @@
  *   R7  Aynı kişi aynı kadroya (ör. Asıl) iki kez → 400
  *   R8  Listede (ROTASYON_DENETCILER) olmayan isimle kayıt → 201 (elle yazım engellenmez)
  *   R9  kadroIsimTekilligiGecerliMi / denetciOnerileri saf fonksiyon testleri
+ *   R10 Aynı kadroya MAX_KADRO_KISI (4) kişi eklenebiliyor → 201
+ *   R11 MAX_KADRO_KISI'ı aşan (5.) kişi eklenince reddediliyor → 400
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -33,6 +35,7 @@ import {
   ROTASYON_DENETCILER,
   denetciOnerileri,
   kadroIsimTekilligiGecerliMi,
+  MAX_KADRO_KISI,
 } from "../../lib/rotasyon";
 
 const prisma = new PrismaClient();
@@ -261,5 +264,37 @@ describe("R9 — kadroIsimTekilligiGecerliMi / denetciOnerileri (saf fonksiyonla
     expect(denetciOnerileri("ÖMER")).toEqual(["Ömer Duman"]);
     expect(denetciOnerileri("koş")).toEqual(["İsmail Koş", "Fatma Zehra Koş"]);
     expect(denetciOnerileri("zzz")).toEqual([]);
+  });
+});
+
+describe("R10/R11 — kadro kişi sınırı (MAX_KADRO_KISI)", () => {
+  it(`R10: aynı kadroya (Asıl) ${MAX_KADRO_KISI} kişi eklenebiliyor → 201`, async () => {
+    expect(MAX_KADRO_KISI).toBe(4);
+    asUser(user);
+    const kadrolar = Array.from({ length: MAX_KADRO_KISI }, (_, i) => ({
+      adSoyad: `${PREFIX} Kadro Kişi ${i + 1}`, unvan: "Denetçi", tip: "ASIL", fiilenGorevAldi: true,
+    }));
+    const res = await sozlesmelerPOST(jsonReq(
+      "http://localhost/api/rotasyon/sozlesmeler", "POST",
+      { isletmeId, sozlesmeNo: `${PREFIX}-limit-1`, donem: 2033, tur: "TTK_ZORUNLU", kadrolar }
+    ));
+    expect(res.status).toBe(201);
+    const data = await json(res);
+    createdSozlesmeIds.push(data.id);
+    expect(data.kadrolar.filter((k: any) => k.tip === "ASIL").length).toBe(MAX_KADRO_KISI);
+  });
+
+  it(`R11: MAX_KADRO_KISI'ı aşan (${MAX_KADRO_KISI + 1}. Asıl) kişi eklenince → 400`, async () => {
+    asUser(user);
+    const kadrolar = Array.from({ length: MAX_KADRO_KISI + 1 }, (_, i) => ({
+      adSoyad: `${PREFIX} Kadro Kişi ${i + 1}`, unvan: "Denetçi", tip: "ASIL", fiilenGorevAldi: true,
+    }));
+    const res = await sozlesmelerPOST(jsonReq(
+      "http://localhost/api/rotasyon/sozlesmeler", "POST",
+      { isletmeId, sozlesmeNo: `${PREFIX}-limit-2`, donem: 2034, tur: "TTK_ZORUNLU", kadrolar }
+    ));
+    expect(res.status).toBe(400);
+    const data = await json(res);
+    expect(data.error).toMatch(new RegExp(`en fazla ${MAX_KADRO_KISI} kişi`, "i"));
   });
 });
