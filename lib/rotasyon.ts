@@ -209,7 +209,7 @@ export const ROTASYON_DENETCILER = [
   "Mustafa Ceylan",
   "Fatma Zehra Koş",
   "Sacit Ak",
-  "Mehmet Baki Emre",
+  "Mehmed Baki Emre",
   "Özgür İneci",
 ] as const;
 
