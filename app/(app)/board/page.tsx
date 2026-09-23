@@ -1,14 +1,14 @@
 import { getServerSession } from "next-auth";
+import { cookies } from "next/headers";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import KanbanBoard from "@/components/KanbanBoard";
-import PerformancePanel from "@/components/PerformancePanel";
-import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
-import { buildTaskVisibilityWhere } from "@/lib/task-permissions";
-import { getEligibleAssignees } from "@/lib/task-assignment";
+import { fetchBoardData, BoardFilters } from "@/lib/task-board";
 import { getPerformanceScope } from "@/lib/access";
+import TaskBoard from "@/components/board/TaskBoard";
+import PerformancePanel from "@/components/PerformancePanel";
 
 export const dynamic = "force-dynamic";
+
+const VIEW_COOKIE = "vezin-board-view";
 
 export default async function BoardPage() {
   const session = await getServerSession(authOptions);
@@ -20,95 +20,37 @@ export default async function BoardPage() {
   const overseesDepartment = (session!.user as any).overseesDepartment as string | null ?? null;
   const department = (session!.user as any).department as string ?? "";
   const seniorityLevel = (session!.user as any).seniorityLevel as number ?? 0;
-  const canManage = isAdmin || canViewAllTasks;
   const userEmail = session!.user.email ?? "";
+  // Görev oluşturma yetkisi — eski board'daki aynı geniş bayrak (Task Core'un
+  // kendi POST /api/tasks kuralları zaten bağımsız olarak da uygulanır).
+  const canCreate = isAdmin || canViewAllTasks;
   const performanceScope = getPerformanceScope({ role, email: userEmail });
 
-  // ── Görünür görevler — A BLOĞU merkezi permission motoru ──────────────────
-  const taskWhere = buildTaskVisibilityWhere({ id: userId, role, canViewAllProjects, overseesDepartment, department, seniorityLevel });
-
-  // ── Atanabilir kullanıcılar — tek doğru kaynak (getEligibleAssignees) ────
-  const assigner = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { seniorityLevel: true, canViewAllProjects: true, role: true, email: true },
-  });
-
-  const [tasks, users] = await Promise.all([
-    prisma.task.findMany({
-      where: taskWhere as any,
-      include: {
-        assignedTo: { select: { id: true, name: true, email: true } },
-        assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
-        createdBy: { select: { id: true, name: true } },
-        project: { select: { department: true, createdById: true } },
-        parent: { select: { id: true, title: true } },
-        children: { select: { id: true, title: true, status: true } },
-        files: {
-          include: { uploadedBy: { select: { id: true, name: true } } },
-          orderBy: { createdAt: "desc" },
-        },
-        feedbacks: {
-          include: { fromUser: { select: { id: true, name: true, role: true } } },
-          orderBy: { createdAt: "asc" },
-        },
-        logs: {
-          include: { user: { select: { id: true, name: true } } },
-          orderBy: { timestamp: "asc" },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    assigner
-      ? getEligibleAssignees({
-          id: userId,
-          role: assigner.role,
-          seniorityLevel: assigner.seniorityLevel,
-          canViewAllProjects: assigner.canViewAllProjects,
-          email: assigner.email,
-        })
-      : Promise.resolve([]),
-  ]);
-
-  const counts = {
-    todo: tasks.filter((t) => t.status === "TODO").length,
-    inProgress: tasks.filter((t) => t.status === "IN_PROGRESS").length,
-    review: tasks.filter((t) => t.status === "REVIEW").length,
-    done: tasks.filter((t) => t.status === "DONE").length,
+  // #11: son seçilen hızlı görünüm — tarayıcı çerezinden hatırlanır, yoksa "Bana Atananlar"
+  const storedView = cookies().get(VIEW_COOKIE)?.value;
+  const initialFilters: BoardFilters = {
+    view: storedView === "given" || storedView === "all" ? storedView : "mine",
+    q: "",
+    projectId: "",
+    personId: "",
+    priority: "",
+    overdue: "",
+    department: "",
+    completedRange: "30d",
   };
+
+  const boardUser = { id: userId, role, department, seniorityLevel, canViewAllProjects, overseesDepartment, isAdmin };
+  const initialData = await fetchBoardData(boardUser, initialFilters);
 
   return (
     <div className="max-w-screen-2xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Görev Takip</h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Görevlere tıklayarak detay ve işlemleri görüntüleyin
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {[
-            { label: "Yapılacak", count: counts.todo, color: "#6B7280", bg: "#F3F4F6" },
-            { label: "Devam", count: counts.inProgress, color: "#F57C28", bg: "#FFF3E9" },
-            { label: "İncele", count: counts.review, color: "#6366F1", bg: "#EEF2FF" },
-            { label: "Tamam", count: counts.done, color: "#10B981", bg: "#ECFDF5" },
-          ].map((s) => (
-            <div key={s.label}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
-              style={{ backgroundColor: s.bg, color: s.color }}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.color }} />
-              {s.label}: {s.count}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <KanbanBoard
-        initialTasks={JSON.parse(JSON.stringify(tasks))}
-        users={JSON.parse(JSON.stringify(users))}
-        isAdmin={canManage}
+      <TaskBoard
+        initialData={JSON.parse(JSON.stringify(initialData))}
+        initialFilters={initialFilters}
         currentUserId={userId}
-        canDeleteFiles={canManage}
-        userIdentity={{ id: userId, role, canViewAllProjects, overseesDepartment }}
+        userIdentity={{ id: userId, role, seniorityLevel, canViewAllProjects, overseesDepartment, department }}
+        isAdmin={isAdmin}
+        canCreate={canCreate}
       />
 
       {performanceScope && <PerformancePanel />}

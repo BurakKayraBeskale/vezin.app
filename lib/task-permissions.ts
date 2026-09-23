@@ -390,6 +390,15 @@ export function buildTaskVisibilityWhere(user: TaskPermUser): object {
     conditions.push({ project: { department: od } });
   }
 
+  // Kural 5 (projesiz görevler): Senior Manager+ kendi departmanındaki TÜM
+  // projesiz görevleri de görür — canViewTask'te taskUserDept proje varlığından
+  // bağımsız hesaplandığı için bu kural orada zaten proje/projesiz ayrımı
+  // yapmıyordu; buradaki "inOwnDept" yalnızca proje tabanlı görevleri
+  // kapsadığından projesiz görevler için de aynı geniş erişim eklenir.
+  if (sl >= 11 && user.department) {
+    conditions.push({ projectId: null, departmentId: user.department });
+  }
+
   // Proje dışı görevler: her zaman assignedToId, createdById veya reviewOwnerId ile
   // erişilebilir (canViewTask'in Kural 9'uyla tutarlı — take_over_review ile reviewOwner
   // devralan biri, ne atanan ne oluşturan olsa da projesiz görevi görebilmeli).
