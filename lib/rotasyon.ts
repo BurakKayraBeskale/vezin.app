@@ -208,6 +208,7 @@ export const ROTASYON_DENETCILER = [
   "Gülşen Gül Yılmaz",
   "Mustafa Ceylan",
   "Fatma Zehra Koş",
+  "Sacit Ak",
 ] as const;
 
 /** Türkçe harf duyarlı küçültme — "İ"→"i", "I"→"ı" (varsayılan locale bunu bozar). */
