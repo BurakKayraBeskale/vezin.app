@@ -9,17 +9,14 @@ const hash = (pw: string) => bcrypt.hash(pw, 10);
 // Gerçek kullanıcılar — upsert ile, mevcut şifreler korunur
 // ─────────────────────────────────────────────────────────
 const REAL_USERS: { name: string; email: string; password: string; department?: string }[] = [
-  { name: "Ayşe Gazel",            email: "aysegazel@vezin.com.tr",         password: "ayse123"      },
   { name: "Ahmet Oruç",            email: "ahmetoruc@vezin.com.tr",          password: "ahmet123"     },
   { name: "Ahmet Yasin Özkul",     email: "ahmetyasinozkul@vezin.com.tr",    password: "ahmet123"     },
-  { name: "Ali Kayaş",             email: "alikayas@vezin.com.tr",            password: "ali123"       },
   { name: "Ali Mert Yılmaz",       email: "alimertyilmaz@vezin.com.tr",       password: "ali123"       },
   { name: "Alperen Coşkunoğlu",    email: "alperencoskunoglu@vezin.com.tr",   password: "alperen123"   },
   { name: "Asena Ö. Bay",          email: "asenaobay@vezin.com.tr",           password: "asena123"     },
   { name: "Berk Karanfil",         email: "berkkaranfil@vezin.com.tr",        password: "berk123"      },
   { name: "Buğrahan Bozkurt",      email: "bugrahanbozkurt@vezin.com.tr",     password: "bugrahan123"  },
   { name: "Ebubekir Öztürk",       email: "ebubekirozturk@vezin.com.tr",      password: "ebubekir123"  },
-  { name: "Ece Coşkun",            email: "ececoskun@vezin.com.tr",           password: "ece123"       },
   { name: "Efecan Güvenir",        email: "efecanguvenir@vezin.com.tr",       password: "efecan123"    },
   { name: "Elif Demirci",          email: "elifdemirci@vezin.com.tr",         password: "elif123"      },
   { name: "Emre Güvenç",           email: "emreguvenc@vezin.com.tr",          password: "emre123"      },
@@ -30,7 +27,6 @@ const REAL_USERS: { name: string; email: string; password: string; department?: 
   { name: "Gülşen Gül Yılmaz",     email: "gulsengulyilmaz@vezin.com.tr",     password: "gulsen123"    },
   { name: "Hasan Karaağaç",        email: "hasankaraagac@vezin.com.tr",       password: "hasan123"     },
   { name: "İsmail Koş",            email: "ismailkos@vezin.com.tr",           password: "ismail123"    },
-  { name: "İsmail Koş Telsiz",     email: "ismailkostelsiz@vezin.com.tr",     password: "ismail123"    },
   { name: "Janset Türkoğlu",       email: "jansetturkoglu@vezin.com.tr",      password: "janset123"    },
   { name: "Kader Nur Yeşil",       email: "kadernuryesil@vezin.com.tr",       password: "kader123"     },
   { name: "Kerim Doğan",           email: "kerimdogan@vezin.com.tr",          password: "kerim123"     },
@@ -41,7 +37,6 @@ const REAL_USERS: { name: string; email: string; password: string; department?: 
   { name: "Mustafa Agah Ertürk",   email: "mustafaagaherturk@vezin.com.tr",   password: "mustafa123"   },
   { name: "Nur Satı Yılmaz",       email: "nursatiyilmaz@vezin.com.tr",       password: "nur123"       },
   { name: "Oğuz Çetin",            email: "oguzcetin@vezin.com.tr",           password: "oguz123"      },
-  { name: "Ömer Duman",            email: "omerduman@vezin.com.tr",           password: "omer123"      },
   { name: "Ömer Faruk Koş",        email: "omerfarukkos@vezin.com.tr",        password: "omer123"      },
   { name: "Seda Zincirkara",       email: "sedazincirkara@vezin.com.tr",      password: "seda123"      },
   { name: "Selin Kotan",           email: "selinkotan@vezin.com.tr",          password: "selin123"     },
@@ -51,12 +46,6 @@ const REAL_USERS: { name: string; email: string; password: string; department?: 
   { name: "Tunahan Kocaoğlu",      email: "tunahankocaoglu@vezin.com.tr",     password: "tunahan123"   },
   { name: "Zeynep Yanık",          email: "zeynepyanik@vezin.com.tr",         password: "zeynep123"    },
   { name: "Özlem İnce",            email: "ozlemince@vezin.com.tr",           password: "ozlem123",     department: "YEMINLI_MALI_MUSAVIR" },
-  { name: "Ahmet Sait Koş",        email: "ahmetsaitkos@vezin.com.tr",        password: "ahmet123"     },
-  { name: "Selman Yalvaç",         email: "selmanyalvac@vezin.com.tr",        password: "selman123"    },
-  { name: "Yusuf Can Kabay",       email: "yusufcankabay@vezin.com.tr",       password: "yusuf123"     },
-  // Özel hesaplar
-  { name: "İKOS B Toplodası",      email: "ikosbtoplodasi@vezin.com.tr",      password: "ikos123"      },
-  { name: "K Toplodası",           email: "ktopodasi@vezin.com.tr",           password: "ktopo123"     },
 ];
 
 async function main() {
@@ -173,20 +162,11 @@ async function main() {
   // ── showInPerformance=false — bu hesaplar performans listesinde görünmez ──
   const HIDE_FROM_PERFORMANCE = [
     "admin@vezin.com",
-    "ahmetsaitkos@vezin.com.tr",
-    "alikayas@vezin.com.tr",
     "bagimsiz@vezin.com",
     "berkkaranfil@vezin.com.tr",
-    "ececoskun@vezin.com.tr",
     "gulsengulyilmaz@vezin.com.tr",
-    "ktopodasi@vezin.com.tr",
-    "selmanyalvac@vezin.com.tr",
-    "yusufcankabay@vezin.com.tr",
     "muhasebe@vezin.com",
     "ymm@vezin.com",
-    "omerduman@vezin.com.tr",
-    "ikosbtoplodasi@vezin.com.tr",
-    "ismailkostelsiz@vezin.com.tr",
   ];
 
   for (const em of HIDE_FROM_PERFORMANCE) {
