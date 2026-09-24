@@ -320,18 +320,43 @@ export function canApproveLeave(
 }
 
 /**
- * Bu kullanıcı hangi departmanların izin taleplerini GÖREBİLİR (kendi talepleri
- * ayrıca her zaman görülür, burada dahil değildir).
- * "ALL" → ADMIN veya İsmail Koş (tüm departmanların nihai/görünürlük sahibi —
- * yalnızca MUHASEBE/IDARI_ISLER/OUTSOURCE/ADMIN'i onaylasa da hepsini görür).
+ * İzin Yönetimi — "Personel İzin Durumu" (/izin-durumu) kapsamı: bu kullanıcı
+ * hangi departmanın personel listesini/izin geçmişini görebilir. Tek doğru
+ * kaynak — mevcut getPerformanceScope deseni örnek alınmıştır (bkz. yukarıda).
+ * canViewAllProjects/canViewAllTasks'tan ASLA TÜRETİLMEZ; e-posta bazlı
+ * eşleme. Bu, aynı zamanda "kim izin onaylayabilir" kümesiyle birebir aynıdır
+ * (getLeaveApprovers'ın kapsadığı departmanların birleşimi) — tek kaynaktan
+ * geldiği için ayrı bir liste olarak tutulmaz.
+ *
+ *   ADMIN, İsmail Koş           → "ALL"
+ *   Murat Özgür, Ebubekir Öztürk → "YEMINLI_MALI_MUSAVIR"
+ *   Ahmet Oruç                  → "BAGIMSIZ_DENETIM"
+ *   Diğer herkes                → null (bölüm hiç görünmez, API 404 döner)
  */
-export function getLeaveViewScope(user: { role: string; email?: string | null }): "ALL" | string[] {
+export function getLeaveOverviewScope(user: {
+  role: string;
+  email?: string | null;
+}): "ALL" | "YEMINLI_MALI_MUSAVIR" | "BAGIMSIZ_DENETIM" | null {
   if (user.role === "ADMIN") return "ALL";
   const email = (user.email ?? "").toLowerCase();
   if (email === "ismailkos@vezin.com.tr") return "ALL";
-  if (email === "muratozgur@vezin.com.tr" || email === "ebubekirozturk@vezin.com.tr") return ["YEMINLI_MALI_MUSAVIR"];
-  if (email === "ahmetoruc@vezin.com.tr") return ["BAGIMSIZ_DENETIM"];
-  return [];
+  if (email === "muratozgur@vezin.com.tr" || email === "ebubekirozturk@vezin.com.tr") return "YEMINLI_MALI_MUSAVIR";
+  if (email === "ahmetoruc@vezin.com.tr") return "BAGIMSIZ_DENETIM";
+  return null;
+}
+
+/**
+ * Bu kullanıcı hangi departmanların izin taleplerini GÖREBİLİR (kendi talepleri
+ * ayrıca her zaman görülür, burada dahil değildir).
+ * getLeaveOverviewScope'un dizi biçimindeki sarmalayıcısı — istek bazlı
+ * görünürlük (buildLeaveVisibilityWhere, GET /api/leave/[id]) tarafından
+ * kullanılır; kural TEK yerde (getLeaveOverviewScope) tanımlıdır.
+ */
+export function getLeaveViewScope(user: { role: string; email?: string | null }): "ALL" | string[] {
+  const scope = getLeaveOverviewScope(user);
+  if (scope === "ALL") return "ALL";
+  if (scope === null) return [];
+  return [scope];
 }
 
 /**

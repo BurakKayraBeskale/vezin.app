@@ -16,6 +16,14 @@
  *   L13 Talep sahibi PENDING talebini iptal edebilir (CANCELLED); APPROVED/REJECTED işlem göremez
  *   L14 GET /api/leave/team — onaylayıcı olmayan → 404, onaylayıcı → yalnızca kapsamındaki personel
  *   L15 Ek dosya indirme: yetkisiz kullanıcı → 404
+ *
+ * === /izin-durumu — "Personel İzin Durumu" ayrı sayfa (getLeaveOverviewScope) ===
+ *   L16 Sıradan kullanıcı GET /api/leave/team/[kendi id'si] ile kendi özetini görebiliyor
+ *   L17 Sıradan kullanıcı GET /api/leave/team'e erişemiyor → 404
+ *   L18 Murat Özgür ve Ebubekir Öztürk yalnızca YEMINLI_MALI_MUSAVIR kadrosunu görüyor
+ *   L19 İsmail Koş ve ADMIN tüm personeli görüyor
+ *   L20 Ahmet Oruç bir YMM personelinin detayını isteyince → 404
+ *   L21 GET /api/leave yanıtında personel listesi verisi (users alanı) dönmüyor
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -28,6 +36,7 @@ vi.mock("next-auth/jwt", () => ({ getToken: vi.fn() }));
 import { GET as leaveGET, POST as leavePOST } from "../../app/api/leave/route";
 import { GET as leaveByIdGET, PATCH as leavePATCH } from "../../app/api/leave/[id]/route";
 import { GET as leaveTeamGET } from "../../app/api/leave/team/route";
+import { GET as leaveTeamByIdGET } from "../../app/api/leave/team/[userId]/route";
 import { POST as leaveAttachmentsPOST } from "../../app/api/leave/[id]/attachments/route";
 import { GET as leaveAttachmentDownloadGET } from "../../app/api/leave/[id]/attachments/[attachmentId]/download/route";
 import { getServerSession } from "next-auth";
@@ -446,5 +455,96 @@ describe("L15 — Ek dosya indirme yetkisi", () => {
       { params: { id, attachmentId: attachment.id } }
     );
     expect(approverRes.status).toBe(200);
+  });
+});
+
+describe("L16 — /izin-durumu: sıradan kullanıcı kendi özetini görebiliyor", () => {
+  it("GET /api/leave/team/[kendi id'si] → 200, isOwner bypass ile kapsam dışı olsa da kendi özeti döner", async () => {
+    asUser(outsourceEmployee); // getLeaveOverviewScope kapsamında DEĞİL
+    const res = await leaveTeamByIdGET(
+      jsonReq(`http://localhost/api/leave/team/${outsourceEmployee.id}`, "GET"),
+      { params: { userId: outsourceEmployee.id } }
+    );
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    expect(data.user.id).toBe(outsourceEmployee.id);
+  });
+});
+
+describe("L17 — /izin-durumu: sıradan kullanıcı personel listesi API'sine erişemiyor", () => {
+  it("GET /api/leave/team → 404", async () => {
+    asUser(outsourceEmployee);
+    const res = await leaveTeamGET(jsonReq("http://localhost/api/leave/team", "GET"));
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("L18 — Murat Özgür ve Ebubekir Öztürk yalnızca YEMINLI_MALI_MUSAVIR kadrosunu görüyor", () => {
+  it("Murat Özgür", async () => {
+    asUser(muratOzgur);
+    const res = await leaveTeamGET(jsonReq("http://localhost/api/leave/team", "GET"));
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const ids = data.users.map((u: any) => u.id);
+    expect(ids).toContain(ymmEmployee.id);
+    expect(ids).not.toContain(bdEmployee.id);
+    expect(ids).not.toContain(muhasebeEmployee.id);
+    expect(ids).not.toContain(outsourceEmployee.id);
+  });
+
+  it("Ebubekir Öztürk", async () => {
+    asUser(ebubekirOzturk);
+    const res = await leaveTeamGET(jsonReq("http://localhost/api/leave/team", "GET"));
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const ids = data.users.map((u: any) => u.id);
+    expect(ids).toContain(ymmEmployee.id);
+    expect(ids).not.toContain(bdEmployee.id);
+  });
+});
+
+describe("L19 — İsmail Koş ve ADMIN tüm personeli görüyor", () => {
+  it("İsmail Koş", async () => {
+    asUser(ismailKos);
+    const res = await leaveTeamGET(jsonReq("http://localhost/api/leave/team", "GET"));
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const ids = data.users.map((u: any) => u.id);
+    expect(ids).toContain(ymmEmployee.id);
+    expect(ids).toContain(bdEmployee.id);
+    expect(ids).toContain(muhasebeEmployee.id);
+    expect(ids).toContain(outsourceEmployee.id);
+  });
+
+  it("ADMIN", async () => {
+    asUser(adminUser);
+    const res = await leaveTeamGET(jsonReq("http://localhost/api/leave/team", "GET"));
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const ids = data.users.map((u: any) => u.id);
+    expect(ids).toContain(ymmEmployee.id);
+    expect(ids).toContain(bdEmployee.id);
+  });
+});
+
+describe("L20 — Ahmet Oruç bir YMM personelinin detayını isteyince → 404", () => {
+  it("GET /api/leave/team/[ymmEmployee.id] → 404", async () => {
+    asUser(ahmetOruc);
+    const res = await leaveTeamByIdGET(
+      jsonReq(`http://localhost/api/leave/team/${ymmEmployee.id}`, "GET"),
+      { params: { userId: ymmEmployee.id } }
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("L21 — GET /api/leave yanıtında personel listesi verisi dönmüyor", () => {
+  it("yanıt bir dizi (Taleplerim), users alanı içermiyor", async () => {
+    asUser(ismailKos); // kapsamı ALL olsa dahi /api/leave yalnızca kendi taleplerini döner
+    const res = await leaveGET();
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    expect(Array.isArray(data)).toBe(true);
+    expect(data).not.toHaveProperty("users");
   });
 });

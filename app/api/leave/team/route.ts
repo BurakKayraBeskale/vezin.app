@@ -1,17 +1,17 @@
 /**
- * GET /api/leave/team — "Personel İzin Durumu": yalnızca onaylayıcılar ve ADMIN.
+ * GET /api/leave/team — "Personel İzin Durumu" (/izin-durumu) personel listesi:
+ * yalnızca getLeaveOverviewScope kapsamındaki kullanıcılar (ADMIN, İsmail Koş,
+ * Murat Özgür, Ebubekir Öztürk, Ahmet Oruç). Diğer herkes → 404.
  *
- * Kapsamındaki (getLeaveViewScope) her aktif kullanıcı için: hizmet yılı,
- * hak edilen gün (lib/leave.ts → hesaplaIzinHakki), bu yıl kullanılan gün
- * (onaylanmış YILLIK izinlerin toplamı), kalan (yalnızca bilgi).
- *
- * Yetkisiz erişimde 404.
+ * Kapsamındaki her AKTİF kullanıcı için: hizmet yılı, hak edilen gün
+ * (lib/leave.ts → hesaplaIzinHakki), bu yıl kullanılan gün (onaylanmış
+ * YILLIK izinlerin toplamı), kalan (yalnızca bilgi).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getLeaveViewScope } from "@/lib/access";
+import { getLeaveOverviewScope } from "@/lib/access";
 import { hesaplaIzinHakki } from "@/lib/leave";
 
 export async function GET(req: NextRequest) {
@@ -20,8 +20,8 @@ export async function GET(req: NextRequest) {
   const role = (session.user as any).role as string;
   const email = session.user.email ?? null;
 
-  const scope = getLeaveViewScope({ role, email });
-  if (scope !== "ALL" && scope.length === 0) {
+  const scope = getLeaveOverviewScope({ role, email });
+  if (scope === null) {
     return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
   }
 
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
 
   const userWhere: Record<string, unknown> = { status: "ACTIVE" };
-  if (scope !== "ALL") userWhere.department = { in: scope };
+  if (scope !== "ALL") userWhere.department = scope;
 
   const users = await prisma.user.findMany({
     where: userWhere,

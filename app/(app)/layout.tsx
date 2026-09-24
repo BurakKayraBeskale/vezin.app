@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
-import { getPerformanceScope } from "@/lib/access";
+import { getPerformanceScope, getLeaveOverviewScope } from "@/lib/access";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
@@ -15,6 +15,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Sidebar'daki "Personel Performansı" öğesinin görünürlüğü — gerçek erişim
   // sınırı sayfada/API'de (getPerformanceScope) uygulanır, bu yalnızca menü gösterimi.
   const canViewPerformance = getPerformanceScope({
+    role: session.user.role,
+    email: session.user.email ?? "",
+  }) !== null;
+  // Sidebar'daki "İzin Yönetimi" linkinin görünürlüğü — bu kapsamdaki herkes
+  // (ADMIN, İsmail Koş, Murat Özgür, Ebubekir Öztürk, Ahmet Oruç) aynı zamanda
+  // izin onaylayıcısıdır (getLeaveApprovers ile birebir aynı küme).
+  const canManageLeave = getLeaveOverviewScope({
     role: session.user.role,
     email: session.user.email ?? "",
   }) !== null;
@@ -49,6 +56,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canViewAllProjects={(session.user as any).canViewAllProjects ?? false}
       canAccessRotasyon={(session.user as any).canAccessRotasyon ?? false}
       canViewPerformance={canViewPerformance}
+      canManageLeave={canManageLeave}
       overseesDepartment={overseesDepartment}
       overdueCount={overdueCount}
       unreadPetitions={unreadPetitions}

@@ -17,6 +17,7 @@ interface SidebarProps {
   canViewAllProjects: boolean;
   canAccessRotasyon: boolean;
   canViewPerformance: boolean;
+  canManageLeave: boolean;
   overseesDepartment: string | null;
   overdueCount: number;
   unreadPetitions: number;
@@ -102,17 +103,23 @@ const managementNavItems = [
       </svg>
     ),
   },
-  {
-    href: "/leave",
-    label: "İzin Yönetimi",
-    badgeKey: "pendingLeave" as const,
-    icon: (
-      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
-  },
 ];
+
+// "İzin Yönetimi" — standalone, canManageLeave (getLeaveOverviewScope) ile
+// gated; managementNavItems'ın dışında tutulur çünkü onaylayıcılar
+// (Ahmet Oruç, Ebubekir Öztürk) isManagerOrAdmin/canViewAllProjects/
+// canViewAllTasks'a sahip olmayabilir ve bu grup Raporlar/Dilekçeler gibi
+// başka yönetim öğelerini de yanlışlıkla açığa çıkarmamalı.
+const leaveManagementNavItem = {
+  href: "/leave",
+  label: "İzin Yönetimi",
+  badgeKey: "pendingLeave" as const,
+  icon: (
+    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  ),
+};
 
 // Sadece ADMIN görebilir
 const adminOnlyNavItems = [
@@ -189,7 +196,7 @@ function NavLink({ href, label, icon, active, badge }: NavLinkProps) {
 }
 
 export default function Sidebar({
-  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, canAccessRotasyon: canAccessRotasyonFlag, canViewPerformance, overseesDepartment,
+  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, canAccessRotasyon: canAccessRotasyonFlag, canViewPerformance, canManageLeave, overseesDepartment,
   overdueCount, unreadPetitions, pendingLeave, unreadNotifications, isOpen = false, onClose,
 }: SidebarProps) {
   const pathname = usePathname();
@@ -296,6 +303,20 @@ export default function Sidebar({
           />
         )}
 
+        {/* Personel İzin Durumu — herkes kendi özetini görebildiği için
+            menü öğesi her aktif kullanıcıda görünür; alttaki personel listesi
+            bölümü sayfa içinde getLeaveOverviewScope'a göre koşullu render edilir. */}
+        <NavLink
+          href="/izin-durumu"
+          label="Personel İzin Durumu"
+          icon={
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 100-8 4 4 0 000 8zm6 0a4 4 0 10-4-4" />
+            </svg>
+          }
+          active={pathname === "/izin-durumu"}
+        />
+
         {/* Dilekçe + İzin: EMPLOYEE kendi görünümünü görür (badge yok) */}
         {(BYPASS_AUTH_ROLES || userRole === "EMPLOYEE") && employeeExtraNavItems.map((item) => (
           <NavLink
@@ -380,43 +401,62 @@ export default function Sidebar({
           />
         )}
 
-        {(BYPASS_AUTH_ROLES || isManagerOrAdmin(userRole) || canViewAllProjects || canViewAllTasks) && (
-          <>
-            <div className="pt-3 pb-1">
-              <p className="px-3 text-[9px] font-semibold text-white/25 uppercase tracking-widest">
-                Yönetim
-              </p>
-            </div>
-            {managementNavItems
-              .filter((item) => {
-                // "Raporlar" yalnızca canViewAllTasks veya ADMIN için görünür
-                if (item.href === "/reports") return BYPASS_AUTH_ROLES || canViewAllProjects || canViewAllTasks || userRole === "ADMIN";
-                // Diğer yönetim öğeleri MANAGER/ADMIN için
-                return true;
-              })
-              .map((item) => (
-              <NavLink
-                key={item.href}
-                href={item.href}
-                label={item.label}
-                icon={item.icon}
-                active={pathname === item.href}
-                badge={item.badgeKey ? adminBadges[item.badgeKey] : undefined}
-              />
-            ))}
-            {/* Kullanıcılar, AI Yöneticisi, Yedekleme — yalnızca ADMIN */}
-            {(BYPASS_AUTH_ROLES || userRole === "ADMIN") && adminOnlyNavItems.map((item) => (
-              <NavLink
-                key={item.href}
-                href={item.href}
-                label={item.label}
-                icon={item.icon}
-                active={pathname === item.href}
-                badge={item.badgeKey ? adminBadges[item.badgeKey] : undefined}
-              />
-            ))}
-          </>
-        )}
+        {(() => {
+          const showManagementSection = isManagerOrAdmin(userRole) || canViewAllProjects || canViewAllTasks;
+          // "İzin Yönetimi" ayrı bir kapıdan geçer: onaylayıcılar (ör. Ahmet
+          // Oruç, Ebubekir Öztürk) isManagerOrAdmin/canViewAllProjects/
+          // canViewAllTasks'a sahip olmayabilir ama izin onaylayabilmelidir.
+          const showLeaveManagement = canManageLeave;
+          if (!BYPASS_AUTH_ROLES && !showManagementSection && !showLeaveManagement) return null;
+
+          return (
+            <>
+              <div className="pt-3 pb-1">
+                <p className="px-3 text-[9px] font-semibold text-white/25 uppercase tracking-widest">
+                  Yönetim
+                </p>
+              </div>
+              {(BYPASS_AUTH_ROLES || showManagementSection) && managementNavItems
+                .filter((item) => {
+                  // "Raporlar" yalnızca canViewAllTasks veya ADMIN için görünür
+                  if (item.href === "/reports") return BYPASS_AUTH_ROLES || canViewAllProjects || canViewAllTasks || userRole === "ADMIN";
+                  // Diğer yönetim öğeleri MANAGER/ADMIN için
+                  return true;
+                })
+                .map((item) => (
+                <NavLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={pathname === item.href}
+                  badge={item.badgeKey ? adminBadges[item.badgeKey] : undefined}
+                />
+              ))}
+              {(BYPASS_AUTH_ROLES || showLeaveManagement) && (
+                <NavLink
+                  key={leaveManagementNavItem.href}
+                  href={leaveManagementNavItem.href}
+                  label={leaveManagementNavItem.label}
+                  icon={leaveManagementNavItem.icon}
+                  active={pathname === leaveManagementNavItem.href}
+                  badge={adminBadges[leaveManagementNavItem.badgeKey]}
+                />
+              )}
+              {/* Kullanıcılar, AI Yöneticisi, Yedekleme — yalnızca ADMIN */}
+              {(BYPASS_AUTH_ROLES || userRole === "ADMIN") && adminOnlyNavItems.map((item) => (
+                <NavLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={pathname === item.href}
+                  badge={item.badgeKey ? adminBadges[item.badgeKey] : undefined}
+                />
+              ))}
+            </>
+          );
+        })()}
       </nav>
 
       {/* Theme toggle + User + Logout */}

@@ -1,14 +1,15 @@
 /**
  * GET /api/leave/team/[userId] — bir kişinin izin geçmişi + hak dökümü.
  *
- * Görebilenler: kendisi, kapsamındaki onaylayıcılar (getLeaveViewScope), ADMIN.
- * Başkası → 404. Yıl filtresi (?year=), varsayılan içinde bulunulan yıl.
+ * Görebilenler: kendisi (herkes kendi özetini görebilir — /izin-durumu #2),
+ * kapsamındaki onaylayıcılar (getLeaveOverviewScope), ADMIN. Başkası → 404.
+ * Yıl filtresi (?year=), varsayılan içinde bulunulan yıl.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getLeaveViewScope } from "@/lib/access";
+import { getLeaveOverviewScope } from "@/lib/access";
 import { hesaplaIzinHakki, leaveInclude } from "@/lib/leave";
 
 export async function GET(req: NextRequest, { params }: { params: { userId: string } }) {
@@ -25,8 +26,8 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
   if (!target) return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
 
   const isOwner = target.id === currentUserId;
-  const scope = getLeaveViewScope({ role, email });
-  const canSee = isOwner || scope === "ALL" || scope.includes(target.department);
+  const scope = getLeaveOverviewScope({ role, email });
+  const canSee = isOwner || scope === "ALL" || scope === target.department;
   if (!canSee) return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
 
   const yearParam = Number(new URL(req.url).searchParams.get("year"));
