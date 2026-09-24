@@ -2,9 +2,7 @@ import { getServerSession } from "next-auth";
 import { cookies } from "next/headers";
 import { authOptions } from "@/lib/auth";
 import { fetchBoardData, BoardFilters } from "@/lib/task-board";
-import { getPerformanceScope } from "@/lib/access";
 import TaskBoard from "@/components/board/TaskBoard";
-import PerformancePanel from "@/components/PerformancePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +18,9 @@ export default async function BoardPage() {
   const overseesDepartment = (session!.user as any).overseesDepartment as string | null ?? null;
   const department = (session!.user as any).department as string ?? "";
   const seniorityLevel = (session!.user as any).seniorityLevel as number ?? 0;
-  const userEmail = session!.user.email ?? "";
   // Görev oluşturma yetkisi — eski board'daki aynı geniş bayrak (Task Core'un
   // kendi POST /api/tasks kuralları zaten bağımsız olarak da uygulanır).
   const canCreate = isAdmin || canViewAllTasks;
-  const performanceScope = getPerformanceScope({ role, email: userEmail });
 
   // #11: son seçilen hızlı görünüm — tarayıcı çerezinden hatırlanır, yoksa "Bana Atananlar"
   const storedView = cookies().get(VIEW_COOKIE)?.value;
@@ -52,8 +48,6 @@ export default async function BoardPage() {
         isAdmin={isAdmin}
         canCreate={canCreate}
       />
-
-      {performanceScope && <PerformancePanel />}
     </div>
   );
 }

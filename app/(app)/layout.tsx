@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { getPerformanceScope } from "@/lib/access";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
@@ -11,6 +12,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const userId = (session.user as any).id as string;
   const overseesDepartment = (session.user as any).overseesDepartment as string | null ?? null;
+  // Sidebar'daki "Personel Performansı" öğesinin görünürlüğü — gerçek erişim
+  // sınırı sayfada/API'de (getPerformanceScope) uygulanır, bu yalnızca menü gösterimi.
+  const canViewPerformance = getPerformanceScope({
+    role: session.user.role,
+    email: session.user.email ?? "",
+  }) !== null;
 
   // Overdue count: yalnızca kullanıcının kendisine atanan gecikmiş görevler
   const [overdueCount, unreadPetitions, pendingLeave, unreadNotifications] = await Promise.all([
@@ -41,6 +48,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canViewAllTasks={(session.user as any).canViewAllTasks ?? false}
       canViewAllProjects={(session.user as any).canViewAllProjects ?? false}
       canAccessRotasyon={(session.user as any).canAccessRotasyon ?? false}
+      canViewPerformance={canViewPerformance}
       overseesDepartment={overseesDepartment}
       overdueCount={overdueCount}
       unreadPetitions={unreadPetitions}

@@ -16,6 +16,7 @@ interface SidebarProps {
   canViewAllTasks: boolean;
   canViewAllProjects: boolean;
   canAccessRotasyon: boolean;
+  canViewPerformance: boolean;
   overseesDepartment: string | null;
   overdueCount: number;
   unreadPetitions: number;
@@ -188,7 +189,7 @@ function NavLink({ href, label, icon, active, badge }: NavLinkProps) {
 }
 
 export default function Sidebar({
-  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, canAccessRotasyon: canAccessRotasyonFlag, overseesDepartment,
+  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, canAccessRotasyon: canAccessRotasyonFlag, canViewPerformance, overseesDepartment,
   overdueCount, unreadPetitions, pendingLeave, unreadNotifications, isOpen = false, onClose,
 }: SidebarProps) {
   const pathname = usePathname();
@@ -276,6 +277,22 @@ export default function Sidebar({
               </svg>
             }
             active={pathname.startsWith("/rotasyon")}
+          />
+        )}
+
+        {/* Personel Performansı — yalnızca getPerformanceScope kapsamındakiler
+            (ADMIN, İsmail Koş, Murat Özgür, Ebubekir Öztürk); gerçek sınır
+            sayfa/API'de uygulanır, bu yalnızca menü görünürlüğü. */}
+        {(BYPASS_AUTH_ROLES || canViewPerformance) && (
+          <NavLink
+            href="/performans"
+            label="Personel Performansı"
+            icon={
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            }
+            active={pathname === "/performans"}
           />
         )}
 
