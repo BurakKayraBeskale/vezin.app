@@ -248,6 +248,26 @@ async function main() {
   }
   console.log("✔ showInLeaveOverview=false uygulandı");
 
+  // ── canAccessRotasyon=true — Rotasyon Takip modülüne erişim ──
+  // Rol kısayolu yok (bkz. lib/access.ts canAccessRotasyon) — yalnızca
+  // burada listelenen e-postalar erişir.
+  const CAN_ACCESS_ROTASYON = [
+    "admin@vezin.com",
+    "ahmetoruc@vezin.com.tr",
+    "omerfarukkos@vezin.com.tr",
+    "ismailkos@vezin.com.tr",
+  ];
+
+  for (const em of CAN_ACCESS_ROTASYON) {
+    const u = await prisma.user.findUnique({ where: { email: em } });
+    if (!u) {
+      console.warn(`⚠ canAccessRotasyon=true: kullanıcı bulunamadı: ${em}`);
+      continue;
+    }
+    await prisma.user.update({ where: { email: em }, data: { canAccessRotasyon: true } });
+  }
+  console.log("✔ canAccessRotasyon=true uygulandı");
+
   console.log("\n✅ Seed tamamlandı.");
   console.log("   admin@vezin.com  / vezin123  → ADMIN");
   console.log(`   ${REAL_USERS.length} gerçek kullanıcı → EMPLOYEE / OUTSOURCE / mustChangePassword: true`);
