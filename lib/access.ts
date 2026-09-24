@@ -275,6 +275,78 @@ export function canAccessProjects(user: {
 }
 
 /**
+ * İzin Yönetimi — onay zinciri (bkz. app/(app)/leave, app/api/leave).
+ *
+ * Talep sahibinin User.department değerine göre onaylayıcı(lar):
+ *   YEMINLI_MALI_MUSAVIR              → Murat Özgür (birincil) + Ebubekir Öztürk
+ *   BAGIMSIZ_DENETIM                  → Ahmet Oruç
+ *   MUHASEBE / IDARI_ISLER / OUTSOURCE / ADMIN (ve eşleşmeyen her departman) → İsmail Koş
+ *
+ * E-posta bazlı eşlemede tutulur, rol string'ine (MANAGER vb.) ASLA bağlanmaz.
+ * Murat Özgür, Ebubekir Öztürk ve Ahmet Oruç'un GERÇEK User.department alanı
+ * "OUTSOURCE" (varsayılan; hiçbiri departman kayıtlarında YMM/BD olarak
+ * saklanmaz — erişimleri her yerde overseesDepartment/e-posta üzerinden
+ * yürür) olduğundan, kendi talepleri de doğal olarak İsmail Koş/ADMIN
+ * onayına düşer — bunun için ayrıca özel bir istisna yazılmadı.
+ */
+const LEAVE_APPROVERS_BY_DEPARTMENT: Record<string, string[]> = {
+  YEMINLI_MALI_MUSAVIR: ["muratozgur@vezin.com.tr", "ebubekirozturk@vezin.com.tr"],
+  BAGIMSIZ_DENETIM:     ["ahmetoruc@vezin.com.tr"],
+  MUHASEBE:              ["ismailkos@vezin.com.tr"],
+  IDARI_ISLER:           ["ismailkos@vezin.com.tr"],
+  OUTSOURCE:             ["ismailkos@vezin.com.tr"],
+  ADMIN:                 ["ismailkos@vezin.com.tr"],
+};
+
+/** Verilen (talep sahibinin) departmanı için onaylayabilecek e-postalar. Eşleşmeyen departman → İsmail Koş. */
+export function getLeaveApprovers(department: string | null | undefined): string[] {
+  const key = (department ?? "").toUpperCase();
+  return LEAVE_APPROVERS_BY_DEPARTMENT[key] ?? ["ismailkos@vezin.com.tr"];
+}
+
+/**
+ * Bu kullanıcı verilen izin talebini onaylayabilir/reddedebilir mi?
+ * Kimse KENDİ talebini onaylayamaz (ADMIN dahil). ADMIN dışında e-posta
+ * getLeaveApprovers(request.userDepartment) listesinde olmalı.
+ */
+export function canApproveLeave(
+  user: { id: string; role: string; email?: string | null },
+  request: { userId: string; userDepartment: string }
+): boolean {
+  if (request.userId === user.id) return false;
+  if (user.role === "ADMIN") return true;
+  const approvers = getLeaveApprovers(request.userDepartment);
+  return approvers.includes((user.email ?? "").toLowerCase());
+}
+
+/**
+ * Bu kullanıcı hangi departmanların izin taleplerini GÖREBİLİR (kendi talepleri
+ * ayrıca her zaman görülür, burada dahil değildir).
+ * "ALL" → ADMIN veya İsmail Koş (tüm departmanların nihai/görünürlük sahibi —
+ * yalnızca MUHASEBE/IDARI_ISLER/OUTSOURCE/ADMIN'i onaylasa da hepsini görür).
+ */
+export function getLeaveViewScope(user: { role: string; email?: string | null }): "ALL" | string[] {
+  if (user.role === "ADMIN") return "ALL";
+  const email = (user.email ?? "").toLowerCase();
+  if (email === "ismailkos@vezin.com.tr") return "ALL";
+  if (email === "muratozgur@vezin.com.tr" || email === "ebubekirozturk@vezin.com.tr") return ["YEMINLI_MALI_MUSAVIR"];
+  if (email === "ahmetoruc@vezin.com.tr") return ["BAGIMSIZ_DENETIM"];
+  return [];
+}
+
+/**
+ * İzin talepleri listesi için Prisma WHERE filtresi — tek doğru kaynak.
+ * Her zaman kendi talepleri + (varsa) getLeaveViewScope kapsamındaki
+ * departmanların talepleri.
+ */
+export function buildLeaveVisibilityWhere(user: { id: string; role: string; email?: string | null }): object {
+  const scope = getLeaveViewScope(user);
+  if (scope === "ALL") return {};
+  if (scope.length === 0) return { userId: user.id };
+  return { OR: [{ userId: user.id }, { user: { department: { in: scope } } }] };
+}
+
+/**
  * Bu rol+departman kombinasyonu verilen pathname'e erişebilir mi?
  */
 export function canAccess(role: string, department: string, pathname: string): boolean {

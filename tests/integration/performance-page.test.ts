@@ -72,18 +72,19 @@ beforeAll(async () => {
   });
   createdUserIds.push(ymm.id);
 
-  // Ebubekir Öztürk — gerçek e-posta zaten DB'de olabilir; upsert (update:{}) ile
-  // dokunmadan güvenle referans alınır.
-  const ebubekirRaw = await prisma.user.upsert({
-    where: { email: "ebubekirozturk@vezin.com.tr" },
-    update: {},
-    create: {
+  // Ebubekir Öztürk — gerçek e-posta zaten DB'de olabilir. ÖNCE var mı bak;
+  // yalnızca BİZ oluşturduysak cleanup'ta sileriz — mevcut gerçek kullanıcıya
+  // asla dokunulmaz/silinmez (upsert'in update:{} kolu dokunmaz, ama id'yi
+  // createdUserIds'e eklemek onu afterAll'da SİLERDİ — bu şekilde önlenir).
+  const existingEbubekir = await prisma.user.findUnique({ where: { email: "ebubekirozturk@vezin.com.tr" } });
+  const ebubekirRaw = existingEbubekir ?? await prisma.user.create({
+    data: {
       name: "Ebubekir Öztürk", email: "ebubekirozturk@vezin.com.tr", password: await hash("test123"),
       role: "EMPLOYEE", department: "YEMINLI_MALI_MUSAVIR", canBeAssignedTasks: false, seniorityLevel: 12,
       overseesDepartment: "YMM",
     },
   });
-  createdUserIds.push(ebubekirRaw.id);
+  if (!existingEbubekir) createdUserIds.push(ebubekirRaw.id);
   ebubekirDbId = ebubekirRaw.id;
   // Token'da BİLEREK canViewAllProjects=false, overseesDepartment=null —
   // erişimin bu bayraklardan değil e-posta eşlemesinden geldiğini kanıtlar.

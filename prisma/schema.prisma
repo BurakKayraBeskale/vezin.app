@@ -32,6 +32,7 @@ model User {
   showInPerformance     Boolean             @default(true)
   canAccessRotasyon     Boolean             @default(false)
   status                String              @default("ACTIVE")
+  hireDate              DateTime? // işe giriş tarihi — İzin Yönetimi hak hesabı (lib/leave.ts) için
   createdAt             DateTime            @default(now())
   assignedTasks         Task[]              @relation("AssignedTo")
   createdTasks          Task[]              @relation("CreatedBy")
@@ -42,6 +43,7 @@ model User {
   petitions             Petition[]
   leaveRequests         LeaveRequest[]      @relation("LeaveRequests")
   leaveBalances         LeaveBalance[]      @relation("LeaveBalances")
+  leaveAttachments      LeaveAttachment[]   @relation("LeaveAttachmentUploader")
   manages               UserRelation[]      @relation("manages")
   subordinateTo         UserRelation[]      @relation("subordinateTo")
   notifications         Notification[]
@@ -309,21 +311,29 @@ model Petition {
 }
 
 // type: "ANNUAL" | "EXCUSE" | "UNPAID"
-// status: "PENDING" | "APPROVED" | "REJECTED"
+// status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"
+// type:   "ANNUAL" | "EXCUSE" | "SICK" | "UNPAID" | "PARENTAL" (bkz. lib/leave.ts)
 model LeaveRequest {
-  id         String   @id @default(cuid())
-  user       User     @relation("LeaveRequests", fields: [userId], references: [id])
-  userId     String
-  startDate  DateTime
-  endDate    DateTime
-  days       Int
-  type       String // ANNUAL | EXCUSE | UNPAID
-  note       String?
-  status     String   @default("PENDING")
-  reviewedBy String?
-  createdAt  DateTime @default(now())
+  id          String            @id @default(cuid())
+  user        User              @relation("LeaveRequests", fields: [userId], references: [id])
+  userId      String
+  startDate   DateTime
+  endDate     DateTime
+  days        Int
+  type        String
+  note        String?
+  status      String            @default("PENDING")
+  reviewedBy  String? // onaylayan/reddeden kişinin adı (mevcut alan, korunuyor)
+  reviewedAt  DateTime?
+  reviewNote  String? // onay/ret gerekçesi (ret için zorunlu — bkz. app/api/leave/[id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  attachments LeaveAttachment[]
 }
 
+// Bu tur bakiye DÜŞÜMÜ yapılmıyor — LeaveBalance yazılmıyor, yalnızca
+// bilgi amaçlı hak/kullanım hesabı lib/leave.ts → hesaplaIzinHakki ile
+// canlı hesaplanır. Model geriye dönük uyumluluk için korunuyor.
 model LeaveBalance {
   id            String @id @default(cuid())
   user          User   @relation("LeaveBalances", fields: [userId], references: [id])
@@ -334,6 +344,23 @@ model LeaveBalance {
   remainingDays Int    @default(14)
 
   @@unique([userId, year])
+}
+
+// Mevcut dosya yükleme altyapısıyla aynı desen (bkz. TaskAttachment) — blob DB'de
+// tutulmaz, yalnızca disk üzerindeki dosyanın meta verisi (storageKey) saklanır.
+model LeaveAttachment {
+  id             String       @id @default(cuid())
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  leaveRequestId String
+  name           String
+  url            String? // yalnızca link ekleri için (bu turda dosya odaklı, ileride kullanılabilir)
+  storageKey     String? // uploads/ altındaki dosya adı
+  size           Int?
+  uploadedBy     User         @relation("LeaveAttachmentUploader", fields: [uploadedById], references: [id])
+  uploadedById   String
+  createdAt      DateTime     @default(now())
+
+  @@index([leaveRequestId])
 }
 
 // date: "YYYY-MM-DD" | time: "HH:MM" | duration in minutes

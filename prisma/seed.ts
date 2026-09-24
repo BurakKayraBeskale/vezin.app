@@ -8,7 +8,7 @@ const hash = (pw: string) => bcrypt.hash(pw, 10);
 // ─────────────────────────────────────────────────────────
 // Gerçek kullanıcılar — upsert ile, mevcut şifreler korunur
 // ─────────────────────────────────────────────────────────
-const REAL_USERS = [
+const REAL_USERS: { name: string; email: string; password: string; department?: string }[] = [
   { name: "Ayşe Gazel",            email: "aysegazel@vezin.com.tr",         password: "ayse123"      },
   { name: "Ahmet Oruç",            email: "ahmetoruc@vezin.com.tr",          password: "ahmet123"     },
   { name: "Ahmet Yasin Özkul",     email: "ahmetyasinozkul@vezin.com.tr",    password: "ahmet123"     },
@@ -50,6 +50,7 @@ const REAL_USERS = [
   { name: "Taha Bölek",            email: "tahabolek@vezin.com.tr",           password: "taha123"      },
   { name: "Tunahan Kocaoğlu",      email: "tunahankocaoglu@vezin.com.tr",     password: "tunahan123"   },
   { name: "Zeynep Yanık",          email: "zeynepyanik@vezin.com.tr",         password: "zeynep123"    },
+  { name: "Özlem İnce",            email: "ozlemince@vezin.com.tr",           password: "ozlem123",     department: "YEMINLI_MALI_MUSAVIR" },
   { name: "Ahmet Sait Koş",        email: "ahmetsaitkos@vezin.com.tr",        password: "ahmet123"     },
   { name: "Selman Yalvaç",         email: "selmanyalvac@vezin.com.tr",        password: "selman123"    },
   { name: "Yusuf Can Kabay",       email: "yusufcankabay@vezin.com.tr",       password: "yusuf123"     },
@@ -94,7 +95,7 @@ async function main() {
           email:              u.email,
           password:           await hash(u.password),
           role:               "EMPLOYEE",
-          department:         "OUTSOURCE",
+          department:         u.department ?? "OUTSOURCE",
           mustChangePassword: true,
           canManageCompanies: false,
         },
@@ -104,153 +105,12 @@ async function main() {
   }
   console.log(`✔ Gerçek kullanıcılar: ${created} oluşturuldu, ${updated} güncellendi`);
 
-  // ── Demo kullanıcılar (görevler ve izinler için) ──────────
-  const ayse = await prisma.user.upsert({
-    where:  { email: "ayse.kaya@vezin.com" },
-    update: {},
-    create: {
-      name:               "Ayşe Kaya",
-      email:              "ayse.kaya@vezin.com",
-      password:           await hash("vezin123"),
-      role:               "EMPLOYEE",
-      department:         "MUHASEBE",
-      canManageCompanies: false,
-    },
-  });
-
-  const murat = await prisma.user.upsert({
-    where:  { email: "murat.demir@vezin.com" },
-    update: {},
-    create: {
-      name:               "Murat Demir",
-      email:              "murat.demir@vezin.com",
-      password:           await hash("vezin123"),
-      role:               "EMPLOYEE",
-      department:         "OUTSOURCE",
-      canManageCompanies: false,
-    },
-  });
-
-  const zeynep = await prisma.user.upsert({
-    where:  { email: "zeynep.celik@vezin.com" },
-    update: {},
-    create: {
-      name:               "Zeynep Çelik",
-      email:              "zeynep.celik@vezin.com",
-      password:           await hash("vezin123"),
-      role:               "EMPLOYEE",
-      department:         "BAGIMSIZ_DENETIM",
-      canManageCompanies: false,
-    },
-  });
-
-  // ── Görevler (sadece boşsa oluştur) ─────────────────────
-  const now = new Date();
-  const days = (n: number) => new Date(now.getTime() + n * 86400000);
-
-  const tasks = [
-    {
-      title:        "2024 Kurumlar Vergisi Beyannamesi Hazırlama",
-      description:  "Alfa Holding A.Ş. için Q4 2024 kurumlar vergisi beyannamesi hazırlanacak.",
-      status:       "IN_PROGRESS" as const,
-      priority:     "HIGH" as const,
-      assignedToId: ayse.id,
-      dueDate:      days(9),
-      createdById:  admin.id,
-    },
-    {
-      title:        "KDV İadesi Dosyası İnceleme",
-      description:  "Beta İnşaat Ltd. Mart ayı KDV iadesi için gerekli evraklar incelenecek.",
-      status:       "REVIEW" as const,
-      priority:     "HIGH" as const,
-      assignedToId: murat.id,
-      dueDate:      days(2),
-      createdById:  admin.id,
-    },
-    {
-      title:        "Bağımsız Denetim Raporu - Q1 2026",
-      description:  "Gamma Tekstil A.Ş. Q1 2026 bağımsız denetim raporu hazırlanacak.",
-      status:       "IN_PROGRESS" as const,
-      priority:     "HIGH" as const,
-      assignedToId: zeynep.id,
-      dueDate:      days(14),
-      createdById:  admin.id,
-    },
-    {
-      title:        "Transfer Fiyatlandırması Dokümantasyonu",
-      description:  "Delta Enerji A.Ş. 2025 yılı transfer fiyatlandırması raporu.",
-      status:       "TODO" as const,
-      priority:     "MEDIUM" as const,
-      assignedToId: murat.id,
-      dueDate:      days(24),
-      createdById:  admin.id,
-    },
-    {
-      title:        "SGK Prim Borç Yapılandırması",
-      description:  "Epsilon Lojistik Ltd. SGK borç yapılandırma başvurusu ve takibi.",
-      status:       "DONE" as const,
-      priority:     "HIGH" as const,
-      assignedToId: ayse.id,
-      dueDate:      days(-1),
-      createdById:  admin.id,
-    },
-    {
-      title:        "Mali Tablo Analizi ve Raporlama",
-      description:  "Zeta Gıda A.Ş. 2025 yıl sonu mali tabloları analizi.",
-      status:       "DONE" as const,
-      priority:     "MEDIUM" as const,
-      assignedToId: zeynep.id,
-      dueDate:      days(-2),
-      createdById:  admin.id,
-    },
-    {
-      title:        "Vergi Riski Değerlendirme Raporu",
-      description:  "Eta Teknoloji A.Ş. vergi risk profili değerlendirilecek.",
-      status:       "TODO" as const,
-      priority:     "MEDIUM" as const,
-      assignedToId: murat.id,
-      dueDate:      days(19),
-      createdById:  admin.id,
-    },
-    {
-      title:        "Stopaj Vergisi Beyannamesi",
-      description:  "Alfa Holding A.Ş. Mart ayı muhtasar beyannamesi.",
-      status:       "REVIEW" as const,
-      priority:     "HIGH" as const,
-      assignedToId: ayse.id,
-      dueDate:      days(1),
-      createdById:  admin.id,
-    },
-    {
-      title:        "İç Denetim Süreci Tasarımı",
-      description:  "Iota Perakende A.Ş. iç kontrol ve denetim süreçleri tasarımı.",
-      status:       "TODO" as const,
-      priority:     "MEDIUM" as const,
-      assignedToId: zeynep.id,
-      dueDate:      days(29),
-      createdById:  admin.id,
-    },
-    {
-      title:        "Vergi Dairesi İtiraz Süreci",
-      description:  "Lambda Otomotiv Ltd. 2023 tarhiyatına itiraz dilekçesi.",
-      status:       "IN_PROGRESS" as const,
-      priority:     "HIGH" as const,
-      assignedToId: murat.id,
-      dueDate:      days(4),
-      createdById:  admin.id,
-    },
-  ];
-
-  const existingTaskCount = await prisma.task.count();
-  if (existingTaskCount === 0) {
-    for (const t of tasks) {
-      await prisma.task.create({ data: t });
-    }
-    console.log(`✔ ${tasks.length} demo görev oluşturuldu`);
-  } else {
-    console.log(`   ⏭  Görevler atlandı (${existingTaskCount} kayıt mevcut)`);
-  }
-
+  // NOT: eski "demo kullanıcılar" (ayse.kaya@vezin.com, murat.demir@vezin.com,
+  // zeynep.celik@vezin.com) ve onlara bağlı demo görev/izin bakiyesi seed'i
+  // kaldırıldı — bu hesaplar veritabanından silindi, seed onları geri
+  // getirmemeli (İZİN YÖNETİMİ MODÜLÜ turu). Aşağıdaki görev bloğu zaten
+  // yalnızca veritabanı tamamen boşsa (existingTaskCount === 0) çalışıyordu;
+  // gerçek kullanım başladığından bu koşul artık hiç sağlanmıyor.
   // Admin hesabı: canViewAllTasks=true
   await prisma.user.updateMany({
     where: { email: "admin@vezin.com" },
@@ -315,16 +175,13 @@ async function main() {
     "admin@vezin.com",
     "ahmetsaitkos@vezin.com.tr",
     "alikayas@vezin.com.tr",
-    "ayse.kaya@vezin.com",
     "bagimsiz@vezin.com",
     "berkkaranfil@vezin.com.tr",
     "ececoskun@vezin.com.tr",
     "gulsengulyilmaz@vezin.com.tr",
     "ktopodasi@vezin.com.tr",
-    "murat.demir@vezin.com",
     "selmanyalvac@vezin.com.tr",
     "yusufcankabay@vezin.com.tr",
-    "zeynep.celik@vezin.com",
     "muhasebe@vezin.com",
     "ymm@vezin.com",
     "omerduman@vezin.com.tr",
@@ -342,14 +199,59 @@ async function main() {
   }
   console.log("✔ showInPerformance=false uygulandı");
 
-  // ── LeaveBalance (2026) ──────────────────────────────────
-  for (const emp of [ayse, murat, zeynep]) {
-    await prisma.leaveBalance.upsert({
-      where:  { userId_year: { userId: emp.id, year: 2026 } },
-      update: {},
-      create: { userId: emp.id, year: 2026, totalDays: 14, usedDays: 0, remainingDays: 14 },
-    });
+  // ── İşe giriş tarihleri — İZİN YÖNETİMİ MODÜLÜ ────────────
+  // E-posta ile eşleştirilir, isimle DEĞİL. Aynı eşleme migration'da
+  // (prisma/migrations/20260924000000_leave_module) UPDATE ile de yazıldı —
+  // burada AYRICA tutulmasının sebebi: seed sıfırdan çalıştığında (migration
+  // uygulandıktan SONRA oluşturulan kullanıcılar, ör. Özlem İnce, migration
+  // anında henüz yoktu) hireDate'in kaybolmamasıdır. Eşleşmeyen e-posta
+  // olursa konsola uyarı basılır, seed durmaz.
+  const HIRE_DATE_MAP: Record<string, string> = {
+    "ebubekirozturk@vezin.com.tr":    "2017-01-02",
+    "sedazincirkara@vezin.com.tr":    "2016-11-09",
+    "emreguvenc@vezin.com.tr":        "2021-04-06",
+    "hasankaraagac@vezin.com.tr":     "2022-09-19",
+    "nursatiyilmaz@vezin.com.tr":     "2022-09-19",
+    "seymagungor@vezin.com.tr":       "2023-05-26",
+    "filizodogan@vezin.com.tr":       "2023-05-26",
+    "oguzcetin@vezin.com.tr":         "2023-12-06",
+    "elifdemirci@vezin.com.tr":       "2023-12-06",
+    "tahabolek@vezin.com.tr":         "2023-12-06",
+    "esrafirat@vezin.com.tr":         "2023-12-06",
+    "meryemengin@vezin.com.tr":       "2023-12-06",
+    "ahmetoruc@vezin.com.tr":         "2024-04-03",
+    "ahmetyasinozkul@vezin.com.tr":   "2024-04-03",
+    "tunahankocaoglu@vezin.com.tr":   "2024-04-29",
+    "kerimdogan@vezin.com.tr":        "2024-08-26",
+    "alimertyilmaz@vezin.com.tr":     "2024-09-02",
+    "selinkotan@vezin.com.tr":        "2024-09-09",
+    "efecanguvenir@vezin.com.tr":     "2024-11-25",
+    "asenaobay@vezin.com.tr":         "2024-12-05",
+    "sitkikandazoglu@vezin.com.tr":   "2025-01-08",
+    "alperencoskunoglu@vezin.com.tr": "2025-03-25",
+    "mustafaagaherturk@vezin.com.tr": "2025-03-25",
+    "fatihgozyuman@vezin.com.tr":     "2025-07-04",
+    "jansetturkoglu@vezin.com.tr":    "2025-07-17",
+    "merveucan@vezin.com.tr":         "2025-07-17",
+    "kadernuryesil@vezin.com.tr":     "2025-08-06",
+    "muhammedergurum@vezin.com.tr":   "2025-12-08",
+    "ozlemince@vezin.com.tr":         "2026-06-03",
+    "gulsengulyilmaz@vezin.com.tr":   "2026-01-10",
+    "zeynepyanik@vezin.com.tr":       "2026-02-02",
+    "bugrahanbozkurt@vezin.com.tr":   "2026-08-14",
+  };
+
+  let hireDateSet = 0;
+  for (const [em, dateStr] of Object.entries(HIRE_DATE_MAP)) {
+    const u = await prisma.user.findUnique({ where: { email: em } });
+    if (!u) {
+      console.warn(`⚠ hireDate eşleşmedi: ${em}`);
+      continue;
+    }
+    await prisma.user.update({ where: { email: em }, data: { hireDate: new Date(dateStr) } });
+    hireDateSet++;
   }
+  console.log(`✔ İşe giriş tarihi: ${hireDateSet}/${Object.keys(HIRE_DATE_MAP).length} kullanıcıya yazıldı`);
 
   console.log("\n✅ Seed tamamlandı.");
   console.log("   admin@vezin.com  / vezin123  → ADMIN");

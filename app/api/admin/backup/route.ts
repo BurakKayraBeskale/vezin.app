@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { BYPASS_AUTH_ROLES } from "@/lib/auth-bypass";
+import { LEAVE_TYPE_LABELS as LEAVE_TYPE_LABELS_SRC, LEAVE_STATUS_LABELS as LEAVE_STATUS_LABELS_SRC } from "@/lib/leave";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +18,9 @@ const PRIORITY_LABELS: Record<string, string> = { HIGH: "Yüksek", MEDIUM: "Orta
 const STATUS_LABELS:   Record<string, string> = {
   TODO: "Yapılacak", IN_PROGRESS: "Devam Ediyor", REVIEW: "İncelemede", DONE: "Tamamlandı",
 };
-const LEAVE_TYPE_LABELS:   Record<string, string> = { ANNUAL: "Yıllık", EXCUSE: "Mazeret", UNPAID: "Ücretsiz" };
-const LEAVE_STATUS_LABELS: Record<string, string> = { PENDING: "Bekliyor", APPROVED: "Onaylandı", REJECTED: "Reddedildi" };
+// İzin türü/durumu etiketleri artık lib/leave.ts'te tek doğru kaynak (5 tür + CANCELLED durumu dahil).
+const LEAVE_TYPE_LABELS:   Record<string, string> = LEAVE_TYPE_LABELS_SRC;
+const LEAVE_STATUS_LABELS: Record<string, string> = LEAVE_STATUS_LABELS_SRC;
 const DEPARTMENTS = ["OUTSOURCE", "BAGIMSIZ_DENETIM", "MUHASEBE", "YEMINLI_MALI_MUSAVIR", "ADMIN"];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
