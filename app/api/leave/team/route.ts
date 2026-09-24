@@ -6,6 +6,11 @@
  * Kapsamındaki her AKTİF kullanıcı için: hizmet yılı, hak edilen gün
  * (lib/leave.ts → hesaplaIzinHakki), bu yıl kullanılan gün (onaylanmış
  * YILLIK izinlerin toplamı), kalan (yalnızca bilgi).
+ *
+ * showInLeaveOverview=false olan kullanıcılar (ör. İsmail Koş) bu listede
+ * görünmez — showInPerformance'tan bağımsız, ayrı bir bayrak. Bu, kendi
+ * özet kartını görmesini (GET /api/leave/team/[userId], isOwner bypass),
+ * getLeaveOverviewScope kapsamını veya onaylayıcı yetkisini ETKİLEMEZ.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -30,7 +35,7 @@ export async function GET(req: NextRequest) {
   const yearStart = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
   const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
 
-  const userWhere: Record<string, unknown> = { status: "ACTIVE" };
+  const userWhere: Record<string, unknown> = { status: "ACTIVE", showInLeaveOverview: true };
   if (scope !== "ALL") userWhere.department = scope;
 
   const users = await prisma.user.findMany({

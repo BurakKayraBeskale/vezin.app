@@ -24,6 +24,11 @@
  *   L19 İsmail Koş ve ADMIN tüm personeli görüyor
  *   L20 Ahmet Oruç bir YMM personelinin detayını isteyince → 404
  *   L21 GET /api/leave yanıtında personel listesi verisi (users alanı) dönmüyor
+ *
+ * === showInLeaveOverview — İsmail Koş /izin-durumu listesinden gizli ===
+ *   L22 GET /api/leave/team yanıtında İsmail Koş dönmüyor
+ *   L23 İsmail Koş kendi özetini hâlâ görüyor (GET /api/leave/team/[kendi id'si])
+ *   L24 İsmail Koş diğer personeli görmeye devam ediyor
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -546,5 +551,61 @@ describe("L21 — GET /api/leave yanıtında personel listesi verisi dönmüyor"
     const data = await json(res);
     expect(Array.isArray(data)).toBe(true);
     expect(data).not.toHaveProperty("users");
+  });
+});
+
+describe("L22 — GET /api/leave/team yanıtında İsmail Koş dönmüyor", () => {
+  it("İsmail Koş kendi sorguladığı listede kendisini görmüyor", async () => {
+    asUser(ismailKos);
+    const res = await leaveTeamGET(jsonReq("http://localhost/api/leave/team", "GET"));
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const ids = data.users.map((u: any) => u.id);
+    expect(ids).not.toContain(ismailKos.id);
+  });
+
+  it("ADMIN'in sorguladığı listede de İsmail Koş görünmüyor", async () => {
+    asUser(adminUser);
+    const res = await leaveTeamGET(jsonReq("http://localhost/api/leave/team", "GET"));
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const ids = data.users.map((u: any) => u.id);
+    expect(ids).not.toContain(ismailKos.id);
+  });
+});
+
+describe("L23 — İsmail Koş kendi özetini hâlâ görüyor", () => {
+  it("GET /api/leave/team/[kendi id'si] → 200, listede olmasa da kendi özeti dönüyor", async () => {
+    asUser(ismailKos);
+    const res = await leaveTeamByIdGET(
+      jsonReq(`http://localhost/api/leave/team/${ismailKos.id}`, "GET"),
+      { params: { userId: ismailKos.id } }
+    );
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    expect(data.user.id).toBe(ismailKos.id);
+  });
+});
+
+describe("L24 — İsmail Koş diğer personeli görmeye devam ediyor", () => {
+  it("getLeaveOverviewScope=ALL aynen kalıyor: tüm departmanlardan (kendisi hariç) personel listede", async () => {
+    asUser(ismailKos);
+    const res = await leaveTeamGET(jsonReq("http://localhost/api/leave/team", "GET"));
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const ids = data.users.map((u: any) => u.id);
+    expect(ids).toContain(ymmEmployee.id);
+    expect(ids).toContain(bdEmployee.id);
+    expect(ids).toContain(muhasebeEmployee.id);
+    expect(ids).toContain(outsourceEmployee.id);
+  });
+
+  it("bir personelin izin geçmişini onaylayıcı olarak görüntüleyebiliyor", async () => {
+    asUser(ismailKos);
+    const res = await leaveTeamByIdGET(
+      jsonReq(`http://localhost/api/leave/team/${outsourceEmployee.id}`, "GET"),
+      { params: { userId: outsourceEmployee.id } }
+    );
+    expect(res.status).toBe(200);
   });
 });

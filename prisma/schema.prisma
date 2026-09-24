@@ -30,6 +30,7 @@ model User {
   canManageCompanies    Boolean             @default(false)
   canBeAssignedTasks    Boolean             @default(true)
   showInPerformance     Boolean             @default(true)
+  showInLeaveOverview   Boolean             @default(true) // /izin-durumu personel listesinden gizlemek için — showInPerformance'tan bağımsız, ayrı bayrak
   canAccessRotasyon     Boolean             @default(false)
   status                String              @default("ACTIVE")
   hireDate              DateTime? // işe giriş tarihi — İzin Yönetimi hak hesabı (lib/leave.ts) için

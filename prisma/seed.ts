@@ -233,6 +233,21 @@ async function main() {
   }
   console.log(`✔ İşe giriş tarihi: ${hireDateSet}/${Object.keys(HIRE_DATE_MAP).length} kullanıcıya yazıldı`);
 
+  // ── showInLeaveOverview=false — /izin-durumu personel listesinden gizlenir ──
+  // showInPerformance'tan bağımsız, ayrı bayrak. İsmail Koş (patron) tüm
+  // personeli görmeye ve izin onaylamaya devam eder; yalnızca LİSTEDE görünmez.
+  const HIDE_FROM_LEAVE_OVERVIEW = ["ismailkos@vezin.com.tr"];
+
+  for (const em of HIDE_FROM_LEAVE_OVERVIEW) {
+    const u = await prisma.user.findUnique({ where: { email: em } });
+    if (!u) {
+      console.warn(`⚠ showInLeaveOverview=false: kullanıcı bulunamadı: ${em}`);
+      continue;
+    }
+    await prisma.user.update({ where: { email: em }, data: { showInLeaveOverview: false } });
+  }
+  console.log("✔ showInLeaveOverview=false uygulandı");
+
   console.log("\n✅ Seed tamamlandı.");
   console.log("   admin@vezin.com  / vezin123  → ADMIN");
   console.log(`   ${REAL_USERS.length} gerçek kullanıcı → EMPLOYEE / OUTSOURCE / mustChangePassword: true`);
