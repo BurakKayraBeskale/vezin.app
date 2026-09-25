@@ -4,6 +4,11 @@
  * Bu turda bakiye DÜŞÜMÜ yapılmaz: hak edilen gün ve kullanılan gün yalnızca
  * BİLGİ amaçlı gösterilir; onay bakiyeyi otomatik düşmez, bakiye yetersizse
  * talep engellenmez. LeaveBalance tablosuna hiçbir yerde yazılmaz.
+ *
+ * Bakiye modeli BİRİKMİŞTİR (firma Excel'iyle aynı):
+ *   toplam hak edilen = tamamlanan her hizmet yılının hakkının toplamı
+ *   kullanılan        = devir (User.carryUsedDays) + uygulamadaki onaylı yıllık izinler
+ *   kalan             = toplam hak edilen − kullanılan (eksi çıkabilir)
  */
 
 // ── İzin türü / durumu ───────────────────────────────────────────────────────
@@ -107,6 +112,78 @@ export function hesaplaIzinHakki(hireDate: Date | null, simdi: Date = new Date()
   else if (hizmetYili < 15) hakEdilenGun = 20;
   else hakEdilenGun = 26;
   return { hizmetYili, hakEdilenGun, mesaj: null };
+}
+
+// ── Birikmiş hak + devir bakiyesi ──────────────────────────────────────────
+
+/**
+ * n. hizmet yılı tamamlandığında doğan hak (birikmiş hesap için):
+ *   1–5. yıl → 14 gün, 6–15. yıl → 20 gün, 16. yıl ve üzeri → 26 gün.
+ */
+function yilBasinaHak(n: number): number {
+  if (n <= 5) return 14;
+  if (n <= 15) return 20;
+  return 26;
+}
+
+/**
+ * İşe girişten bugüne BİRİKMİŞ toplam yıllık izin hakkı. Hak yıldönümünde
+ * doğar; tamamlanmamış yıl sayılmaz. Tamamlanan yıl sayısı hesaplaIzinHakki
+ * üzerinden alınır. hireDate null ise hesap yapılmaz → null.
+ *   ör. 9 yıl → 5×14 + 4×20 = 150, 13 yıl → 5×14 + 8×20 = 230, 4 yıl → 56.
+ */
+export function toplamHakEdilenIzin(hireDate: Date | null, simdi: Date = new Date()): number | null {
+  const { hizmetYili } = hesaplaIzinHakki(hireDate, simdi);
+  if (hizmetYili === null) return null;
+  let toplam = 0;
+  for (let n = 1; n <= hizmetYili; n++) toplam += yilBasinaHak(n);
+  return toplam;
+}
+
+/**
+ * "Uygulama üzerinden kullanılan" gün sayımına giren talepler — onaylanmış,
+ * iptal edilmemiş (soft delete) YILLIK izinler. Tüm yıllar dahil (birikmiş
+ * model). leaveInclude gibi düz obje literali; Prisma client import edilmez.
+ */
+export const kullanilanIzinWhere = {
+  status: "APPROVED",
+  type: "ANNUAL",
+  deletedAt: null,
+};
+
+export interface IzinBakiyesi {
+  /** Birikmiş toplam hak. hireDate yoksa null. */
+  toplamHakEdilenGun: number | null;
+  /** Uygulama öncesi kullanım (User.carryUsedDays). */
+  devirKullanilanGun: number;
+  /** Uygulamada onaylanmış yıllık izinlerin toplamı. */
+  uygulamaKullanilanGun: number;
+  /** devir + uygulama. */
+  kullanilanGun: number;
+  /** toplam − kullanılan; eksi olabilir. hireDate yoksa null. */
+  kalanGun: number | null;
+}
+
+/** Gün sayısını gösterim için biçimler — yarım günler "44,5 gün" olarak. */
+export function gunMetni(gun: number): string {
+  return `${gun.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} gün`;
+}
+
+export function izinBakiyesi(
+  hireDate: Date | null,
+  carryUsedDays: number,
+  uygulamaKullanilanGun: number,
+  simdi: Date = new Date()
+): IzinBakiyesi {
+  const toplamHakEdilenGun = toplamHakEdilenIzin(hireDate, simdi);
+  const kullanilanGun = carryUsedDays + uygulamaKullanilanGun;
+  return {
+    toplamHakEdilenGun,
+    devirKullanilanGun: carryUsedDays,
+    uygulamaKullanilanGun,
+    kullanilanGun,
+    kalanGun: toplamHakEdilenGun !== null ? toplamHakEdilenGun - kullanilanGun : null,
+  };
 }
 
 // ── Hizmet süresi — GÖSTERİM amaçlı yıl/ay/gün ayrıntısı ────────────────────

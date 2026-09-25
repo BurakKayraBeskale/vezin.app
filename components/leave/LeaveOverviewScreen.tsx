@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import LeaveBreakdownDrawer from "./LeaveBreakdownDrawer";
 import { LeaveBreakdown, TeamMemberSummary } from "./types";
+import { gunMetni } from "@/lib/leave";
 
 interface Props {
   currentUserId: string;
@@ -27,6 +28,11 @@ const DEPT_LABELS: Record<string, string> = {
   ADMIN: "Yönetim",
 };
 
+/** Kalan bakiye rengi — eksi bakiye kırmızı (engellenmez, yalnızca uyarı). */
+function kalanRenk(kalan: number | null) {
+  return kalan !== null && kalan < 0 ? "text-red-600" : "text-emerald-600";
+}
+
 /**
  * /izin-durumu — TÜM aktif kullanıcılar kendi özetini görür (üstte); alttaki
  * personel listesi yalnızca getLeaveOverviewScope kapsamındakilere render
@@ -37,7 +43,6 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
   const currentYear = new Date().getFullYear();
   const [myOverview, setMyOverview] = useState<LeaveBreakdown | null>(null);
 
-  const [teamYear, setTeamYear] = useState(currentYear);
   const [teamData, setTeamData] = useState<TeamMemberSummary[] | null>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [drawerYear, setDrawerYear] = useState(currentYear);
@@ -64,15 +69,13 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
 
   const loadTeam = useCallback(() => {
     if (!hasOverviewAccess) return;
-    fetch(`/api/leave/team?year=${teamYear}`)
+    fetch("/api/leave/team")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setTeamData(d?.users ?? []))
       .catch(() => setTeamData([]));
-  }, [hasOverviewAccess, teamYear]);
+  }, [hasOverviewAccess]);
 
   useEffect(() => { loadTeam(); }, [loadTeam]);
-
-  const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
 
   return (
     <>
@@ -83,31 +86,32 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
 
       {/* Kendi özetim — herkes görür */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-8">
-        <h2 className="text-sm font-bold text-gray-700 mb-4">Benim İzin Hakkım ({currentYear})</h2>
+        <h2 className="text-sm font-bold text-gray-700 mb-4">Benim İzin Durumum</h2>
         {myOverview === null ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-pulse">
-            {[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-gray-100 rounded-xl" />)}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 animate-pulse">
+            {[...Array(5)].map((_, i) => <div key={i} className="h-16 bg-gray-100 rounded-xl" />)}
           </div>
         ) : myOverview.mesaj ? (
           <p className="text-sm text-gray-400 italic">{myOverview.mesaj}</p>
         ) : (
           <>
-            <p className="text-xs text-gray-400 mb-3">
-              İşe giriş: {myOverview.user.hireDate ? formatDate(myOverview.user.hireDate) : "İşe giriş tarihi girilmemiş"}
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               {[
+                { label: "İşe Giriş Tarihi", value: myOverview.user.hireDate ? formatDate(myOverview.user.hireDate) : "—", color: "text-gray-800" },
                 { label: "Hizmet Süresi", value: myOverview.hizmetSuresiMetni, color: "text-gray-800" },
-                { label: "Hak Edilen", value: `${myOverview.hakEdilenGun} gün`, color: "text-gray-800" },
-                { label: "Kullanılan", value: `${myOverview.kullanilanGun} gün`, color: "text-[#F57C28]" },
-                { label: "Kalan", value: `${myOverview.kalanGun} gün`, color: "text-emerald-600" },
+                { label: "Toplam Hak Edilen", value: myOverview.toplamHakEdilenGun !== null ? gunMetni(myOverview.toplamHakEdilenGun) : "—", color: "text-gray-800" },
+                { label: "Kullanılan", value: gunMetni(myOverview.kullanilanGun), color: "text-[#F57C28]" },
+                { label: "Kalan", value: myOverview.kalanGun !== null ? gunMetni(myOverview.kalanGun) : "—", color: kalanRenk(myOverview.kalanGun) },
               ].map((c) => (
                 <div key={c.label} className="bg-gray-50 rounded-xl p-3 text-center">
-                  <p className={`text-lg font-bold ${c.color}`}>{c.value}</p>
+                  <p className={`text-base font-bold ${c.color}`}>{c.value}</p>
                   <p className="text-[11px] text-gray-400 mt-0.5">{c.label}</p>
                 </div>
               ))}
             </div>
+            <p className="text-xs text-gray-400 mt-3">
+              Devreden kullanım: {gunMetni(myOverview.devirKullanilanGun)} · Uygulama üzerinden: {gunMetni(myOverview.uygulamaKullanilanGun)}
+            </p>
           </>
         )}
       </div>
@@ -115,15 +119,8 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
       {/* Personel listesi — yalnızca getLeaveOverviewScope kapsamındakiler */}
       {hasOverviewAccess && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
+          <div className="px-6 py-4 border-b border-gray-100">
             <h2 className="text-sm font-bold text-gray-700">Personel Listesi</h2>
-            <select
-              value={teamYear}
-              onChange={(e) => setTeamYear(Number(e.target.value))}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-[#F57C28]/30"
-            >
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
           </div>
 
           {teamData === null ? (
@@ -137,10 +134,10 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
                   <tr className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
                     <th className="px-6 py-2.5">Ad</th>
                     <th className="px-3 py-2.5">Departman</th>
-                    <th className="px-3 py-2.5">İşe Giriş</th>
+                    <th className="px-3 py-2.5">İşe Giriş Tarihi</th>
                     <th className="px-3 py-2.5">Hizmet Süresi</th>
-                    <th className="px-3 py-2.5">Hak Edilen</th>
-                    <th className="px-3 py-2.5">Kullanılan ({teamYear})</th>
+                    <th className="px-3 py-2.5">Toplam Hak Edilen</th>
+                    <th className="px-3 py-2.5">Kullanılan</th>
                     <th className="px-3 py-2.5">Kalan</th>
                   </tr>
                 </thead>
@@ -160,9 +157,14 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
                         {m.hireDate ? formatDate(m.hireDate) : <span className="italic text-gray-300">girilmemiş</span>}
                       </td>
                       <td className="px-3 py-3 text-gray-600 text-xs">{m.hizmetSuresiMetni}</td>
-                      <td className="px-3 py-3 text-gray-600 text-xs">{m.hakEdilenGun !== null ? `${m.hakEdilenGun} gün` : "—"}</td>
-                      <td className="px-3 py-3 text-[#F57C28] text-xs font-semibold">{m.kullanilanGun} gün</td>
-                      <td className="px-3 py-3 text-emerald-600 text-xs font-semibold">{m.kalanGun !== null ? `${m.kalanGun} gün` : "—"}</td>
+                      <td className="px-3 py-3 text-gray-600 text-xs">{m.toplamHakEdilenGun !== null ? gunMetni(m.toplamHakEdilenGun) : "—"}</td>
+                      <td
+                        className="px-3 py-3 text-[#F57C28] text-xs font-semibold"
+                        title={`Devreden kullanım: ${gunMetni(m.devirKullanilanGun)} · Uygulama üzerinden: ${gunMetni(m.uygulamaKullanilanGun)}`}
+                      >
+                        {gunMetni(m.kullanilanGun)}
+                      </td>
+                      <td className={`px-3 py-3 text-xs font-semibold ${kalanRenk(m.kalanGun)}`}>{m.kalanGun !== null ? gunMetni(m.kalanGun) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { canApproveLeave } from "@/lib/access";
 import { LeaveTypeBadge, LeaveStatusBadge } from "./badges";
 import { LeaveBreakdown, LeaveRequestRecord } from "./types";
+import { gunMetni } from "@/lib/leave";
 
 interface Props {
   personId: string;
@@ -137,16 +138,21 @@ export default function LeaveBreakdownDrawer({ personId, currentUser, onClose, o
                       <span className="font-semibold text-gray-800">{data.hizmetSuresiMetni}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500">Hak Edilen (Yıllık)</span>
-                      <span className="font-semibold text-gray-800">{data.hakEdilenGun} gün</span>
+                      <span className="text-gray-500">Toplam Hak Edilen</span>
+                      <span className="font-semibold text-gray-800">{data.toplamHakEdilenGun !== null ? gunMetni(data.toplamHakEdilenGun) : "—"}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500">{data.year} — Kullanılan</span>
-                      <span className="font-semibold text-[#F57C28]">{data.kullanilanGun} gün</span>
+                      <span className="text-gray-500">Kullanılan</span>
+                      <span className="font-semibold text-[#F57C28]">{gunMetni(data.kullanilanGun)}</span>
                     </div>
+                    <p className="text-xs text-gray-400 text-right">
+                      Devreden kullanım: {gunMetni(data.devirKullanilanGun)} · Uygulama üzerinden: {gunMetni(data.uygulamaKullanilanGun)}
+                    </p>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-500">Kalan</span>
-                      <span className="font-semibold text-emerald-600">{data.kalanGun} gün</span>
+                      <span className={`font-semibold ${data.kalanGun !== null && data.kalanGun < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                        {data.kalanGun !== null ? gunMetni(data.kalanGun) : "—"}
+                      </span>
                     </div>
                   </>
                 )}

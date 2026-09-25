@@ -3,14 +3,17 @@
  *
  * Görebilenler: kendisi (herkes kendi özetini görebilir — /izin-durumu #2),
  * kapsamındaki onaylayıcılar (getLeaveOverviewScope), ADMIN. Başkası → 404.
- * Yıl filtresi (?year=), varsayılan içinde bulunulan yıl.
+ * Yıl filtresi (?year=) yalnızca izin GEÇMİŞİ listesini (requests) süzer,
+ * varsayılan içinde bulunulan yıl. Bakiye (toplam hak / kullanılan / kalan)
+ * BİRİKMİŞTİR ve yıldan bağımsızdır — kullanılan gün devir
+ * (carryUsedDays) ile uygulama içi kullanım ayrı alanlarda döner.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getLeaveOverviewScope } from "@/lib/access";
-import { hesaplaIzinHakki, hizmetSuresiMetni, leaveInclude } from "@/lib/leave";
+import { hesaplaIzinHakki, hizmetSuresiMetni, izinBakiyesi, kullanilanIzinWhere, leaveInclude } from "@/lib/leave";
 
 export async function GET(req: NextRequest, { params }: { params: { userId: string } }) {
   const session = await getServerSession(authOptions);
@@ -21,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
 
   const target = await prisma.user.findUnique({
     where: { id: params.userId },
-    select: { id: true, name: true, department: true, hireDate: true },
+    select: { id: true, name: true, department: true, hireDate: true, carryUsedDays: true },
   });
   if (!target) return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
 
@@ -41,20 +44,20 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     orderBy: { startDate: "desc" },
   });
 
+  const uygulamaKullanilan = await prisma.leaveRequest.aggregate({
+    where: { userId: target.id, ...kullanilanIzinWhere },
+    _sum: { days: true },
+  });
+
   const hak = hesaplaIzinHakki(target.hireDate);
-  const kullanilanGun = requests
-    .filter((r) => r.status === "APPROVED" && r.type === "ANNUAL")
-    .reduce((sum, r) => sum + r.days, 0);
 
   return NextResponse.json({
     user: { id: target.id, name: target.name, department: target.department, hireDate: target.hireDate },
     year,
     hizmetYili: hak.hizmetYili,
     hizmetSuresiMetni: hizmetSuresiMetni(target.hireDate),
-    hakEdilenGun: hak.hakEdilenGun,
     mesaj: hak.mesaj,
-    kullanilanGun,
-    kalanGun: hak.hakEdilenGun !== null ? hak.hakEdilenGun - kullanilanGun : null,
+    ...izinBakiyesi(target.hireDate, target.carryUsedDays, uygulamaKullanilan._sum.days ?? 0),
     requests,
   });
 }

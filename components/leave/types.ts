@@ -1,3 +1,5 @@
+import type { IzinBakiyesi } from "@/lib/leave";
+
 export interface LeaveAttachmentRecord {
   id: string;
   name: string;
@@ -23,27 +25,22 @@ export interface LeaveRequestRecord {
   attachments: LeaveAttachmentRecord[];
 }
 
-export interface TeamMemberSummary {
+/** Bakiye alanları (toplamHakEdilenGun, devir/uygulama/toplam kullanılan, kalanGun) IzinBakiyesi'nden gelir. */
+export interface TeamMemberSummary extends IzinBakiyesi {
   id: string;
   name: string;
   department: string;
   hireDate: string | null;
   hizmetYili: number | null;
   hizmetSuresiMetni: string;
-  hakEdilenGun: number | null;
   mesaj: string | null;
-  kullanilanGun: number;
-  kalanGun: number | null;
 }
 
-export interface LeaveBreakdown {
+export interface LeaveBreakdown extends IzinBakiyesi {
   user: { id: string; name: string; department: string; hireDate: string | null };
   year: number;
   hizmetYili: number | null;
   hizmetSuresiMetni: string;
-  hakEdilenGun: number | null;
   mesaj: string | null;
-  kullanilanGun: number;
-  kalanGun: number | null;
   requests: LeaveRequestRecord[];
 }

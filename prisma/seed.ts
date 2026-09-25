@@ -179,59 +179,69 @@ async function main() {
   }
   console.log("✔ showInPerformance=false uygulandı");
 
-  // ── İşe giriş tarihleri — İZİN YÖNETİMİ MODÜLÜ ────────────
-  // E-posta ile eşleştirilir, isimle DEĞİL. Aynı eşleme migration'da
-  // (prisma/migrations/20260924000000_leave_module) UPDATE ile de yazıldı —
-  // burada AYRICA tutulmasının sebebi: seed sıfırdan çalıştığında (migration
-  // uygulandıktan SONRA oluşturulan kullanıcılar, ör. Özlem İnce, migration
-  // anında henüz yoktu) hireDate'in kaybolmamasıdır. Eşleşmeyen e-posta
-  // olursa konsola uyarı basılır, seed durmaz.
-  const HIRE_DATE_MAP: Record<string, string> = {
-    "ebubekirozturk@vezin.com.tr":    "2017-01-02",
-    "sedazincirkara@vezin.com.tr":    "2016-11-09",
-    "emreguvenc@vezin.com.tr":        "2021-04-06",
-    "hasankaraagac@vezin.com.tr":     "2022-09-19",
-    "nursatiyilmaz@vezin.com.tr":     "2022-09-19",
-    "seymagungor@vezin.com.tr":       "2023-05-26",
-    "filizodogan@vezin.com.tr":       "2023-05-26",
-    "oguzcetin@vezin.com.tr":         "2023-12-06",
-    "elifdemirci@vezin.com.tr":       "2023-12-06",
-    "tahabolek@vezin.com.tr":         "2023-12-06",
-    "esrafirat@vezin.com.tr":         "2023-12-06",
-    "meryemengin@vezin.com.tr":       "2023-12-06",
-    "ahmetoruc@vezin.com.tr":         "2024-04-03",
-    "ahmetyasinozkul@vezin.com.tr":   "2024-04-03",
-    "tunahankocaoglu@vezin.com.tr":   "2024-04-29",
-    "kerimdogan@vezin.com.tr":        "2024-08-26",
-    "alimertyilmaz@vezin.com.tr":     "2024-09-02",
-    "selinkotan@vezin.com.tr":        "2024-09-09",
-    "efecanguvenir@vezin.com.tr":     "2024-11-25",
-    "asenaobay@vezin.com.tr":         "2024-12-05",
-    "sitkikandazoglu@vezin.com.tr":   "2025-01-08",
-    "alperencoskunoglu@vezin.com.tr": "2025-03-25",
-    "mustafaagaherturk@vezin.com.tr": "2025-03-25",
-    "fatihgozyuman@vezin.com.tr":     "2025-07-04",
-    "jansetturkoglu@vezin.com.tr":    "2025-07-17",
-    "merveucan@vezin.com.tr":         "2025-07-17",
-    "kadernuryesil@vezin.com.tr":     "2025-08-06",
-    "muhammedergurum@vezin.com.tr":   "2025-12-08",
-    "ozlemince@vezin.com.tr":         "2026-06-03",
-    "gulsengulyilmaz@vezin.com.tr":   "2026-01-10",
-    "zeynepyanik@vezin.com.tr":       "2026-02-02",
-    "bugrahanbozkurt@vezin.com.tr":   "2026-08-14",
+  // ── İşe giriş tarihi + devir kullanımı — İZİN YÖNETİMİ MODÜLÜ ────────────
+  // E-posta ile eşleştirilir, isimle DEĞİL. Aynı eşleme migration'larda
+  // (20260924000000_leave_module, 20260925000000_leave_carryover) UPDATE ile de
+  // yazıldı — burada AYRICA tutulmasının sebebi: seed sıfırdan çalıştığında
+  // (migration uygulandıktan SONRA oluşturulan kullanıcılar, ör. Özlem İnce,
+  // migration anında henüz yoktu) değerlerin kaybolmamasıdır. Eşleşmeyen
+  // e-posta olursa konsola uyarı basılır, seed durmaz.
+  //   hireDate      — null ise mevcut değere DOKUNULMAZ (kaynak dosyada yok).
+  //   carryUsedDays — uygulama öncesi kullanılan yıllık izin (firma Excel'i);
+  //                   listede olmayanlar 0 kalır.
+  // ahmetoruc / gulsengulyilmaz yeni kaynak dosyada yok — önceki tarihleri korunur.
+  const LEAVE_DATA_MAP: Record<string, { hireDate: string | null; carryUsedDays: number }> = {
+    "emreguvenc@vezin.com.tr":        { hireDate: "2016-11-14", carryUsedDays: 142 },
+    "ebubekirozturk@vezin.com.tr":    { hireDate: "2017-01-02", carryUsedDays: 143 },
+    "muratozgur@vezin.com.tr":        { hireDate: null,         carryUsedDays: 31.5 },
+    "sedazincirkara@vezin.com.tr":    { hireDate: "2016-11-09", carryUsedDays: 104 },
+    "ahmetyasinozkul@vezin.com.tr":   { hireDate: "2019-11-18", carryUsedDays: 81.5 },
+    "alperencoskunoglu@vezin.com.tr": { hireDate: "2020-10-21", carryUsedDays: 64.5 },
+    "mustafaagaherturk@vezin.com.tr": { hireDate: "2021-06-23", carryUsedDays: 59.5 },
+    "nursatiyilmaz@vezin.com.tr":     { hireDate: "2022-03-28", carryUsedDays: 44.5 },
+    "hasankaraagac@vezin.com.tr":     { hireDate: "2022-03-28", carryUsedDays: 49 },
+    "bugrahanbozkurt@vezin.com.tr":   { hireDate: "2022-09-19", carryUsedDays: 52 },
+    "fatihgozyuman@vezin.com.tr":     { hireDate: "2023-05-26", carryUsedDays: 32.5 },
+    "seymagungor@vezin.com.tr":       { hireDate: "2023-05-26", carryUsedDays: 44.5 },
+    "filizodogan@vezin.com.tr":       { hireDate: "2023-05-26", carryUsedDays: 46 },
+    "meryemengin@vezin.com.tr":       { hireDate: "2023-12-06", carryUsedDays: 33.5 },
+    "tunahankocaoglu@vezin.com.tr":   { hireDate: "2024-04-29", carryUsedDays: 41 },
+    "oguzcetin@vezin.com.tr":         { hireDate: "2023-12-06", carryUsedDays: 16.5 },
+    "tahabolek@vezin.com.tr":         { hireDate: "2023-12-06", carryUsedDays: 22 },
+    "esrafirat@vezin.com.tr":         { hireDate: "2023-12-06", carryUsedDays: 30 },
+    "selinkotan@vezin.com.tr":        { hireDate: "2024-09-09", carryUsedDays: 16.5 },
+    "kerimdogan@vezin.com.tr":        { hireDate: "2024-08-26", carryUsedDays: 23 },
+    "asenaobay@vezin.com.tr":         { hireDate: "2024-12-05", carryUsedDays: 36.5 },
+    "efecanguvenir@vezin.com.tr":     { hireDate: "2024-11-25", carryUsedDays: 31 },
+    "sitkikandazoglu@vezin.com.tr":   { hireDate: "2025-01-08", carryUsedDays: 23.5 },
+    "alimertyilmaz@vezin.com.tr":     { hireDate: "2024-09-02", carryUsedDays: 21 },
+    "kadernuryesil@vezin.com.tr":     { hireDate: "2025-04-17", carryUsedDays: 15.5 },
+    "berkkaranfil@vezin.com.tr":      { hireDate: "2025-06-17", carryUsedDays: 17.5 },
+    "jansetturkoglu@vezin.com.tr":    { hireDate: "2025-07-17", carryUsedDays: 26 },
+    "merveucan@vezin.com.tr":         { hireDate: "2025-07-17", carryUsedDays: 25.5 },
+    "elifdemirci@vezin.com.tr":       { hireDate: "2023-12-06", carryUsedDays: 28 },
+    "muhammedergurum@vezin.com.tr":   { hireDate: "2025-12-08", carryUsedDays: 12 },
+    "fatmanurarslan@vezin.com.tr":    { hireDate: "2026-02-02", carryUsedDays: 2 },
+    "zeynepyanik@vezin.com.tr":       { hireDate: "2026-02-02", carryUsedDays: 10 },
+    "ozlemince@vezin.com.tr":         { hireDate: "2026-06-03", carryUsedDays: 6 },
+    "ahmetoruc@vezin.com.tr":         { hireDate: "2024-04-03", carryUsedDays: 0 },
+    "gulsengulyilmaz@vezin.com.tr":   { hireDate: "2026-01-10", carryUsedDays: 0 },
   };
 
-  let hireDateSet = 0;
-  for (const [em, dateStr] of Object.entries(HIRE_DATE_MAP)) {
+  let leaveDataSet = 0;
+  for (const [em, { hireDate, carryUsedDays }] of Object.entries(LEAVE_DATA_MAP)) {
     const u = await prisma.user.findUnique({ where: { email: em } });
     if (!u) {
-      console.warn(`⚠ hireDate eşleşmedi: ${em}`);
+      console.warn(`⚠ hireDate/carryUsedDays eşleşmedi: ${em}`);
       continue;
     }
-    await prisma.user.update({ where: { email: em }, data: { hireDate: new Date(dateStr) } });
-    hireDateSet++;
+    await prisma.user.update({
+      where: { email: em },
+      data: { carryUsedDays, ...(hireDate ? { hireDate: new Date(hireDate) } : {}) },
+    });
+    leaveDataSet++;
   }
-  console.log(`✔ İşe giriş tarihi: ${hireDateSet}/${Object.keys(HIRE_DATE_MAP).length} kullanıcıya yazıldı`);
+  console.log(`✔ İşe giriş tarihi / devir: ${leaveDataSet}/${Object.keys(LEAVE_DATA_MAP).length} kullanıcıya yazıldı`);
 
   // ── showInLeaveOverview=false — /izin-durumu personel listesinden gizlenir ──
   // showInPerformance'tan bağımsız, ayrı bayrak. İsmail Koş (patron) tüm

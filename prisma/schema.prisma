@@ -34,6 +34,7 @@ model User {
   canAccessRotasyon     Boolean             @default(false)
   status                String              @default("ACTIVE")
   hireDate              DateTime? // işe giriş tarihi — İzin Yönetimi hak hesabı (lib/leave.ts) için
+  carryUsedDays         Float               @default(0) // devir: uygulama öncesi kullanılan yıllık izin günü (yarım gün olabilir, ör. 44.5)
   createdAt             DateTime            @default(now())
   assignedTasks         Task[]              @relation("AssignedTo")
   createdTasks          Task[]              @relation("CreatedBy")

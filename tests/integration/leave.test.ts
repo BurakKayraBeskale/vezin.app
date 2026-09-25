@@ -44,6 +44,14 @@
  *   L31 İptal edilen talep GET /api/leave yanıtında dönmüyor
  *   L32 İptal edilen talep GET /api/leave/team/[userId] "requests" listesinde dönmüyor
  *   L33 İptal edilen talep kullanılan gün toplamına eklenmiyor
+ *
+ * === Birikmiş hak + devir bakiyesi (carryUsedDays) ===
+ *   L34 toplamHakEdilenIzin: 2017-01-02 → 150, 2013-09-24 → 230, 2022-03-28 → 56, 2026-06-03 → 0
+ *   L35 carryUsedDays 143, uygulama içi izin yok → kullanılan 143
+ *   L36 Onaylanmış 3 günlük izin eklenince kullanılan 146
+ *   L37 İptal edilen izin kullanılana eklenmiyor
+ *   L38 Kalan eksi çıkabiliyor, işlem engellenmiyor
+ *   L39 Yarım gün (44.5) kayıpsız saklanıyor
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -61,7 +69,7 @@ import { POST as leaveAttachmentsPOST } from "../../app/api/leave/[id]/attachmen
 import { GET as leaveAttachmentDownloadGET } from "../../app/api/leave/[id]/attachments/[attachmentId]/download/route";
 import { getServerSession } from "next-auth";
 import { getToken } from "next-auth/jwt";
-import { hesaplaIzinHakki, hizmetSuresiMetni, isGunuSayisi } from "../../lib/leave";
+import { gunMetni, hesaplaIzinHakki, hizmetSuresiMetni, isGunuSayisi, izinBakiyesi, toplamHakEdilenIzin } from "../../lib/leave";
 
 const prisma = new PrismaClient();
 const hash = (pw: string) => bcrypt.hash(pw, 10);
@@ -104,12 +112,13 @@ async function realUser(emailAddr: string, fallback: { name: string; department:
   return { id: created.id, email: created.email, name: created.name, role: created.role, department: created.department };
 }
 
-async function mkUser(slug: string, department: string, hireDate?: string | null): Promise<TUser> {
+async function mkUser(slug: string, department: string, hireDate?: string | null, carryUsedDays?: number): Promise<TUser> {
   const u = await prisma.user.create({
     data: {
       name: `${PREFIX} ${slug}`, email: email(slug), password: await hash("test"),
       role: "EMPLOYEE", department,
       hireDate: hireDate === undefined ? undefined : hireDate === null ? null : new Date(hireDate),
+      carryUsedDays,
     },
   });
   createdUserIds.push(u.id);
@@ -794,5 +803,138 @@ describe("L31/L32/L33 — İptal edilen talep (soft delete) listelerden kalkıyo
     );
     const afterData = await json(after);
     expect(afterData.kullanilanGun).toBe(baseline);
+  });
+});
+
+// ── Birikmiş hak + devir bakiyesi (lib/leave.ts → toplamHakEdilenIzin / izinBakiyesi) ──
+
+const BUGUN = new Date("2026-09-25T12:00:00");
+
+describe("L34 — toplamHakEdilenIzin: birikmiş hak", () => {
+  it("2017-01-02 girişli (9 yıl) → 5×14 + 4×20 = 150 gün", () => {
+    expect(toplamHakEdilenIzin(new Date("2017-01-02"), BUGUN)).toBe(150);
+  });
+  it("2013-09-24 girişli (13 yıl) → 5×14 + 8×20 = 230 gün", () => {
+    expect(toplamHakEdilenIzin(new Date("2013-09-24"), BUGUN)).toBe(230);
+  });
+  it("2022-03-28 girişli (4 yıl) → 56 gün", () => {
+    expect(toplamHakEdilenIzin(new Date("2022-03-28"), BUGUN)).toBe(56);
+  });
+  it("2026-06-03 girişli (0 yıl) → 0 gün", () => {
+    expect(toplamHakEdilenIzin(new Date("2026-06-03"), BUGUN)).toBe(0);
+  });
+  it("tamamlanmamış yıl sayılmaz — hak yıldönümünde doğar", () => {
+    expect(toplamHakEdilenIzin(new Date("2022-09-26"), BUGUN)).toBe(42); // 3 yıl, 4. yıldönümüne 1 gün var
+    expect(toplamHakEdilenIzin(new Date("2022-09-25"), BUGUN)).toBe(56); // 4. yıldönümü bugün
+  });
+  it("16. yıldan itibaren yıl başına 26 gün", () => {
+    // 15 yıl → 5×14 + 10×20 = 270; 16 yıl → 270 + 26 = 296
+    expect(toplamHakEdilenIzin(new Date("2011-09-25"), BUGUN)).toBe(270);
+    expect(toplamHakEdilenIzin(new Date("2010-09-25"), BUGUN)).toBe(296);
+  });
+  it("hireDate NULL → null, hesap yapılmıyor", () => {
+    expect(toplamHakEdilenIzin(null, BUGUN)).toBeNull();
+    const b = izinBakiyesi(null, 31.5, 0, BUGUN);
+    expect(b.toplamHakEdilenGun).toBeNull();
+    expect(b.kalanGun).toBeNull();
+    expect(b.kullanilanGun).toBe(31.5);
+  });
+});
+
+describe("L35–L39 — Kullanılan = devir + uygulama içi onaylı yıllık izin", () => {
+  let carryUser: TUser;
+
+  beforeAll(async () => {
+    carryUser = await mkUser("carry-143", "YEMINLI_MALI_MUSAVIR", "2017-01-02", 143);
+  });
+
+  async function ozet(u: TUser, year = 2026) {
+    asUser(muratOzgur);
+    const res = await leaveTeamByIdGET(
+      jsonReq(`http://localhost/api/leave/team/${u.id}?year=${year}`, "GET"),
+      { params: { userId: u.id } }
+    );
+    expect(res.status).toBe(200);
+    return json(res);
+  }
+
+  it("L35: carryUsedDays 143, uygulama içi izin yok → kullanılan 143", async () => {
+    const d = await ozet(carryUser);
+    expect(d.devirKullanilanGun).toBe(143);
+    expect(d.uygulamaKullanilanGun).toBe(0);
+    expect(d.kullanilanGun).toBe(143);
+    expect(d.kalanGun).toBe(d.toplamHakEdilenGun - 143);
+  });
+
+  it("L36: onaylanmış 3 günlük yıllık izin eklenince kullanılan 146", async () => {
+    const id = await mkLeave(carryUser.id, {}); // 2026-03-02 → 04, 3 iş günü
+    asUser(muratOzgur);
+    const res = await leavePATCH(jsonReq(`http://localhost/api/leave/${id}`, "PATCH", { action: "approve" }), { params: { id } });
+    expect(res.status).toBe(200);
+
+    const d = await ozet(carryUser);
+    expect(d.devirKullanilanGun).toBe(143);
+    expect(d.uygulamaKullanilanGun).toBe(3);
+    expect(d.kullanilanGun).toBe(146);
+
+    // Birikmiş model — kullanılan yıl filtresinden bağımsız
+    const d2025 = await ozet(carryUser, 2025);
+    expect(d2025.kullanilanGun).toBe(146);
+
+    // Personel listesinde de aynı değer
+    asUser(muratOzgur);
+    const listRes = await leaveTeamGET(jsonReq("http://localhost/api/leave/team", "GET"));
+    const list = await json(listRes);
+    const row = list.users.find((u: any) => u.id === carryUser.id);
+    expect(row.kullanilanGun).toBe(146);
+    expect(row.devirKullanilanGun).toBe(143);
+    expect(row.uygulamaKullanilanGun).toBe(3);
+  });
+
+  it("L37: iptal edilen izin kullanılana eklenmiyor", async () => {
+    const before = (await ozet(carryUser)).kullanilanGun;
+    const id = await mkLeave(carryUser.id, { startDate: new Date("2026-05-11"), endDate: new Date("2026-05-13") });
+    asUser(carryUser);
+    const cancel = await leavePATCH(jsonReq(`http://localhost/api/leave/${id}`, "PATCH", { action: "cancel" }), { params: { id } });
+    expect(cancel.status).toBe(200);
+    expect((await ozet(carryUser)).kullanilanGun).toBe(before);
+  });
+
+  it("L38: kalan eksi çıkabiliyor, talep oluşturma ve onay engellenmiyor", async () => {
+    const negUser = await mkUser("carry-neg", "YEMINLI_MALI_MUSAVIR", "2022-03-28", 500);
+    const d = await ozet(negUser);
+    expect(d.kalanGun).toBeLessThan(0);
+    expect(d.kalanGun).toBe(d.toplamHakEdilenGun - 500);
+
+    asUser(negUser);
+    const create = await leavePOST(jsonReq("http://localhost/api/leave", "POST", {
+      startDate: "2026-06-01", endDate: "2026-06-02", type: "ANNUAL",
+    }));
+    expect(create.status).toBe(201);
+    const created = await json(create);
+    createdLeaveIds.push(created.id);
+
+    asUser(muratOzgur);
+    const approve = await leavePATCH(
+      jsonReq(`http://localhost/api/leave/${created.id}`, "PATCH", { action: "approve" }),
+      { params: { id: created.id } }
+    );
+    expect(approve.status).toBe(200);
+
+    const after = await ozet(negUser);
+    expect(after.kullanilanGun).toBe(502);
+    expect(after.kalanGun).toBe(d.kalanGun - 2);
+  });
+
+  it("L39: yarım gün (44.5) kayıpsız saklanıyor ve API'den aynen dönüyor", async () => {
+    const halfUser = await mkUser("carry-half", "YEMINLI_MALI_MUSAVIR", "2022-03-28", 44.5);
+    const row = await prisma.user.findUnique({ where: { id: halfUser.id }, select: { carryUsedDays: true } });
+    expect(row?.carryUsedDays).toBe(44.5);
+
+    const d = await ozet(halfUser);
+    expect(d.devirKullanilanGun).toBe(44.5);
+    expect(d.kullanilanGun).toBe(44.5);
+    expect(d.kalanGun).toBe(d.toplamHakEdilenGun - 44.5);
+    expect(gunMetni(44.5)).toBe("44,5 gün");
   });
 });

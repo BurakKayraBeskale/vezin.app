@@ -3,9 +3,9 @@
  * yalnızca getLeaveOverviewScope kapsamındaki kullanıcılar (ADMIN, İsmail Koş,
  * Murat Özgür, Ebubekir Öztürk, Ahmet Oruç). Diğer herkes → 404.
  *
- * Kapsamındaki her AKTİF kullanıcı için: hizmet yılı, hak edilen gün
- * (lib/leave.ts → hesaplaIzinHakki), bu yıl kullanılan gün (onaylanmış
- * YILLIK izinlerin toplamı), kalan (yalnızca bilgi).
+ * Kapsamındaki her AKTİF kullanıcı için BİRİKMİŞ bakiye (lib/leave.ts →
+ * izinBakiyesi): toplam hak edilen, kullanılan (devir + uygulamadaki onaylı
+ * yıllık izinler, tüm yıllar), kalan (eksi olabilir — yalnızca bilgi).
  *
  * showInLeaveOverview=false olan kullanıcılar (ör. İsmail Koş) bu listede
  * görünmez — showInPerformance'tan bağımsız, ayrı bir bayrak. Bu, kendi
@@ -17,9 +17,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getLeaveOverviewScope } from "@/lib/access";
-import { hesaplaIzinHakki, hizmetSuresiMetni } from "@/lib/leave";
+import { hesaplaIzinHakki, hizmetSuresiMetni, izinBakiyesi, kullanilanIzinWhere } from "@/lib/leave";
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
   const role = (session.user as any).role as string;
@@ -30,30 +30,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
   }
 
-  const yearParam = Number(new URL(req.url).searchParams.get("year"));
-  const year = Number.isInteger(yearParam) && yearParam > 1900 ? yearParam : new Date().getFullYear();
-  const yearStart = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
-  const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
-
   const userWhere: Record<string, unknown> = { status: "ACTIVE", showInLeaveOverview: true };
   if (scope !== "ALL") userWhere.department = scope;
 
   const users = await prisma.user.findMany({
     where: userWhere,
-    select: { id: true, name: true, department: true, hireDate: true },
+    select: { id: true, name: true, department: true, hireDate: true, carryUsedDays: true },
     orderBy: { name: "asc" },
   });
 
   const userIds = users.map((u) => u.id);
   const approvedAnnual = userIds.length
     ? await prisma.leaveRequest.findMany({
-        where: {
-          userId: { in: userIds },
-          status: "APPROVED",
-          type: "ANNUAL",
-          startDate: { gte: yearStart, lte: yearEnd },
-          deletedAt: null,
-        },
+        where: { userId: { in: userIds }, ...kullanilanIzinWhere },
         select: { userId: true, days: true },
       })
     : [];
@@ -63,7 +52,6 @@ export async function GET(req: NextRequest) {
 
   const result = users.map((u) => {
     const hak = hesaplaIzinHakki(u.hireDate);
-    const kullanilanGun = usedByUser.get(u.id) ?? 0;
     return {
       id: u.id,
       name: u.name,
@@ -71,12 +59,10 @@ export async function GET(req: NextRequest) {
       hireDate: u.hireDate,
       hizmetYili: hak.hizmetYili,
       hizmetSuresiMetni: hizmetSuresiMetni(u.hireDate),
-      hakEdilenGun: hak.hakEdilenGun,
       mesaj: hak.mesaj,
-      kullanilanGun,
-      kalanGun: hak.hakEdilenGun !== null ? hak.hakEdilenGun - kullanilanGun : null,
+      ...izinBakiyesi(u.hireDate, u.carryUsedDays, usedByUser.get(u.id) ?? 0),
     };
   });
 
-  return NextResponse.json({ year, users: result });
+  return NextResponse.json({ users: result });
 }
