@@ -9,7 +9,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isGunuSayisi, isValidLeaveType, leaveInclude } from "@/lib/leave";
+import { isGunuSayisi, isValidLeaveType, leaveInclude, LEAVE_TYPE_LABELS, LeaveType } from "@/lib/leave";
+import { getLeaveApprovers } from "@/lib/access";
+import { sendNotificationToMany } from "@/lib/notifications";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -17,7 +19,7 @@ export async function GET() {
   const userId = (session.user as any).id as string;
 
   const requests = await prisma.leaveRequest.findMany({
-    where: { userId },
+    where: { userId, deletedAt: null },
     include: leaveInclude,
     orderBy: { createdAt: "desc" },
   });
@@ -28,6 +30,12 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
   const userId = (session.user as any).id as string;
+  const userName = session.user.name ?? "";
+
+  const requester = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { department: true },
+  });
 
   const body = await req.json().catch(() => ({}));
   const { startDate, endDate, type, note } = body;
@@ -67,6 +75,24 @@ export async function POST(req: NextRequest) {
     },
     include: leaveInclude,
   });
+
+  // Yeni talep → talep sahibinin departmanının onaylayıcılarına bildirim
+  // (kendisi kendi onaylayıcı kapsamındaysa — ör. İsmail Koş kendi izni için —
+  // kendine bildirim gitmez).
+  const approverEmails = getLeaveApprovers(requester?.department);
+  const approvers = approverEmails.length
+    ? await prisma.user.findMany({
+        where: { email: { in: approverEmails } },
+        select: { id: true },
+      })
+    : [];
+  const approverIds = approvers.map((a) => a.id).filter((id) => id !== userId);
+  await sendNotificationToMany(
+    approverIds,
+    "LEAVE_REQUEST_NEW",
+    `${userName} yeni bir ${LEAVE_TYPE_LABELS[type as LeaveType]} talebi oluşturdu (${days} iş günü).`,
+    created.id
+  );
 
   return NextResponse.json(created, { status: 201 });
 }

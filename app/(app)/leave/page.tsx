@@ -5,13 +5,17 @@ import LeaveScreen from "@/components/leave/LeaveScreen";
 
 export const dynamic = "force-dynamic";
 
-export default async function LeavePage() {
+export default async function LeavePage({
+  searchParams,
+}: {
+  searchParams?: { requestId?: string };
+}) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
   return (
     <div className="max-w-4xl mx-auto">
-      <LeaveScreen />
+      <LeaveScreen highlightId={searchParams?.requestId} />
     </div>
   );
 }

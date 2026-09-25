@@ -108,3 +108,48 @@ export function hesaplaIzinHakki(hireDate: Date | null, simdi: Date = new Date()
   else hakEdilenGun = 26;
   return { hizmetYili, hakEdilenGun, mesaj: null };
 }
+
+// ── Hizmet süresi — GÖSTERİM amaçlı yıl/ay/gün ayrıntısı ────────────────────
+//    (İzin hakkı hesabını ETKİLEMEZ — hesaplaIzinHakki yukarıda hâlâ tam yıl
+//    üzerinden çalışır. Bu yalnızca "6 ay 1 gün" gibi okunur metin üretir.)
+
+interface HizmetSuresiDetay {
+  yil: number;
+  ay: number;
+  gun: number;
+}
+
+/** İki tarih arasındaki yıl/ay/gün farkı — takvim ayı uzunluklarına göre. */
+function hizmetSuresiDetay(from: Date, to: Date): HizmetSuresiDetay {
+  let yil = to.getFullYear() - from.getFullYear();
+  let ay = to.getMonth() - from.getMonth();
+  let gun = to.getDate() - from.getDate();
+
+  if (gun < 0) {
+    ay -= 1;
+    // `to` ayından bir önceki ayın son günü
+    const oncekiAy = new Date(to.getFullYear(), to.getMonth(), 0);
+    gun += oncekiAy.getDate();
+  }
+  if (ay < 0) {
+    yil -= 1;
+    ay += 12;
+  }
+  return { yil: Math.max(0, yil), ay: Math.max(0, ay), gun: Math.max(0, gun) };
+}
+
+/**
+ * Hizmet süresini "2 yıl 3 ay 12 gün" biçiminde okunur metne çevirir.
+ * Sıfır olan birimler atlanır. 1 günden az ise "Bugün başladı".
+ * hireDate null ise hesaplaIzinHakki ile aynı mesaj döner.
+ */
+export function hizmetSuresiMetni(hireDate: Date | null, simdi: Date = new Date()): string {
+  if (!hireDate) return "İşe giriş tarihi girilmemiş";
+  const { yil, ay, gun } = hizmetSuresiDetay(hireDate, simdi);
+  const parcalar: string[] = [];
+  if (yil > 0) parcalar.push(`${yil} yıl`);
+  if (ay > 0) parcalar.push(`${ay} ay`);
+  if (gun > 0) parcalar.push(`${gun} gün`);
+  if (parcalar.length === 0) return "Bugün başladı";
+  return parcalar.join(" ");
+}

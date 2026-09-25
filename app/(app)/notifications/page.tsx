@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import clsx from "clsx";
 
-type NotifType = "TASK_ASSIGNED" | "LEAVE_APPROVED" | "LEAVE_REJECTED" | "FEEDBACK_RECEIVED";
+type NotifType =
+  | "TASK_ASSIGNED"
+  | "LEAVE_REQUEST_NEW"
+  | "LEAVE_APPROVED"
+  | "LEAVE_REJECTED"
+  | "LEAVE_CANCELLED"
+  | "FEEDBACK_RECEIVED";
 
 interface Notification {
   id: string;
@@ -16,10 +23,19 @@ interface Notification {
 
 const TYPE_CONFIG: Record<NotifType, { icon: string; bg: string; text: string; label: string }> = {
   TASK_ASSIGNED:     { icon: "📋", bg: "var(--badge-orange-bg)",  text: "var(--badge-orange-text)",  label: "Görev Atandı" },
+  LEAVE_REQUEST_NEW: { icon: "🗓️", bg: "var(--badge-indigo-bg)",  text: "var(--badge-indigo-text)",  label: "Yeni İzin Talebi" },
   LEAVE_APPROVED:    { icon: "✅", bg: "var(--badge-emerald-bg)", text: "var(--badge-emerald-text)", label: "İzin Onaylandı" },
   LEAVE_REJECTED:    { icon: "❌", bg: "var(--badge-red-bg)",     text: "var(--badge-red-text)",     label: "İzin Reddedildi" },
+  LEAVE_CANCELLED:   { icon: "🚫", bg: "var(--badge-red-bg)",     text: "var(--badge-red-text)",     label: "İzin İptal Edildi" },
   FEEDBACK_RECEIVED: { icon: "💬", bg: "var(--badge-indigo-bg)",  text: "var(--badge-indigo-text)",  label: "Yeni Yorum" },
 };
+
+/** Bildirim türüne göre ilgili izin talebinin açılacağı sayfa. */
+function leaveNotifHref(type: NotifType, relatedId: string): string | null {
+  if (type === "LEAVE_APPROVED" || type === "LEAVE_REJECTED") return `/leave?requestId=${relatedId}`;
+  if (type === "LEAVE_REQUEST_NEW" || type === "LEAVE_CANCELLED") return `/izin-durumu?requestId=${relatedId}`;
+  return null;
+}
 
 function fmtDate(d: string) {
   return new Date(d).toLocaleString("tr-TR", {
@@ -36,6 +52,7 @@ function TrashIcon() {
 }
 
 export default function NotificationsPage() {
+  const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingAll, setMarkingAll] = useState(false);
@@ -92,6 +109,14 @@ export default function NotificationsPage() {
     await fetch("/api/notifications", { method: "DELETE" });
     setNotifications([]);
     setDeletingAll(false);
+  }
+
+  function handleOpen(n: Notification) {
+    if (!n.relatedId) return;
+    const href = leaveNotifHref(n.type, n.relatedId);
+    if (!href) return;
+    if (!n.isRead) markOneRead(n.id);
+    router.push(href);
   }
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
@@ -153,11 +178,14 @@ export default function NotificationsPage() {
           <ul className="divide-y divide-gray-50">
             {notifications.map((n) => {
               const cfg = TYPE_CONFIG[n.type] ?? TYPE_CONFIG.TASK_ASSIGNED;
+              const clickable = !!n.relatedId && !!leaveNotifHref(n.type, n.relatedId);
               return (
                 <li
                   key={n.id}
+                  onClick={clickable ? () => handleOpen(n) : undefined}
                   className={clsx(
                     "flex items-start gap-3 px-5 py-4 transition-colors group",
+                    clickable && "cursor-pointer",
                     !n.isRead ? "bg-orange-50/30" : "hover:bg-gray-50/50"
                   )}
                 >
@@ -190,7 +218,7 @@ export default function NotificationsPage() {
                   <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
                     {!n.isRead && (
                       <button
-                        onClick={() => markOneRead(n.id)}
+                        onClick={(e) => { e.stopPropagation(); markOneRead(n.id); }}
                         className="text-[11px] text-gray-400 hover:text-[#F57C28] transition-colors py-1 px-2 rounded-lg hover:bg-orange-50"
                         title="Okundu işaretle"
                       >
@@ -198,7 +226,7 @@ export default function NotificationsPage() {
                       </button>
                     )}
                     <button
-                      onClick={() => handleDelete(n.id)}
+                      onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }}
                       disabled={deletingId === n.id}
                       className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"
                       title="Sil"

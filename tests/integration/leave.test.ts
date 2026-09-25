@@ -29,6 +29,21 @@
  *   L22 GET /api/leave/team yanıtında İsmail Koş dönmüyor
  *   L23 İsmail Koş kendi özetini hâlâ görüyor (GET /api/leave/team/[kendi id'si])
  *   L24 İsmail Koş diğer personeli görmeye devam ediyor
+ *
+ * === Hizmet süresi metni (yıl/ay/gün) — bkz. lib/leave.ts hizmetSuresiMetni ===
+ *   L25 6 ay 1 günlük hizmet süresi doğru metinle dönüyor, izin hakkı yine 0 gün
+ *   L26 2 yıl 3 aylık kullanıcıda hak 14 gün (gösterim değişse de hesap aynı)
+ *
+ * === İzin bildirimleri (lib/notifications.ts) ===
+ *   L27 Yeni talepte onaylayıcılara bildirim gidiyor, başkasına gitmiyor
+ *   L28 Onay bildirimi talep sahibine gidiyor
+ *   L29 Ret bildirimi talep sahibine gidiyor, gerekçe mesajda görünüyor
+ *   L30 Talep sahibi iptal edince onaylayıcılara bildirim gidiyor
+ *
+ * === İptal edilen talep — soft delete (deletedAt) ===
+ *   L31 İptal edilen talep GET /api/leave yanıtında dönmüyor
+ *   L32 İptal edilen talep GET /api/leave/team/[userId] "requests" listesinde dönmüyor
+ *   L33 İptal edilen talep kullanılan gün toplamına eklenmiyor
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -46,7 +61,7 @@ import { POST as leaveAttachmentsPOST } from "../../app/api/leave/[id]/attachmen
 import { GET as leaveAttachmentDownloadGET } from "../../app/api/leave/[id]/attachments/[attachmentId]/download/route";
 import { getServerSession } from "next-auth";
 import { getToken } from "next-auth/jwt";
-import { hesaplaIzinHakki, isGunuSayisi } from "../../lib/leave";
+import { hesaplaIzinHakki, hizmetSuresiMetni, isGunuSayisi } from "../../lib/leave";
 
 const prisma = new PrismaClient();
 const hash = (pw: string) => bcrypt.hash(pw, 10);
@@ -149,6 +164,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await prisma.notification.deleteMany({ where: { relatedId: { in: createdLeaveIds } } });
   await prisma.leaveRequest.deleteMany({ where: { id: { in: createdLeaveIds } } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
   await prisma.$disconnect();
@@ -607,5 +623,176 @@ describe("L24 — İsmail Koş diğer personeli görmeye devam ediyor", () => {
       { params: { userId: outsourceEmployee.id } }
     );
     expect(res.status).toBe(200);
+  });
+});
+
+describe("L25 — hizmetSuresiMetni: 6 ay 1 gün", () => {
+  it("doğru metin döner, izin hakkı yine 0 gün (1 yıl dolmadığı için)", () => {
+    const hireDate = new Date("2026-03-23");
+    const simdi = new Date("2026-09-24");
+    expect(hizmetSuresiMetni(hireDate, simdi)).toBe("6 ay 1 gün");
+    const hak = hesaplaIzinHakki(hireDate, simdi);
+    expect(hak.hakEdilenGun).toBe(0);
+  });
+});
+
+describe("L26 — hizmetSuresiMetni: 2 yıl 3 ay", () => {
+  it("gösterim '2 yıl 3 ay' olsa da hak hesabı tam yıl üzerinden 14 gün", () => {
+    const hireDate = new Date("2024-06-24");
+    const simdi = new Date("2026-09-24");
+    expect(hizmetSuresiMetni(hireDate, simdi)).toBe("2 yıl 3 ay");
+    const hak = hesaplaIzinHakki(hireDate, simdi);
+    expect(hak.hizmetYili).toBe(2);
+    expect(hak.hakEdilenGun).toBe(14);
+  });
+
+  it("hireDate NULL ise 'İşe giriş tarihi girilmemiş' döner (hesaplaIzinHakki mesajıyla aynı)", () => {
+    expect(hizmetSuresiMetni(null)).toBe("İşe giriş tarihi girilmemiş");
+  });
+
+  it("1 günden az (bugün başladı) → 'Bugün başladı'", () => {
+    const simdi = new Date("2026-09-24T15:00:00Z");
+    expect(hizmetSuresiMetni(simdi, simdi)).toBe("Bugün başladı");
+  });
+});
+
+describe("L27 — Yeni talepte onaylayıcılara bildirim gidiyor, başkasına gitmiyor", () => {
+  it("YMM talebi → Murat Özgür + Ebubekir Öztürk'e gider, Ahmet Oruç/İsmail Koş'a gitmez", async () => {
+    asUser(ymmEmployee);
+    const res = await leavePOST(jsonReq("http://localhost/api/leave", "POST", {
+      startDate: "2026-08-03", endDate: "2026-08-04", type: "ANNUAL",
+    }));
+    expect(res.status).toBe(201);
+    const data = await json(res);
+    createdLeaveIds.push(data.id);
+
+    const notifs = await prisma.notification.findMany({ where: { relatedId: data.id } });
+    const recipientIds = notifs.map((n) => n.userId);
+    expect(recipientIds).toContain(muratOzgur.id);
+    expect(recipientIds).toContain(ebubekirOzturk.id);
+    expect(recipientIds).not.toContain(ahmetOruc.id);
+    expect(recipientIds).not.toContain(ismailKos.id);
+    expect(recipientIds).not.toContain(ymmEmployee.id);
+    expect(notifs.every((n) => n.type === "LEAVE_REQUEST_NEW")).toBe(true);
+  });
+
+  it("OUTSOURCE talebi → yalnızca İsmail Koş'a gider (ADMIN'e yağmıyor)", async () => {
+    asUser(outsourceEmployee);
+    const res = await leavePOST(jsonReq("http://localhost/api/leave", "POST", {
+      startDate: "2026-08-10", endDate: "2026-08-11", type: "ANNUAL",
+    }));
+    expect(res.status).toBe(201);
+    const data = await json(res);
+    createdLeaveIds.push(data.id);
+
+    const notifs = await prisma.notification.findMany({ where: { relatedId: data.id } });
+    const recipientIds = notifs.map((n) => n.userId);
+    expect(recipientIds).toEqual([ismailKos.id]);
+  });
+});
+
+describe("L28/L29 — Onay/ret bildirimi talep sahibine gidiyor", () => {
+  it("Onay → talep sahibine LEAVE_APPROVED bildirimi", async () => {
+    const id = await mkLeave(ymmEmployee.id, {});
+    asUser(muratOzgur);
+    const res = await leavePATCH(jsonReq(`http://localhost/api/leave/${id}`, "PATCH", { action: "approve" }), { params: { id } });
+    expect(res.status).toBe(200);
+
+    const notif = await prisma.notification.findFirst({ where: { relatedId: id, type: "LEAVE_APPROVED" } });
+    expect(notif).toBeTruthy();
+    expect(notif?.userId).toBe(ymmEmployee.id);
+  });
+
+  it("Ret → talep sahibine LEAVE_REJECTED bildirimi, gerekçe mesajda görünüyor", async () => {
+    const id = await mkLeave(ymmEmployee.id, {});
+    asUser(muratOzgur);
+    const res = await leavePATCH(
+      jsonReq(`http://localhost/api/leave/${id}`, "PATCH", { action: "reject", reviewNote: "Yoğun dönem" }),
+      { params: { id } }
+    );
+    expect(res.status).toBe(200);
+
+    const notif = await prisma.notification.findFirst({ where: { relatedId: id, type: "LEAVE_REJECTED" } });
+    expect(notif).toBeTruthy();
+    expect(notif?.userId).toBe(ymmEmployee.id);
+    expect(notif?.message).toContain("Yoğun dönem");
+  });
+});
+
+describe("L30 — Talep sahibi iptal edince onaylayıcılara bildirim gidiyor", () => {
+  it("YMM talebini sahibi iptal edince Murat Özgür + Ebubekir Öztürk'e LEAVE_CANCELLED bildirimi gider", async () => {
+    const id = await mkLeave(ymmEmployee.id, {});
+    asUser(ymmEmployee);
+    const res = await leavePATCH(jsonReq(`http://localhost/api/leave/${id}`, "PATCH", { action: "cancel" }), { params: { id } });
+    expect(res.status).toBe(200);
+
+    const notifs = await prisma.notification.findMany({ where: { relatedId: id, type: "LEAVE_CANCELLED" } });
+    const recipientIds = notifs.map((n) => n.userId);
+    expect(recipientIds).toContain(muratOzgur.id);
+    expect(recipientIds).toContain(ebubekirOzturk.id);
+    expect(recipientIds).not.toContain(ymmEmployee.id);
+  });
+});
+
+describe("L31/L32/L33 — İptal edilen talep (soft delete) listelerden kalkıyor", () => {
+  it("L31: GET /api/leave (Taleplerim) iptal edilen talebi döndürmüyor", async () => {
+    const id = await mkLeave(ymmEmployee.id, {});
+    asUser(ymmEmployee);
+    const cancelRes = await leavePATCH(jsonReq(`http://localhost/api/leave/${id}`, "PATCH", { action: "cancel" }), { params: { id } });
+    expect(cancelRes.status).toBe(200);
+
+    const listRes = await leaveGET();
+    const list = await json(listRes);
+    expect(list.map((r: any) => r.id)).not.toContain(id);
+  });
+
+  it("L31b: iptal edilen talep DB'de fiziksel olarak silinmiyor — status=CANCELLED + deletedAt dolu", async () => {
+    const id = await mkLeave(ymmEmployee.id, {});
+    asUser(ymmEmployee);
+    await leavePATCH(jsonReq(`http://localhost/api/leave/${id}`, "PATCH", { action: "cancel" }), { params: { id } });
+
+    const row = await prisma.leaveRequest.findUnique({ where: { id } });
+    expect(row).not.toBeNull();
+    expect(row?.status).toBe("CANCELLED");
+    expect(row?.deletedAt).not.toBeNull();
+  });
+
+  it("L32: GET /api/leave/team/[userId] 'requests' listesinde iptal edilen talep dönmüyor", async () => {
+    const id = await mkLeave(ymmEmployee.id, { startDate: new Date("2026-04-06"), endDate: new Date("2026-04-07") });
+    asUser(ymmEmployee);
+    await leavePATCH(jsonReq(`http://localhost/api/leave/${id}`, "PATCH", { action: "cancel" }), { params: { id } });
+
+    asUser(muratOzgur);
+    const res = await leaveTeamByIdGET(
+      jsonReq(`http://localhost/api/leave/team/${ymmEmployee.id}?year=2026`, "GET"),
+      { params: { userId: ymmEmployee.id } }
+    );
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    expect(data.requests.map((r: any) => r.id)).not.toContain(id);
+  });
+
+  it("L33: iptal edilen talep kullanılan gün toplamına eklenmiyor", async () => {
+    asUser(muratOzgur);
+    const before = await leaveTeamByIdGET(
+      jsonReq(`http://localhost/api/leave/team/${ymmEmployee.id}?year=2026`, "GET"),
+      { params: { userId: ymmEmployee.id } }
+    );
+    const beforeData = await json(before);
+    const baseline = beforeData.kullanilanGun;
+
+    const id = await mkLeave(ymmEmployee.id, {
+      startDate: new Date("2026-04-13"), endDate: new Date("2026-04-15"), // 3 iş günü
+    });
+    asUser(ymmEmployee);
+    await leavePATCH(jsonReq(`http://localhost/api/leave/${id}`, "PATCH", { action: "cancel" }), { params: { id } });
+
+    asUser(muratOzgur);
+    const after = await leaveTeamByIdGET(
+      jsonReq(`http://localhost/api/leave/team/${ymmEmployee.id}?year=2026`, "GET"),
+      { params: { userId: ymmEmployee.id } }
+    );
+    const afterData = await json(after);
+    expect(afterData.kullanilanGun).toBe(baseline);
   });
 });

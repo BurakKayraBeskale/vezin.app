@@ -229,8 +229,8 @@ export default function PerformancePanel() {
                 {p.pct === null ? (
                   <>
                     <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full" />
-                    <span className="text-xs text-gray-300 dark:text-gray-600 italic shrink-0">
-                      veri yok
+                    <span className="text-xs text-gray-300 dark:text-gray-600 shrink-0">
+                      %0 — {p.onTime}/{p.total}
                     </span>
                   </>
                 ) : (
@@ -334,8 +334,8 @@ export default function PerformancePanel() {
                           %{breakdown.pct}
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-300 dark:text-gray-600 italic">
-                          veri yok
+                        <span className="text-xs text-gray-300 dark:text-gray-600">
+                          %0 — {breakdown.onTimeCount}/{breakdown.onTimeCount + breakdown.lateCount}
                         </span>
                       )}
                     </div>

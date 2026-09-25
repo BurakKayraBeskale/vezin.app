@@ -10,7 +10,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getLeaveOverviewScope } from "@/lib/access";
-import { hesaplaIzinHakki, leaveInclude } from "@/lib/leave";
+import { hesaplaIzinHakki, hizmetSuresiMetni, leaveInclude } from "@/lib/leave";
 
 export async function GET(req: NextRequest, { params }: { params: { userId: string } }) {
   const session = await getServerSession(authOptions);
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
   const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
 
   const requests = await prisma.leaveRequest.findMany({
-    where: { userId: target.id, startDate: { gte: yearStart, lte: yearEnd } },
+    where: { userId: target.id, startDate: { gte: yearStart, lte: yearEnd }, deletedAt: null },
     include: leaveInclude,
     orderBy: { startDate: "desc" },
   });
@@ -50,6 +50,7 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     user: { id: target.id, name: target.name, department: target.department, hireDate: target.hireDate },
     year,
     hizmetYili: hak.hizmetYili,
+    hizmetSuresiMetni: hizmetSuresiMetni(target.hireDate),
     hakEdilenGun: hak.hakEdilenGun,
     mesaj: hak.mesaj,
     kullanilanGun,

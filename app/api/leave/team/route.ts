@@ -17,7 +17,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getLeaveOverviewScope } from "@/lib/access";
-import { hesaplaIzinHakki } from "@/lib/leave";
+import { hesaplaIzinHakki, hizmetSuresiMetni } from "@/lib/leave";
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
           status: "APPROVED",
           type: "ANNUAL",
           startDate: { gte: yearStart, lte: yearEnd },
+          deletedAt: null,
         },
         select: { userId: true, days: true },
       })
@@ -69,6 +70,7 @@ export async function GET(req: NextRequest) {
       department: u.department,
       hireDate: u.hireDate,
       hizmetYili: hak.hizmetYili,
+      hizmetSuresiMetni: hizmetSuresiMetni(u.hireDate),
       hakEdilenGun: hak.hakEdilenGun,
       mesaj: hak.mesaj,
       kullanilanGun,

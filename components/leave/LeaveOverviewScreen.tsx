@@ -10,6 +10,8 @@ interface Props {
   currentUserEmail: string | null;
   /** getLeaveOverviewScope(user) !== null — server'da hesaplanır. */
   hasOverviewAccess: boolean;
+  /** Bildirimden gelindiyse — bu talebin sahibinin dökümü otomatik açılır. */
+  initialRequestId?: string;
 }
 
 function formatDate(d: string) {
@@ -31,13 +33,27 @@ const DEPT_LABELS: Record<string, string> = {
  * edilir (backend zaten 404 döndürür — burada ayrıca kontrol frontend
  * gizlemesi için, gerçek sınır API'de).
  */
-export default function LeaveOverviewScreen({ currentUserId, currentUserRole, currentUserEmail, hasOverviewAccess }: Props) {
+export default function LeaveOverviewScreen({ currentUserId, currentUserRole, currentUserEmail, hasOverviewAccess, initialRequestId }: Props) {
   const currentYear = new Date().getFullYear();
   const [myOverview, setMyOverview] = useState<LeaveBreakdown | null>(null);
 
   const [teamYear, setTeamYear] = useState(currentYear);
   const [teamData, setTeamData] = useState<TeamMemberSummary[] | null>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [drawerYear, setDrawerYear] = useState(currentYear);
+
+  // Bildirimden ?requestId= ile gelindiyse — talebin sahibini bul ve dökümünü aç.
+  useEffect(() => {
+    if (!initialRequestId || !hasOverviewAccess) return;
+    fetch(`/api/leave/${initialRequestId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((req) => {
+        if (!req?.user?.id) return;
+        setSelectedPersonId(req.user.id);
+        setDrawerYear(new Date(req.startDate).getFullYear());
+      })
+      .catch(() => {});
+  }, [initialRequestId, hasOverviewAccess]);
 
   useEffect(() => {
     fetch(`/api/leave/team/${currentUserId}?year=${currentYear}`)
@@ -81,7 +97,7 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: "Hizmet Yılı", value: `${myOverview.hizmetYili} yıl`, color: "text-gray-800" },
+                { label: "Hizmet Süresi", value: myOverview.hizmetSuresiMetni, color: "text-gray-800" },
                 { label: "Hak Edilen", value: `${myOverview.hakEdilenGun} gün`, color: "text-gray-800" },
                 { label: "Kullanılan", value: `${myOverview.kullanilanGun} gün`, color: "text-[#F57C28]" },
                 { label: "Kalan", value: `${myOverview.kalanGun} gün`, color: "text-emerald-600" },
@@ -122,7 +138,7 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
                     <th className="px-6 py-2.5">Ad</th>
                     <th className="px-3 py-2.5">Departman</th>
                     <th className="px-3 py-2.5">İşe Giriş</th>
-                    <th className="px-3 py-2.5">Hizmet Yılı</th>
+                    <th className="px-3 py-2.5">Hizmet Süresi</th>
                     <th className="px-3 py-2.5">Hak Edilen</th>
                     <th className="px-3 py-2.5">Kullanılan ({teamYear})</th>
                     <th className="px-3 py-2.5">Kalan</th>
@@ -133,7 +149,7 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
                     <tr key={m.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-6 py-3">
                         <button
-                          onClick={() => setSelectedPersonId(m.id)}
+                          onClick={() => { setDrawerYear(currentYear); setSelectedPersonId(m.id); }}
                           className="font-medium text-gray-800 hover:text-[#F57C28] transition-colors text-left"
                         >
                           {m.name}
@@ -143,7 +159,7 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
                       <td className="px-3 py-3 text-gray-500 text-xs font-mono">
                         {m.hireDate ? formatDate(m.hireDate) : <span className="italic text-gray-300">girilmemiş</span>}
                       </td>
-                      <td className="px-3 py-3 text-gray-600 text-xs">{m.hizmetYili !== null ? `${m.hizmetYili} yıl` : "—"}</td>
+                      <td className="px-3 py-3 text-gray-600 text-xs">{m.hizmetSuresiMetni}</td>
                       <td className="px-3 py-3 text-gray-600 text-xs">{m.hakEdilenGun !== null ? `${m.hakEdilenGun} gün` : "—"}</td>
                       <td className="px-3 py-3 text-[#F57C28] text-xs font-semibold">{m.kullanilanGun} gün</td>
                       <td className="px-3 py-3 text-emerald-600 text-xs font-semibold">{m.kalanGun !== null ? `${m.kalanGun} gün` : "—"}</td>
@@ -159,6 +175,7 @@ export default function LeaveOverviewScreen({ currentUserId, currentUserRole, cu
       {selectedPersonId && (
         <LeaveBreakdownDrawer
           personId={selectedPersonId}
+          initialYear={drawerYear}
           currentUser={{ id: currentUserId, role: currentUserRole, email: currentUserEmail }}
           onClose={() => setSelectedPersonId(null)}
           onChanged={loadTeam}

@@ -12,8 +12,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { canApproveLeave, getLeaveViewScope } from "@/lib/access";
-import { sendNotification } from "@/lib/notifications";
+import { canApproveLeave, getLeaveApprovers, getLeaveViewScope } from "@/lib/access";
+import { sendNotification, sendNotificationToMany } from "@/lib/notifications";
 import { leaveInclude } from "@/lib/leave";
 
 function canSeeRequest(
@@ -77,9 +77,26 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
     const updated = await prisma.leaveRequest.update({
       where: { id: params.id },
-      data: { status: "CANCELLED" },
+      data: { status: "CANCELLED", deletedAt: new Date() },
       include: leaveInclude,
     });
+
+    // Talep sahibi iptal etti → onaylayıcılara bildirim (kendisi kapsamındaysa hariç).
+    const approverEmails = getLeaveApprovers(existing.user.department);
+    const approvers = approverEmails.length
+      ? await prisma.user.findMany({
+          where: { email: { in: approverEmails } },
+          select: { id: true },
+        })
+      : [];
+    const approverIds = approvers.map((a) => a.id).filter((id) => id !== userId);
+    await sendNotificationToMany(
+      approverIds,
+      "LEAVE_CANCELLED",
+      `${userName} izin talebini iptal etti.`,
+      existing.id
+    );
+
     return NextResponse.json(updated);
   }
 
@@ -112,10 +129,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     });
 
     const statusLabel = action === "approve" ? "onaylandı" : "reddedildi";
+    const message =
+      action === "reject" && reviewNote
+        ? `İzin talebiniz ${statusLabel}. Gerekçe: ${reviewNote}`
+        : `İzin talebiniz ${statusLabel}.`;
     await sendNotification(
       existing.userId,
       action === "approve" ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
-      `İzin talebiniz ${statusLabel}.`,
+      message,
       existing.id
     );
 

@@ -29,6 +29,7 @@ export interface TeamMemberSummary {
   department: string;
   hireDate: string | null;
   hizmetYili: number | null;
+  hizmetSuresiMetni: string;
   hakEdilenGun: number | null;
   mesaj: string | null;
   kullanilanGun: number;
@@ -39,6 +40,7 @@ export interface LeaveBreakdown {
   user: { id: string; name: string; department: string; hireDate: string | null };
   year: number;
   hizmetYili: number | null;
+  hizmetSuresiMetni: string;
   hakEdilenGun: number | null;
   mesaj: string | null;
   kullanilanGun: number;

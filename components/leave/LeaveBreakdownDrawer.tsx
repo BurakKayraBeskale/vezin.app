@@ -11,6 +11,8 @@ interface Props {
   onClose: () => void;
   /** Bir talep onaylanır/reddedilirse üst listenin (Personel İzin Durumu) yenilenmesi için. */
   onChanged: () => void;
+  /** Bildirimden gelindiyse — talebin ait olduğu yıl (varsayılan: içinde bulunulan yıl). */
+  initialYear?: number;
 }
 
 function formatDate(d: string) {
@@ -24,8 +26,8 @@ function bytesToLabel(size: number | null) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function LeaveBreakdownDrawer({ personId, currentUser, onClose, onChanged }: Props) {
-  const [year, setYear] = useState(() => new Date().getFullYear());
+export default function LeaveBreakdownDrawer({ personId, currentUser, onClose, onChanged, initialYear }: Props) {
+  const [year, setYear] = useState(() => initialYear ?? new Date().getFullYear());
   const [data, setData] = useState<LeaveBreakdown | null>(null);
   const [loading, setLoading] = useState(true);
   const [actioningId, setActioningId] = useState<string | null>(null);
@@ -131,8 +133,8 @@ export default function LeaveBreakdownDrawer({ personId, currentUser, onClose, o
                 ) : (
                   <>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500">Hizmet Yılı</span>
-                      <span className="font-semibold text-gray-800">{data.hizmetYili} yıl</span>
+                      <span className="text-gray-500">Hizmet Süresi</span>
+                      <span className="font-semibold text-gray-800">{data.hizmetSuresiMetni}</span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-500">Hak Edilen (Yıllık)</span>

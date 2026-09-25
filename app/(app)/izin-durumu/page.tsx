@@ -12,7 +12,11 @@ export const dynamic = "force-dynamic";
  * getLeaveOverviewScope kapsamındakilere render edilir (gerçek sınır
  * API'de — /api/leave/team, /api/leave/team/[userId] — server WHERE'de).
  */
-export default async function IzinDurumuPage() {
+export default async function IzinDurumuPage({
+  searchParams,
+}: {
+  searchParams?: { requestId?: string };
+}) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
@@ -29,6 +33,7 @@ export default async function IzinDurumuPage() {
         currentUserRole={role}
         currentUserEmail={email}
         hasOverviewAccess={hasOverviewAccess}
+        initialRequestId={searchParams?.requestId}
       />
     </div>
   );

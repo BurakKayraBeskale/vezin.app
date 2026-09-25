@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LeaveTypeBadge, LeaveStatusBadge } from "./badges";
 import NewLeaveRequestModal from "./NewLeaveRequestModal";
 import { LeaveRequestRecord } from "./types";
@@ -9,16 +9,28 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" });
 }
 
+interface Props {
+  /** Bildirimden gelindiyse — bu talep listede vurgulanır ve görünüme kaydırılır. */
+  highlightId?: string;
+}
+
 /**
  * /leave — yalnızca "Taleplerim" + yeni talep oluşturma. "Personel İzin
  * Durumu" (personel listesi + kişi bazlı döküm) artık ayrı sayfada:
  * /izin-durumu (bkz. components/leave/LeaveOverviewScreen.tsx).
  */
-export default function LeaveScreen() {
+export default function LeaveScreen({ highlightId }: Props) {
   const [myRequests, setMyRequests] = useState<LeaveRequestRecord[] | null>(null);
   const [showNewRequest, setShowNewRequest] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const highlightRef = useRef<HTMLLIElement | null>(null);
+
+  useEffect(() => {
+    if (highlightId && myRequests?.some((r) => r.id === highlightId)) {
+      highlightRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightId, myRequests]);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -104,7 +116,15 @@ export default function LeaveScreen() {
         ) : (
           <ul className="divide-y divide-gray-50">
             {myRequests.map((r) => (
-              <li key={r.id} className="px-4 sm:px-6 py-4">
+              <li
+                key={r.id}
+                ref={r.id === highlightId ? highlightRef : undefined}
+                className={
+                  r.id === highlightId
+                    ? "px-4 sm:px-6 py-4 bg-orange-50 ring-1 ring-inset ring-[#F57C28]/40"
+                    : "px-4 sm:px-6 py-4"
+                }
+              >
                 <div className="flex items-start gap-3 flex-wrap">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">

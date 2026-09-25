@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getPerformanceScope } from "@/lib/access";
+import { PERFORMANS_BASLANGIC } from "@/lib/performance";
 
 function deptWhere(
   scope: "ALL" | "BAGIMSIZ_DENETIM" | "YEMINLI_MALI_MUSAVIR"
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
   // Bu kullanıcılara atanmış, dueDate'i olan tüm görevler
   const tasks = await prisma.task.findMany({
     where: {
-      dueDate: { not: null },
+      dueDate: { not: null, gte: PERFORMANS_BASLANGIC },
       OR: [
         { assignedToId: { in: scopeUserIds } },
         { assignees: { some: { userId: { in: scopeUserIds } } } },

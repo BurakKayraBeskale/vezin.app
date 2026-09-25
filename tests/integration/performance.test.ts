@@ -15,6 +15,7 @@
  *   T-SCOPE     Ahmet Oruç, YMM kadrosundaki birinin dökümünü isteyince 404
  *   T-DATERANGE Tarih aralığı dışındaki görevler yüzdeye ve listeye girmiyor
  *   T-UPCOMING  "Süresi dolmak üzere" grubu yalnızca 7 gün içindeki açık görevleri içeriyor
+ *   T-CUTOFF    PERFORMANS_BASLANGIC öncesindeki görev yüzdeye/dökümüne girmiyor
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -27,6 +28,7 @@ vi.mock("next-auth/jwt", () => ({ getToken: vi.fn() }));
 import { GET as perfGET } from "../../app/api/performance/route";
 import { GET as breakdownGET } from "../../app/api/performance/[userId]/route";
 import { getToken } from "next-auth/jwt";
+import { PERFORMANS_BASLANGIC } from "../../lib/performance";
 
 const prisma = new PrismaClient();
 const hash = (pw: string) => bcrypt.hash(pw, 10);
@@ -91,6 +93,10 @@ let gorevInRange: string;   // DONE, dueDate = 2026-07-01 (FROM_RANGE > PAST)
 let gorevYaklasan3: string; // TODO + dueDate = now+3 gün → upcoming'e girmeli
 let gorevYaklasan10: string;// TODO + dueDate = now+10 gün → upcoming'e girmemeli
 
+// T-CUTOFF: PERFORMANS_BASLANGIC öncesi görev
+let cutoffUserId: string;
+let gorevCutoffOncesi: string; // DONE + dueDate PERFORMANS_BASLANGIC'tan ÖNCE → hesaba katılmamalı
+
 // Sahte çağrı yapacak kullanıcılar (sadece token için, gerçek DB kaydı)
 let adminUser: TokenUser;
 let normalUser: TokenUser;
@@ -100,9 +106,12 @@ let muratOzgurUser: TokenUser;  // email: muratozgur@vezin.com.tr
 const createdUserIds: string[] = [];
 const createdTaskIds: string[] = [];
 
-const PAST   = new Date("2026-01-01T00:00:00Z");
-const BEFORE = new Date("2025-12-31T23:59:00Z"); // dueDate'den önce
-const AFTER  = new Date("2026-01-02T00:00:00Z"); // dueDate'den sonra
+// NOT: PERFORMANS_BASLANGIC (2026-09-24) öncesi görevler artık hesaba katılmıyor —
+// bu yüzden P5-P9/T-DATERANGE için kullanılan "geçmiş" tarihler cutoff'tan SONRA
+// (ama gerçek "şimdi"den önce) seçildi. Cutoff'un kendisi ayrı olarak T-CUTOFF'ta test edilir.
+const PAST   = new Date("2026-09-24T12:00:00Z");
+const BEFORE = new Date("2026-09-24T06:00:00Z"); // dueDate'den önce
+const AFTER  = new Date("2026-09-24T18:00:00Z"); // dueDate'den sonra
 const FUTURE = new Date("2099-01-01T00:00:00Z");
 
 beforeAll(async () => {
@@ -305,15 +314,15 @@ beforeAll(async () => {
   hiddenBdUser = hiddenRaw.id;
   createdUserIds.push(hiddenRaw.id);
 
-  // T-DATERANGE: 2026-07-01 tarihli zamanında görev (PAST=2026-01-01 dışında)
-  const IN_RANGE_DATE = new Date("2026-07-01T00:00:00Z");
+  // T-DATERANGE: PAST'tan sonraki bir tarihte zamanında görev (PAST=2026-09-24 dışında kalacak aralıkla test edilir)
+  const IN_RANGE_DATE = new Date("2026-10-01T00:00:00Z");
   const g6 = await prisma.task.create({
     data: {
       title: `${PREFIX} in-range`,
       status: "DONE",
       priority: "MEDIUM",
       dueDate: IN_RANGE_DATE,
-      completedAt: new Date("2026-06-30T12:00:00Z"), // dueDate'den önce → zamanında
+      completedAt: new Date("2026-09-30T12:00:00Z"), // dueDate'den önce → zamanında
       assignedToId: bdPersonel1,
       createdById: admin.id,
     },
@@ -349,6 +358,25 @@ beforeAll(async () => {
   });
   gorevYaklasan10 = g8.id;
   createdTaskIds.push(g8.id);
+
+  // T-CUTOFF: PERFORMANS_BASLANGIC'tan ÖNCE dueDate'i olan, tamamlanmış (zamanında
+  // sayılacak) bir görev — cutoff olmasaydı onTime'a girerdi, olduğu için hiç girmemeli.
+  const cutoffUser = await mkUser("cutoff-user", "BAGIMSIZ_DENETIM");
+  cutoffUserId = cutoffUser.id;
+  const beforeCutoffDue = new Date(PERFORMANS_BASLANGIC.getTime() - 24 * 60 * 60 * 1000);
+  const g9 = await prisma.task.create({
+    data: {
+      title: `${PREFIX} cutoff-oncesi`,
+      status: "DONE",
+      priority: "MEDIUM",
+      dueDate: beforeCutoffDue,
+      completedAt: new Date(beforeCutoffDue.getTime() - 60 * 60 * 1000), // dueDate'den önce → zamanında OLURDU
+      assignedToId: cutoffUserId,
+      createdById: admin.id,
+    },
+  });
+  gorevCutoffOncesi = g9.id;
+  createdTaskIds.push(g9.id);
 });
 
 afterAll(async () => {
@@ -512,11 +540,11 @@ describe("GET /api/performance/[userId] — kapsam kontrolü", () => {
 
 describe("GET /api/performance/[userId] — tarih aralığı filtresi", () => {
   // bdPersonel1'in görevleri:
-  //   PAST = 2026-01-01 → g1, g1b (zamanında), g2 (gecikmeli), g3 (acik-gecmis gecikmeli)
-  //   IN_RANGE_DATE = 2026-07-01 → g6 (zamanında)
-  // FROM_RANGE = 2026-06-01 olunca PAST görevleri dışarıda kalır, g6 içeride
+  //   PAST = 2026-09-24 → g1, g1b (zamanında), g2 (gecikmeli), g3 (acik-gecmis gecikmeli)
+  //   IN_RANGE_DATE = 2026-10-01 → g6 (zamanında)
+  // FROM_RANGE = 2026-09-26 olunca PAST görevleri dışarıda kalır, g6 içeride
 
-  const FROM_RANGE = "2026-06-01";
+  const FROM_RANGE = "2026-09-26";
   const TO_RANGE   = "2026-12-31";
 
   it("T-DATERANGE: aralık dışındaki görevler onTime/late listesine girmiyor", async () => {
@@ -593,5 +621,39 @@ describe("GET /api/performance/[userId] — süresi dolmak üzere", () => {
     const upcomingIds: string[] = bd.upcoming.map((t: any) => t.id);
     // gorevYaklasan10 (now+10 gün) upcoming'de OLMAMALI
     expect(upcomingIds).not.toContain(gorevYaklasan10);
+  });
+});
+
+// ── T-CUTOFF: PERFORMANS_BASLANGIC öncesi görev hesaba katılmıyor ───────────
+
+describe("PERFORMANS_BASLANGIC — cutoff öncesi görevler hesaba katılmıyor", () => {
+  it("T-CUTOFF: liste ekranında total=0, pct=null (cutoff öncesindeki tek görev sayılmıyor)", async () => {
+    asToken(ahmetOrucUser);
+    const res = await perfGET(fakeReq());
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const person = data.find((p: any) => p.id === cutoffUserId);
+    expect(person).toBeDefined();
+    expect(person.total).toBe(0);
+    expect(person.onTime).toBe(0);
+    expect(person.late).toBe(0);
+    expect(person.pct).toBeNull();
+  });
+
+  it("T-CUTOFF: döküm ekranında cutoff öncesi görev onTime/late listesinde görünmüyor", async () => {
+    asToken(ahmetOrucUser);
+    // Geniş bir aralık verilse dahi (cutoff öncesini de kapsayan) görev dönmemeli —
+    // hesaplama penceresi PERFORMANS_BASLANGIC ile sunucu tarafında zaten daraltılıyor.
+    const res = await breakdownGET(
+      fakeBreakdownReq(cutoffUserId, { from: "2020-01-01", to: "2030-01-01" }),
+      { params: { userId: cutoffUserId } }
+    );
+    expect(res.status).toBe(200);
+    const bd = await json(res);
+    const allIds = [...bd.onTime.map((t: any) => t.id), ...bd.late.map((t: any) => t.id)];
+    expect(allIds).not.toContain(gorevCutoffOncesi);
+    expect(bd.onTimeCount).toBe(0);
+    expect(bd.lateCount).toBe(0);
+    expect(bd.pct).toBeNull();
   });
 });
