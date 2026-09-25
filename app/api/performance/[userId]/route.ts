@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getPerformanceScope } from "@/lib/access";
-import { PERFORMANS_BASLANGIC } from "@/lib/performance";
+import { PERFORMANS_BASLANGIC, basariOrani } from "@/lib/performance";
 
 export async function GET(
   req: NextRequest,
@@ -105,8 +105,7 @@ export async function GET(
     // DONE değil + dueDate >= now → açık gelecek görev, gruba dahil edilmez
   }
 
-  const total = onTime.length + late.length;
-  const pct = total > 0 ? Math.round((onTime.length / total) * 100) : null;
+  const { pct } = basariOrani(onTime.length, late.length);
 
   return NextResponse.json({
     userId: target.id,

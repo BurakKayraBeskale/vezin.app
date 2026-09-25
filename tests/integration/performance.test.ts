@@ -16,6 +16,8 @@
  *   T-DATERANGE Tarih aralığı dışındaki görevler yüzdeye ve listeye girmiyor
  *   T-UPCOMING  "Süresi dolmak üzere" grubu yalnızca 7 gün içindeki açık görevleri içeriyor
  *   T-CUTOFF    PERFORMANS_BASLANGIC öncesindeki görev yüzdeye/dökümüne girmiyor
+ *   T-ZERO      Payda 0 → pct=0 (null DEĞİL), "%0 — 0/0" (basariOrani — lib/performance.ts)
+ *   T-5050      1 zamanında + 1 geciken → %50 — 1/2 (basariOrani tek kaynaktan doğru hesaplıyor)
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -28,7 +30,7 @@ vi.mock("next-auth/jwt", () => ({ getToken: vi.fn() }));
 import { GET as perfGET } from "../../app/api/performance/route";
 import { GET as breakdownGET } from "../../app/api/performance/[userId]/route";
 import { getToken } from "next-auth/jwt";
-import { PERFORMANS_BASLANGIC } from "../../lib/performance";
+import { PERFORMANS_BASLANGIC, basariOrani } from "../../lib/performance";
 
 const prisma = new PrismaClient();
 const hash = (pw: string) => bcrypt.hash(pw, 10);
@@ -96,6 +98,9 @@ let gorevYaklasan10: string;// TODO + dueDate = now+10 gün → upcoming'e girme
 // T-CUTOFF: PERFORMANS_BASLANGIC öncesi görev
 let cutoffUserId: string;
 let gorevCutoffOncesi: string; // DONE + dueDate PERFORMANS_BASLANGIC'tan ÖNCE → hesaba katılmamalı
+
+// T-5050: tam olarak 1 zamanında + 1 geciken görevi olan kullanıcı
+let pct50UserId: string;
 
 // Sahte çağrı yapacak kullanıcılar (sadece token için, gerçek DB kaydı)
 let adminUser: TokenUser;
@@ -377,6 +382,34 @@ beforeAll(async () => {
   });
   gorevCutoffOncesi = g9.id;
   createdTaskIds.push(g9.id);
+
+  // T-5050: izole kullanıcı — tam olarak 1 zamanında + 1 geciken (cutoff sonrası)
+  const pct50User = await mkUser("pct50-user", "BAGIMSIZ_DENETIM");
+  pct50UserId = pct50User.id;
+  const g10 = await prisma.task.create({
+    data: {
+      title: `${PREFIX} pct50-ontime`,
+      status: "DONE",
+      priority: "MEDIUM",
+      dueDate: PAST,
+      completedAt: BEFORE, // dueDate'den önce → zamanında
+      assignedToId: pct50UserId,
+      createdById: admin.id,
+    },
+  });
+  createdTaskIds.push(g10.id);
+  const g11 = await prisma.task.create({
+    data: {
+      title: `${PREFIX} pct50-late`,
+      status: "DONE",
+      priority: "MEDIUM",
+      dueDate: PAST,
+      completedAt: AFTER, // dueDate'den sonra → geç
+      assignedToId: pct50UserId,
+      createdById: admin.id,
+    },
+  });
+  createdTaskIds.push(g11.id);
 });
 
 afterAll(async () => {
@@ -487,7 +520,7 @@ describe("GET /api/performance — hesap doğruluğu (bd1 kullanıcısı)", () =
     expect(person.total).toBe(person.onTime + person.late);
   });
 
-  it("P10: Payda 0 olan kullanıcı için pct=null (veri yok)", async () => {
+  it("P10: Payda 0 olan kullanıcı için pct=0 (null DEĞİL), '%0 — 0/0' gösterimi", async () => {
     asToken(ahmetOrucUser);
     const res = await perfGET(fakeReq());
     const data = await json(res);
@@ -495,7 +528,8 @@ describe("GET /api/performance — hesap doğruluğu (bd1 kullanıcısı)", () =
     const person = data.find((p: any) => p.id === bdPersonel2);
     expect(person).toBeDefined();
     expect(person.total).toBe(0);
-    expect(person.pct).toBeNull();
+    expect(person.onTime).toBe(0);
+    expect(person.pct).toBe(0);
   });
 });
 
@@ -637,7 +671,7 @@ describe("PERFORMANS_BASLANGIC — cutoff öncesi görevler hesaba katılmıyor"
     expect(person.total).toBe(0);
     expect(person.onTime).toBe(0);
     expect(person.late).toBe(0);
-    expect(person.pct).toBeNull();
+    expect(person.pct).toBe(0);
   });
 
   it("T-CUTOFF: döküm ekranında cutoff öncesi görev onTime/late listesinde görünmüyor", async () => {
@@ -654,6 +688,44 @@ describe("PERFORMANS_BASLANGIC — cutoff öncesi görevler hesaba katılmıyor"
     expect(allIds).not.toContain(gorevCutoffOncesi);
     expect(bd.onTimeCount).toBe(0);
     expect(bd.lateCount).toBe(0);
-    expect(bd.pct).toBeNull();
+    expect(bd.pct).toBe(0);
+  });
+});
+
+// ── T-ZERO / T-5050: basariOrani (lib/performance.ts) — tek kaynak ──────────
+
+describe("basariOrani — payda 0 ve normal oran (lib/performance.ts)", () => {
+  it("T-ZERO (birim): payda 0 → pct=0, null DEĞİL", () => {
+    expect(basariOrani(0, 0)).toEqual({ total: 0, pct: 0 });
+  });
+
+  it("T-5050 (birim): 1 zamanında + 1 geciken → %50", () => {
+    expect(basariOrani(1, 1)).toEqual({ total: 2, pct: 50 });
+  });
+
+  it("T-5050 (uçtan uca): liste ekranında 1 onTime + 1 late olan kullanıcı %50 — 1/2 döner", async () => {
+    asToken(ahmetOrucUser);
+    const res = await perfGET(fakeReq());
+    expect(res.status).toBe(200);
+    const data = await json(res);
+    const person = data.find((p: any) => p.id === pct50UserId);
+    expect(person).toBeDefined();
+    expect(person.onTime).toBe(1);
+    expect(person.late).toBe(1);
+    expect(person.total).toBe(2);
+    expect(person.pct).toBe(50);
+  });
+
+  it("T-5050 (döküm): GET /api/performance/[userId] de aynı sonucu (aynı fonksiyondan) döner", async () => {
+    asToken(ahmetOrucUser);
+    const res = await breakdownGET(
+      fakeBreakdownReq(pct50UserId),
+      { params: { userId: pct50UserId } }
+    );
+    expect(res.status).toBe(200);
+    const bd = await json(res);
+    expect(bd.onTimeCount).toBe(1);
+    expect(bd.lateCount).toBe(1);
+    expect(bd.pct).toBe(50);
   });
 });

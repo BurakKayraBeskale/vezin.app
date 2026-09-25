@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { getPerformanceScope } from "@/lib/access";
-import { PERFORMANS_BASLANGIC } from "@/lib/performance";
+import { PERFORMANS_BASLANGIC, basariOrani } from "@/lib/performance";
 
 function deptWhere(
   scope: "ALL" | "BAGIMSIZ_DENETIM" | "YEMINLI_MALI_MUSAVIR"
@@ -88,8 +88,7 @@ export async function GET(req: NextRequest) {
 
   const result = scopeUsers.map((u) => {
     const { onTime, late } = stats[u.id];
-    const total = onTime + late;
-    const pct = total > 0 ? Math.round((onTime / total) * 100) : null;
+    const { total, pct } = basariOrani(onTime, late);
     return { id: u.id, name: u.name, email: u.email, department: u.department, onTime, late, total, pct };
   });
 

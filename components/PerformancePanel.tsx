@@ -10,7 +10,7 @@ interface PersonPerf {
   onTime: number;
   late: number;
   total: number;
-  pct: number | null;
+  pct: number;
 }
 
 interface TaskItem {
@@ -27,7 +27,7 @@ interface Breakdown {
   userName: string;
   from: string;
   to: string;
-  pct: number | null;
+  pct: number;
   onTimeCount: number;
   lateCount: number;
   onTime: TaskItem[];
@@ -226,7 +226,7 @@ export default function PerformancePanel() {
 
               {/* Çubuk + etiket */}
               <div className="flex flex-1 items-center gap-2 min-w-0">
-                {p.pct === null ? (
+                {p.total === 0 ? (
                   <>
                     <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full" />
                     <span className="text-xs text-gray-300 dark:text-gray-600 shrink-0">
@@ -325,28 +325,35 @@ export default function PerformancePanel() {
                 <>
                   {/* Özet çubuğu */}
                   <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        Başarı oranı (seçili dönem)
-                      </span>
-                      {breakdown.pct !== null ? (
-                        <span className={`text-sm font-bold ${textCls(breakdown.pct)}`}>
-                          %{breakdown.pct}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-gray-300 dark:text-gray-600">
-                          %0 — {breakdown.onTimeCount}/{breakdown.onTimeCount + breakdown.lateCount}
-                        </span>
-                      )}
-                    </div>
-                    <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                      {breakdown.pct !== null && (
-                        <div
-                          className={`h-full rounded-full ${barBg(breakdown.pct)}`}
-                          style={{ width: `${breakdown.pct}%` }}
-                        />
-                      )}
-                    </div>
+                    {(() => {
+                      const breakdownTotal = breakdown.onTimeCount + breakdown.lateCount;
+                      return (
+                        <>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              Başarı oranı (seçili dönem)
+                            </span>
+                            {breakdownTotal > 0 ? (
+                              <span className={`text-sm font-bold ${textCls(breakdown.pct)}`}>
+                                %{breakdown.pct}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-300 dark:text-gray-600">
+                                %0 — {breakdown.onTimeCount}/{breakdownTotal}
+                              </span>
+                            )}
+                          </div>
+                          <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            {breakdownTotal > 0 && (
+                              <div
+                                className={`h-full rounded-full ${barBg(breakdown.pct)}`}
+                                style={{ width: `${breakdown.pct}%` }}
+                              />
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">
                       {breakdown.onTimeCount} zamanında · {breakdown.lateCount} gecikti
                     </p>
