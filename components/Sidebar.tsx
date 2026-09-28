@@ -457,6 +457,20 @@ export default function Sidebar({
             </>
           );
         })()}
+
+        {/* Personel Harcama Formu — menünün en altında, tüm aktif kullanıcılar.
+            Sekme yetkileri sayfada/API'de (lib/expense/permissions.ts). */}
+        <div className="pt-3" />
+        <NavLink
+          href="/harcama"
+          label="Personel Harcama Formu"
+          icon={
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 21.75V4.757c0-1.108-.806-2.057-1.907-2.185a48.507 48.507 0 00-11.186 0C5.306 2.7 4.5 3.65 4.5 4.757V21.75l3.75-1.5 3.75 1.5 3.75-1.5 3.75 1.5zM8.25 7.5h7.5M8.25 11.25h7.5M8.25 15h4.5" />
+            </svg>
+          }
+          active={pathname.startsWith("/harcama")}
+        />
       </nav>
 
       {/* Theme toggle + User + Logout */}

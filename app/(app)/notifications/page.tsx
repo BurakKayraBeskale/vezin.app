@@ -10,7 +10,15 @@ type NotifType =
   | "LEAVE_APPROVED"
   | "LEAVE_REJECTED"
   | "LEAVE_CANCELLED"
-  | "FEEDBACK_RECEIVED";
+  | "FEEDBACK_RECEIVED"
+  | "EXPENSE_APPROVAL_REQUEST"
+  | "EXPENSE_ACCOUNTING_REQUEST"
+  | "EXPENSE_REJECTED"
+  | "EXPENSE_ACCOUNTING_APPROVED"
+  | "EXPENSE_PAID"
+  | "EXPENSE_REFUND_RECEIVED"
+  | "EXPENSE_APPROVER_CHANGED"
+  | "EXPENSE_SETTLEMENT_REVERTED";
 
 interface Notification {
   id: string;
@@ -28,10 +36,19 @@ const TYPE_CONFIG: Record<NotifType, { icon: string; bg: string; text: string; l
   LEAVE_REJECTED:    { icon: "❌", bg: "var(--badge-red-bg)",     text: "var(--badge-red-text)",     label: "İzin Reddedildi" },
   LEAVE_CANCELLED:   { icon: "🚫", bg: "var(--badge-red-bg)",     text: "var(--badge-red-text)",     label: "İzin İptal Edildi" },
   FEEDBACK_RECEIVED: { icon: "💬", bg: "var(--badge-indigo-bg)",  text: "var(--badge-indigo-text)",  label: "Yeni Yorum" },
+  EXPENSE_APPROVAL_REQUEST:    { icon: "🧾", bg: "var(--badge-indigo-bg)",  text: "var(--badge-indigo-text)",  label: "Harcama Onayı Bekliyor" },
+  EXPENSE_ACCOUNTING_REQUEST:  { icon: "🧾", bg: "var(--badge-indigo-bg)",  text: "var(--badge-indigo-text)",  label: "Muhasebe Onayı Bekliyor" },
+  EXPENSE_REJECTED:            { icon: "↩️", bg: "var(--badge-red-bg)",     text: "var(--badge-red-text)",     label: "Harcama Formu Reddedildi" },
+  EXPENSE_ACCOUNTING_APPROVED: { icon: "✅", bg: "var(--badge-emerald-bg)", text: "var(--badge-emerald-text)", label: "Harcama Formu Onaylandı" },
+  EXPENSE_PAID:                { icon: "💸", bg: "var(--badge-emerald-bg)", text: "var(--badge-emerald-text)", label: "Ödeme Yapıldı" },
+  EXPENSE_REFUND_RECEIVED:     { icon: "💸", bg: "var(--badge-emerald-bg)", text: "var(--badge-emerald-text)", label: "İade Alındı" },
+  EXPENSE_APPROVER_CHANGED:    { icon: "🔁", bg: "var(--badge-orange-bg)",  text: "var(--badge-orange-text)",  label: "Onay Size Devredildi" },
+  EXPENSE_SETTLEMENT_REVERTED: { icon: "⚠️", bg: "var(--badge-orange-bg)",  text: "var(--badge-orange-text)",  label: "Kapanış Geri Alındı" },
 };
 
-/** Bildirim türüne göre ilgili izin talebinin açılacağı sayfa. */
-function leaveNotifHref(type: NotifType, relatedId: string): string | null {
+/** Bildirim türüne göre ilgili kaydın açılacağı sayfa (izin talebi / harcama formu). */
+function notifHref(type: NotifType, relatedId: string): string | null {
+  if (type.startsWith("EXPENSE_")) return `/harcama/${relatedId}`;
   if (type === "LEAVE_APPROVED" || type === "LEAVE_REJECTED") return `/leave?requestId=${relatedId}`;
   if (type === "LEAVE_REQUEST_NEW" || type === "LEAVE_CANCELLED") return `/izin-durumu?requestId=${relatedId}`;
   return null;
@@ -113,7 +130,7 @@ export default function NotificationsPage() {
 
   function handleOpen(n: Notification) {
     if (!n.relatedId) return;
-    const href = leaveNotifHref(n.type, n.relatedId);
+    const href = notifHref(n.type, n.relatedId);
     if (!href) return;
     if (!n.isRead) markOneRead(n.id);
     router.push(href);
@@ -178,7 +195,7 @@ export default function NotificationsPage() {
           <ul className="divide-y divide-gray-50">
             {notifications.map((n) => {
               const cfg = TYPE_CONFIG[n.type] ?? TYPE_CONFIG.TASK_ASSIGNED;
-              const clickable = !!n.relatedId && !!leaveNotifHref(n.type, n.relatedId);
+              const clickable = !!n.relatedId && !!notifHref(n.type, n.relatedId);
               return (
                 <li
                   key={n.id}

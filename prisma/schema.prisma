@@ -15,55 +15,58 @@ datasource db {
 // Project department: "OUTSOURCE" | "BAGIMSIZ_DENETIM" | "MUHASEBE" | "YMM"
 
 model User {
-  id                    String              @id @default(cuid())
+  id                    String                  @id @default(cuid())
   name                  String
-  email                 String              @unique
+  email                 String                  @unique
   password              String
-  role                  String              @default("EMPLOYEE")
-  department            String              @default("OUTSOURCE")
-  mustChangePassword    Boolean             @default(true)
-  title                 String              @default("")
-  seniorityLevel        Int                 @default(0)
-  canViewAllTasks       Boolean             @default(false)
-  canViewAllProjects    Boolean             @default(false)
+  role                  String                  @default("EMPLOYEE")
+  department            String                  @default("OUTSOURCE")
+  mustChangePassword    Boolean                 @default(true)
+  title                 String                  @default("")
+  seniorityLevel        Int                     @default(0)
+  canViewAllTasks       Boolean                 @default(false)
+  canViewAllProjects    Boolean                 @default(false)
   overseesDepartment    String? // "BAGIMSIZ_DENETIM" | "VERGI" | null
-  canManageCompanies    Boolean             @default(false)
-  canBeAssignedTasks    Boolean             @default(true)
-  showInPerformance     Boolean             @default(true)
-  showInLeaveOverview   Boolean             @default(true) // /izin-durumu personel listesinden gizlemek için — showInPerformance'tan bağımsız, ayrı bayrak
-  canAccessRotasyon     Boolean             @default(false)
-  status                String              @default("ACTIVE")
+  canManageCompanies    Boolean                 @default(false)
+  canBeAssignedTasks    Boolean                 @default(true)
+  showInPerformance     Boolean                 @default(true)
+  showInLeaveOverview   Boolean                 @default(true) // /izin-durumu personel listesinden gizlemek için — showInPerformance'tan bağımsız, ayrı bayrak
+  canAccessRotasyon     Boolean                 @default(false)
+  status                String                  @default("ACTIVE")
   hireDate              DateTime? // işe giriş tarihi — İzin Yönetimi hak hesabı (lib/leave.ts) için
-  carryUsedDays         Float               @default(0) // devir: uygulama öncesi kullanılan yıllık izin günü (yarım gün olabilir, ör. 44.5)
-  createdAt             DateTime            @default(now())
-  assignedTasks         Task[]              @relation("AssignedTo")
-  createdTasks          Task[]              @relation("CreatedBy")
+  carryUsedDays         Float                   @default(0) // devir: uygulama öncesi kullanılan yıllık izin günü (yarım gün olabilir, ör. 44.5)
+  createdAt             DateTime                @default(now())
+  assignedTasks         Task[]                  @relation("AssignedTo")
+  createdTasks          Task[]                  @relation("CreatedBy")
   taskAssignees         TaskAssignee[]
   feedbacks             Feedback[]
   files                 File[]
   taskLogs              TaskLog[]
   petitions             Petition[]
-  leaveRequests         LeaveRequest[]      @relation("LeaveRequests")
-  leaveBalances         LeaveBalance[]      @relation("LeaveBalances")
-  leaveAttachments      LeaveAttachment[]   @relation("LeaveAttachmentUploader")
-  manages               UserRelation[]      @relation("manages")
-  subordinateTo         UserRelation[]      @relation("subordinateTo")
+  leaveRequests         LeaveRequest[]          @relation("LeaveRequests")
+  leaveBalances         LeaveBalance[]          @relation("LeaveBalances")
+  leaveAttachments      LeaveAttachment[]       @relation("LeaveAttachmentUploader")
+  manages               UserRelation[]          @relation("manages")
+  subordinateTo         UserRelation[]          @relation("subordinateTo")
   notifications         Notification[]
-  meetingsCreated       Meeting[]           @relation("MeetingCreator")
+  meetingsCreated       Meeting[]               @relation("MeetingCreator")
   meetingAttendees      MeetingAttendee[]
-  templates             TaskTemplate[]      @relation("TemplateCreator")
+  templates             TaskTemplate[]          @relation("TemplateCreator")
   taskComments          TaskComment[]
   loginLogs             LoginLog[]
   companyAssignments    CompanyAssignment[]
   projectMembers        ProjectMember[]
-  projectsCreated       Project[]           @relation("ProjectCreatedBy")
+  projectsCreated       Project[]               @relation("ProjectCreatedBy")
   karsitIncelemeler     KarsitInceleme[]
-  reviewRoundsSubmitted TaskReviewRound[]   @relation("ReviewRoundSubmitter")
-  reviewRoundsReviewed  TaskReviewRound[]   @relation("ReviewRoundReviewer")
+  reviewRoundsSubmitted TaskReviewRound[]       @relation("ReviewRoundSubmitter")
+  reviewRoundsReviewed  TaskReviewRound[]       @relation("ReviewRoundReviewer")
   taskSources           TaskSource[]
   taskAttachments       TaskAttachment[]
-  ownedSeries           RecurringSeries[]   @relation("SeriesOwner")
-  assignedSeries        RecurringSeries[]   @relation("SeriesAssignee")
+  ownedSeries           RecurringSeries[]       @relation("SeriesOwner")
+  assignedSeries        RecurringSeries[]       @relation("SeriesAssignee")
+  expenseForms          ExpenseForm[]           @relation("ExpenseFormOwner")
+  expenseApproverConfig ExpenseApprovalConfig[] @relation("ExpenseApproverConfigUser")
+  expenseApprovals      ExpenseApproval[]       @relation("ExpenseApprovalApprover")
 }
 
 model Notification {
@@ -526,9 +529,9 @@ model RotasyonSozlesme {
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   kadrolar   RotasyonKadro[]
+  // aynı dönemde farklı türde birden fazla sözleşme (ör. bağımsız denetim + özel amaçlı denetim) olabilir
 
   @@unique([isletmeId, donem, tur]) // aynı işletme + aynı dönem + aynı TÜR için mükerrer sözleşme koruması —
-  // aynı dönemde farklı türde birden fazla sözleşme (ör. bağımsız denetim + özel amaçlı denetim) olabilir
 }
 
 model RotasyonKadro {
@@ -548,4 +551,182 @@ model RotasyonAyar {
   azamiSure  Int    @default(7)
   zorunluAra Int    @default(3)
   uyariEsigi Int    @default(3)
+}
+
+// ── PERSONEL HARCAMA FORMU ────────────────────────────────────────────────────
+// Durumlar, geçişler ve yetkiler: lib/expense/* (constants, permissions, workflow).
+// Tutarlar REAL (Float) saklanır ama her hesap kuruş (tam sayı) üzerinden yapılır
+// (lib/expense/calc.ts) — kayan nokta toplama hatası birikmez.
+//
+// status (ExpenseForm): "DRAFT" | "DEPT_APPROVAL" | "REVISION" | "ACCOUNTING_APPROVAL"
+//   | "PAYMENT_PENDING" | "REFUND_PENDING" | "PAID" | "REFUND_RECEIVED" | "SETTLED" | "CANCELLED"
+
+model ExpenseForm {
+  id                  String                 @id @default(cuid())
+  formNo              String                 @unique // PHF-2026-000001 — sistem üretir
+  owner               User                   @relation("ExpenseFormOwner", fields: [ownerId], references: [id])
+  ownerId             String
+  status              String                 @default("DRAFT")
+  note                String? // genel açıklama/not
+  cashAdvance         Float                  @default(0) // nakit avans — YALNIZ form sahibi girer
+  totalAmount         Float                  @default(0) // satırların toplamı (sunucu hesaplar)
+  netAmount           Float                  @default(0) // totalAmount − cashAdvance (sunucu hesaplar)
+  // İlk onaya gönderimde dondurulan personel bilgileri — sonradan değişmez.
+  ownerNameSnapshot   String?
+  departmentSnapshot  String?
+  titleSnapshot       String?
+  snapshotAt          DateTime?
+  firstSubmittedAt    DateTime?
+  lastSubmittedAt     DateTime?
+  reachedAccountingAt DateTime? // ilk kez Muhasebe Onayına düştüğü an — muhasebe görünürlüğü buna bağlı
+  lastActionAt        DateTime               @default(now())
+  version             Int                    @default(0) // iyimser kilit — her durum/içerik değişiminde +1
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  items               ExpenseFormItem[]
+  rounds              ExpenseApprovalRound[]
+  documents           ExpenseDocument[]
+  settlements         ExpenseSettlement[]
+  audits              ExpenseAudit[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([departmentSnapshot])
+}
+
+// Harcama satırı — tüm metin alanları serbest metin (kategori/müşteri listesi YOK).
+// date/amount taslakta boş bırakılabilir; onaya gönderimde zorunlu (lib/expense/validation.ts).
+model ExpenseFormItem {
+  id            String      @id @default(cuid())
+  form          ExpenseForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId        String
+  sortOrder     Int         @default(0)
+  date          DateTime?
+  subject       String      @default("")
+  vendor        String      @default("")
+  description   String      @default("")
+  clientProject String?
+  amount        Float       @default(0)
+  createdAt     DateTime    @default(now())
+
+  @@index([formId])
+}
+
+// Departman → onaycı ayarı (ADMIN yönetir). department = User.department değeri.
+// Açık formlar bu tabloyu DEĞİL, ExpenseApproval snapshot'ını kullanır.
+model ExpenseApprovalConfig {
+  id          String   @id @default(cuid())
+  department  String
+  user        User     @relation("ExpenseApproverConfigUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([department, userId])
+  @@index([department])
+}
+
+// Her onaya gönderim (ilk gönderim + her yeniden gönderim) yeni bir round açar; eski round silinmez.
+// status: "PENDING" | "APPROVED" | "REJECTED" | "SKIPPED" (gönderen tanımlı onaycı → departman onayı atlandı)
+// accountingStatus: null | "APPROVED" | "REJECTED" — bu round'un muhasebe kararı
+model ExpenseApprovalRound {
+  id               String            @id @default(cuid())
+  form             ExpenseForm       @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId           String
+  roundNumber      Int
+  status           String            @default("PENDING")
+  bypassed         Boolean           @default(false)
+  requiredCount    Int               @default(0)
+  submittedById    String
+  submittedAt      DateTime          @default(now())
+  closedAt         DateTime?
+  closedById       String?
+  rejectionNote    String?
+  adminOverride    Boolean           @default(false) // departman aşaması Admin tarafından kapatıldı
+  accountingStatus String?
+  accountingById   String?
+  accountingAt     DateTime?
+  accountingNote   String?
+  approvals        ExpenseApproval[]
+
+  @@unique([formId, roundNumber])
+}
+
+// Round içindeki tek onaycı kaydı — gönderim anındaki onaycı listesinin snapshot'ı.
+// status: "PENDING" | "APPROVED" | "REJECTED" | "REPLACED" (Admin değiştirdi) | "OVERRIDDEN" (Admin aşamayı kapattı)
+model ExpenseApproval {
+  id                 String               @id @default(cuid())
+  round              ExpenseApprovalRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  roundId            String
+  approver           User                 @relation("ExpenseApprovalApprover", fields: [approverId], references: [id])
+  approverId         String
+  status             String               @default("PENDING")
+  decidedAt          DateTime?
+  note               String?
+  replacedAt         DateTime?
+  replacedById       String?
+  replacesApprovalId String? // Admin değişimiyle eklenen kayıtta: yerine geçtiği ExpenseApproval.id
+  createdAt          DateTime             @default(now())
+
+  @@index([roundId])
+  @@index([approverId, status])
+}
+
+// Harcama belgesi (tek PDF). Blob DB'de tutulmaz — uploads/ altındaki dosyanın storageKey'i.
+// Değiştirilen belge silinmez, replacedAt ile pasiflenir. deletedAt/deletedById: B bloğu (fiziksel silme) için.
+model ExpenseDocument {
+  id             String      @id @default(cuid())
+  form           ExpenseForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId         String
+  name           String
+  storageKey     String
+  size           Int
+  mimeType       String      @default("application/pdf")
+  uploadedById   String
+  uploadedByName String
+  createdAt      DateTime    @default(now())
+  replacedAt     DateTime?
+  deletedAt      DateTime?
+  deletedById    String?
+
+  @@index([formId])
+}
+
+// Ödeme / iade / mahsup kapanış kaydı. Kısmi ödeme YOK — tutar her zaman formun net tutarıdır.
+// type: "PAYMENT" | "REFUND" | "OFFSET". Admin geri alırsa revertedAt dolar, kayıt silinmez.
+model ExpenseSettlement {
+  id              String      @id @default(cuid())
+  form            ExpenseForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId          String
+  type            String
+  amount          Float
+  transactionDate DateTime
+  note            String?
+  createdById     String
+  createdByName   String
+  createdAt       DateTime    @default(now())
+  revertedAt      DateTime?
+  revertedById    String?
+  revertedByName  String?
+  revertReason    String?
+
+  @@index([formId])
+}
+
+// İşlem geçmişi — action değerleri: lib/expense/constants.ts EXPENSE_AUDIT_LABELS.
+// meta: JSON metin (ör. eski/yeni onaycı, tutarlar, round no).
+model ExpenseAudit {
+  id         String      @id @default(cuid())
+  form       ExpenseForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId     String
+  action     String
+  actorId    String?
+  actorName  String?
+  fromStatus String?
+  toStatus   String?
+  note       String?
+  meta       String?
+  createdAt  DateTime    @default(now())
+
+  @@index([formId, createdAt])
 }
