@@ -215,6 +215,8 @@ export const ROTASYON_DENETCILER = [
   "Mehmed Baki Emre",
   "Özgür İneci",
   "Mehmet Salih Bilge",
+  "Harun Aktaş",
+  "Seçkin Altınel",
 ] as const;
 
 /** Türkçe harf duyarlı küçültme — "İ"→"i", "I"→"ı" (varsayılan locale bunu bozar). */
