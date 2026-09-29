@@ -12,7 +12,10 @@
  *   - target.status === "ACTIVE"
  *   - target.canBeAssignedTasks === true (ASSIGN_EXCEPTIONS istisnası hariç)
  *   - ADMIN ve canViewAllProjects için yalnızca kıdem koşulu uygulanmaz
- *   - Projeli görev (scope.projectId) → target projenin aktif üyesi olmalı
+ *   - Projeli görev (scope.projectId) → atayanın projede atama yetkisi olmalı
+ *     (canAssignTaskInProject: ADMIN / canViewAllProjects / departman sorumlusu /
+ *     Senior Manager+ aynı departman / proje kurucusu / aktif üye + kıdem ≥ 5);
+ *     yetki yoksa liste BOŞ döner. Target projenin aktif üyesi olmalı.
  *   - Projesiz görev (scope.departmentId) → target, görevin departmanında olmalı
  *
  * ASSIGN_EXCEPTIONS yalnızca canBeAssignedTasks=false kuralını atlar; kıdem ve
@@ -21,7 +24,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { HIDDEN_ACCOUNT_EMAILS } from "@/lib/hidden-accounts";
-import { ASSIGN_EXCEPTIONS } from "@/lib/task-permissions";
+import { ASSIGN_EXCEPTIONS, canAssignTaskInProject } from "@/lib/task-permissions";
 
 export type AssignerUser = {
   id: string;
@@ -70,6 +73,51 @@ async function resolveScopeWhere(scope: AssignmentScope): Promise<Record<string,
   return null;
 }
 
+export type ProjectAssignAuthority = {
+  /** Proje var mı */
+  projectFound: boolean;
+  /** Atayan projenin üyesi ve status=ACTIVE mı */
+  isActiveMember: boolean;
+  /** canAssignTaskInProject sonucu (hedeften bağımsız) */
+  allowed: boolean;
+};
+
+/**
+ * Atayanın bir projede görev atama yetkisi — kullanıcı kaydı ve üyelik DB'den
+ * okunur (oturumdaki departman/kıdem bayat olabilir), karar canAssignTaskInProject'te.
+ */
+export async function resolveProjectAssignAuthority(
+  assignerId: string,
+  projectId: string
+): Promise<ProjectAssignAuthority> {
+  const [user, project, membership] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: assignerId },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        email: true,
+        department: true,
+        seniorityLevel: true,
+        canViewAllProjects: true,
+        overseesDepartment: true,
+      },
+    }),
+    prisma.project.findUnique({ where: { id: projectId }, select: { department: true, createdById: true } }),
+    prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId: assignerId } },
+      select: { id: true },
+    }),
+  ]);
+  if (!project) return { projectFound: false, isActiveMember: false, allowed: false };
+  if (!user || user.status !== "ACTIVE") return { projectFound: true, isActiveMember: false, allowed: false };
+
+  const isActiveMember = membership !== null;
+  const allowed = canAssignTaskInProject(user, { ...project, assignerIsActiveMember: isActiveMember });
+  return { projectFound: true, isActiveMember, allowed };
+}
+
 /**
  * Atayanın atayabileceği kullanıcıları döndürür — tek doğru kaynak.
  * /api/users/assignable, görev oluşturma ve yeniden atama uçları bu fonksiyondan geçer.
@@ -78,6 +126,11 @@ export async function getEligibleAssignees(
   assigner: AssignerUser,
   scope: AssignmentScope = {}
 ): Promise<EligibleAssignee[]> {
+  // Projeli görev: atayanın projede atama yetkisi yoksa kimseye atayamaz
+  if (scope.projectId && !(await resolveProjectAssignAuthority(assigner.id, scope.projectId)).allowed) {
+    return [];
+  }
+
   const bypassSeniority = assigner.role === "ADMIN" || assigner.canViewAllProjects;
   const scopeWhere = await resolveScopeWhere(scope);
   const seniorityWhere = bypassSeniority ? {} : { seniorityLevel: { lt: assigner.seniorityLevel } };

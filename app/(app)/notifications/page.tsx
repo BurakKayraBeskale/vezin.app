@@ -6,6 +6,7 @@ import clsx from "clsx";
 
 type NotifType =
   | "TASK_ASSIGNED"
+  | "PROJECT_TASK_ASSIGNED"
   | "LEAVE_REQUEST_NEW"
   | "LEAVE_APPROVED"
   | "LEAVE_REJECTED"
@@ -31,6 +32,7 @@ interface Notification {
 
 const TYPE_CONFIG: Record<NotifType, { icon: string; bg: string; text: string; label: string }> = {
   TASK_ASSIGNED:     { icon: "📋", bg: "var(--badge-orange-bg)",  text: "var(--badge-orange-text)",  label: "Görev Atandı" },
+  PROJECT_TASK_ASSIGNED: { icon: "📌", bg: "var(--badge-indigo-bg)", text: "var(--badge-indigo-text)", label: "Projede Görev Ataması" },
   LEAVE_REQUEST_NEW: { icon: "🗓️", bg: "var(--badge-indigo-bg)",  text: "var(--badge-indigo-text)",  label: "Yeni İzin Talebi" },
   LEAVE_APPROVED:    { icon: "✅", bg: "var(--badge-emerald-bg)", text: "var(--badge-emerald-text)", label: "İzin Onaylandı" },
   LEAVE_REJECTED:    { icon: "❌", bg: "var(--badge-red-bg)",     text: "var(--badge-red-text)",     label: "İzin Reddedildi" },
@@ -46,8 +48,9 @@ const TYPE_CONFIG: Record<NotifType, { icon: string; bg: string; text: string; l
   EXPENSE_SETTLEMENT_REVERTED: { icon: "⚠️", bg: "var(--badge-orange-bg)",  text: "var(--badge-orange-text)",  label: "Kapanış Geri Alındı" },
 };
 
-/** Bildirim türüne göre ilgili kaydın açılacağı sayfa (izin talebi / harcama formu). */
+/** Bildirim türüne göre ilgili kaydın açılacağı sayfa (izin talebi / harcama formu / görev). */
 function notifHref(type: NotifType, relatedId: string): string | null {
+  if (type === "PROJECT_TASK_ASSIGNED") return `/backlog?taskId=${relatedId}`;
   if (type.startsWith("EXPENSE_")) return `/harcama/${relatedId}`;
   if (type === "LEAVE_APPROVED" || type === "LEAVE_REJECTED") return `/leave?requestId=${relatedId}`;
   if (type === "LEAVE_REQUEST_NEW" || type === "LEAVE_CANCELLED") return `/izin-durumu?requestId=${relatedId}`;

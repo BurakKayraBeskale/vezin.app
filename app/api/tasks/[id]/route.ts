@@ -15,7 +15,7 @@ import {
 } from "@/lib/task-permissions";
 import { isEligibleAssignee } from "@/lib/task-assignment";
 import { projectDeptToUserDept, userDeptToProjectDept } from "@/lib/access";
-import { sendNotification, sendNotificationToMany, TaskNotif } from "@/lib/notifications";
+import { notifyProjectSupervisorOfAssignment, sendNotification, sendNotificationToMany, TaskNotif } from "@/lib/notifications";
 import { computeRetentionUntil } from "@/lib/recurring";
 
 /**
@@ -765,6 +765,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         const assignedNotif = TaskNotif.taskAssigned(task.title, params.id);
         await sendNotification(task.assignedToId, assignedNotif.type, assignedNotif.message, assignedNotif.relatedId);
       }
+      // Proje görevi → projenin departman sorumlusuna (projesiz görevde üretilmez)
+      await notifyProjectSupervisorOfAssignment({
+        projectId: task.projectId,
+        taskId: params.id,
+        taskTitle: task.title,
+        actorId: userId,
+        assigneeId: task.assignedToId,
+        previousAssigneeId: current.assignedToId,
+        reviewOwnerId: task.reviewOwnerId,
+      });
       await prisma.taskLog.create({
         data: {
           taskId: params.id,

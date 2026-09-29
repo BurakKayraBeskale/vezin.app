@@ -3,10 +3,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser, filterRelatedTaskVisibility } from "@/lib/task-visibility";
-import { canAssignTaskInProject, canCreateSubtask } from "@/lib/task-permissions";
-import { isEligibleAssignee } from "@/lib/task-assignment";
+import { canCreateSubtask } from "@/lib/task-permissions";
+import { isEligibleAssignee, resolveProjectAssignAuthority } from "@/lib/task-assignment";
 import { projectDeptToUserDept } from "@/lib/access";
-import { sendNotification, TaskNotif } from "@/lib/notifications";
+import { notifyProjectSupervisorOfAssignment, sendNotification, TaskNotif } from "@/lib/notifications";
 import { computeNextOccurrence } from "@/lib/recurring";
 
 /** body.departmentId proje-departman formatındaysa (örn. "YMM") kullanıcı-departman formatına çevirir. */
@@ -143,24 +143,14 @@ export async function POST(req: NextRequest) {
 
   if (effectiveProjectId) {
     // ── Proje görevi: proje otoritesi (canAssignTaskInProject) + hedef uygunluğu (isEligibleAssignee) ──
-    const project = await prisma.project.findUnique({
-      where: { id: effectiveProjectId },
-      select: { id: true, createdById: true, department: true },
-    });
-    if (!project) return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
-
-    const assignerArg = {
-      id: userId,
-      role: assigner.role,
-      canViewAllProjects: assigner.canViewAllProjects,
-      overseesDepartment: visUser.overseesDepartment,
-      seniorityLevel: assigner.seniorityLevel,
-      email: assigner.email,
-    };
-
-    // Proje otoritesi kontrolü (hedef olmadan): ADMIN/canViewAll geçer, diğerleri overseer/kurucu olmalı
-    if (!canAssignTaskInProject(assignerArg, project)) {
-      return NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
+    // Otorite: ADMIN/canViewAll, departman sorumlusu, SM+ aynı departman, kurucu
+    // veya aktif üye + kıdem ≥ 5. Projeyi bilen (üye) ama yetkisi olmayana 403,
+    // diğerlerine 404 (projenin varlığı sızdırılmaz).
+    const authority = await resolveProjectAssignAuthority(userId, effectiveProjectId);
+    if (!authority.allowed) {
+      return authority.isActiveMember
+        ? NextResponse.json({ error: "Bu projede görev atama yetkiniz yok (en az Senior 1 kıdemi gerekir)" }, { status: 403 })
+        : NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
     }
 
     // Her atanan için tek doğru kaynaktan (isEligibleAssignee) hedef uygunluk kontrolü
@@ -259,6 +249,16 @@ export async function POST(req: NextRequest) {
   if (parentRecord?.assignedToId && parentRecord.assignedToId !== userId && parentRecord.assignedToId !== primaryAssignee) {
     await sendNotification(parentRecord.assignedToId, "TASK_ASSIGNED", `"${task.title}" adlı yeni bir alt görev oluşturuldu.`, parentRecord.id);
   }
+
+  // Proje görevi → projenin departman sorumlusuna (projesiz görevde üretilmez)
+  await notifyProjectSupervisorOfAssignment({
+    projectId: effectiveProjectId,
+    taskId: task.id,
+    taskTitle: task.title,
+    actorId: userId,
+    assigneeId: primaryAssignee,
+    reviewOwnerId: task.reviewOwnerId,
+  });
 
   const full = await prisma.task.findUnique({ where: { id: task.id }, include: taskInclude });
   const [sanitized] = await filterRelatedTaskVisibility([full ?? task], visUser);

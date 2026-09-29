@@ -278,8 +278,24 @@ export const ASSIGN_EXCEPTIONS: Record<string, string[]> = {
   "muratozgur@vezin.com.tr": ["ebubekirozturk@vezin.com.tr"],
 };
 
+/** Projenin aktif üyesi olarak görev atayabilmek için gereken en düşük kıdem (Senior 1). */
+export const PROJECT_MEMBER_ASSIGN_MIN_LEVEL = 5;
+
 /**
  * Proje içinde görev atama yetkisi — tek doğru kaynak (UI ve API kullanır).
+ *
+ * Atama yetkisi (herhangi biri yeterli):
+ *   - ADMIN / canViewAllProjects            → kıdem kuralına TABİ DEĞİL
+ *   - departman sorumlusu (overseesDepartment = proje departmanı)
+ *   - Senior Manager+ (≥ 11) aynı departman
+ *   - projeyi oluşturan
+ *   - projenin AKTİF üyesi ve kıdem ≥ 5 (Senior 1+)
+ * ADMIN/canViewAllProjects dışındaki herkes kıdem kuralına tabidir: atayanın
+ * kıdemi hedefinkinden KESİN büyük olmalı (eşit/yüksek/kendine atama yasak).
+ * Hedefin proje üyeliği ve aktifliği getEligibleAssignees'te (lib/task-assignment.ts) uygulanır.
+ *
+ * project.assignerIsActiveMember: atayan projenin üyesi VE status=ACTIVE mı —
+ * bu dosya client'tan da import edildiği için üyelik çağıran tarafta hesaplanır.
  */
 export function canAssignTaskInProject(
   assigner: {
@@ -291,7 +307,7 @@ export function canAssignTaskInProject(
     department?: string;
     email?: string;
   },
-  project: { department: string; createdById: string },
+  project: { department: string; createdById: string; assignerIsActiveMember?: boolean },
   target?: { seniorityLevel: number; canBeAssignedTasks?: boolean; email?: string }
 ): boolean {
   if (target && target.canBeAssignedTasks === false) {
@@ -304,7 +320,8 @@ export function canAssignTaskInProject(
   const hasProjectAuthority =
     (assigner.overseesDepartment != null && assigner.overseesDepartment === project.department) ||
     (assigner.seniorityLevel >= 11 && userProjectDept === project.department) ||
-    assigner.id === project.createdById;
+    assigner.id === project.createdById ||
+    (project.assignerIsActiveMember === true && assigner.seniorityLevel >= PROJECT_MEMBER_ASSIGN_MIN_LEVEL);
   if (!hasProjectAuthority) return false;
   if (!target) return true;
   return assigner.seniorityLevel > target.seniorityLevel;

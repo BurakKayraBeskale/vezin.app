@@ -5,7 +5,7 @@ import { computeCompletedAt } from "@/lib/task-status";
 import { canManageTask, canReviewTask, canDeleteTask, WorkflowUser } from "@/lib/task-permissions";
 import { buildTaskVisibilityWhereForUser } from "@/lib/task-visibility";
 import { isEligibleAssignee, AssignerUser } from "@/lib/task-assignment";
-import { sendNotification, TaskNotif } from "@/lib/notifications";
+import { notifyProjectSupervisorOfAssignment, sendNotification, TaskNotif } from "@/lib/notifications";
 
 const taskInclude = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -112,6 +112,18 @@ export async function POST(req: NextRequest) {
       if (assignedToId !== t.assignedToId && assignedToId !== userId) {
         const notif = TaskNotif.taskAssigned(t.title, t.id);
         await sendNotification(assignedToId, notif.type, notif.message, notif.relatedId);
+      }
+      if (assignedToId !== t.assignedToId) {
+        // Proje görevi → projenin departman sorumlusuna (projesiz görevde üretilmez)
+        await notifyProjectSupervisorOfAssignment({
+          projectId: t.projectId,
+          taskId: t.id,
+          taskTitle: t.title,
+          actorId: userId,
+          assigneeId: assignedToId,
+          previousAssigneeId: t.assignedToId,
+          reviewOwnerId: userId,
+        });
       }
     }
   } else if (action === "status") {

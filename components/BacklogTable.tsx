@@ -140,6 +140,31 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
     setWeekOnly(parsed.weekOnly);
   }, [searchParams]);
 
+  // ?taskId=… (ör. bildirimden gelindiğinde) → ilgili görevin detayını aç.
+  // Liste zaten görünürlük filtresinden geçtiği için görülemeyen görev açılmaz.
+  const linkedTaskId = searchParams.get("taskId");
+  useEffect(() => {
+    if (!linkedTaskId) return;
+    const linked = tasks.find((t) => t.id === linkedTaskId);
+    if (linked) {
+      setViewTask(linked);
+    } else {
+      setToast("Görev bulunamadı veya erişiminiz yok");
+      setTimeout(() => setToast(null), 2500);
+    }
+    // Yalnız bağlantı değiştiğinde çalışır; görev listesi güncellemeleri modali yeniden açmaz
+  }, [linkedTaskId]);
+
+  function closeViewTask() {
+    setViewTask(null);
+    if (linkedTaskId) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("taskId");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname);
+    }
+  }
+
   const filtered = useMemo(() => {
     const weekStart = thisWeekStartClient();
     const result = tasks.filter((t) => {
@@ -633,7 +658,7 @@ export default function BacklogTable({ initialTasks, users, isAdmin, currentUser
           initialTask={viewTask}
           users={users}
           isAdmin={isAdmin}
-          onClose={() => setViewTask(null)}
+          onClose={closeViewTask}
           onUpdate={handleUpdate}
           onDelete={(id) => {
             setTasks((prev) => prev.filter((t) => t.id !== id));
