@@ -14,7 +14,7 @@
  *   - ADMIN ve canViewAllProjects için yalnızca kıdem koşulu uygulanmaz
  *   - Projeli görev (scope.projectId) → atayanın projede atama yetkisi olmalı
  *     (canAssignTaskInProject: ADMIN / canViewAllProjects / departman sorumlusu /
- *     Senior Manager+ aynı departman / proje kurucusu / aktif üye + kıdem ≥ 5);
+ *     Senior Manager+ aynı departman / proje kurucusu / aktif üye + kıdem ≥ MIN_PROJECT_ASSIGN_LEVEL);
  *     yetki yoksa liste BOŞ döner. Target projenin aktif üyesi olmalı.
  *   - Projesiz görev (scope.departmentId) → target, görevin departmanında olmalı
  *

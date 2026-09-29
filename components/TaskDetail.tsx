@@ -248,6 +248,7 @@ export default function TaskDetail({
       assignedToId: task.assignedToId,
       reviewOwnerId: task.reviewOwnerId,
       projectCreatedById: task.project?.createdById ?? null,
+      projectId: task.project?.id ?? null,
     });
   const canDelete =
     userIdentity && task

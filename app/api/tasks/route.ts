@@ -129,6 +129,7 @@ export async function POST(req: NextRequest) {
         assignedToId: parentRecord.assignedToId,
         reviewOwnerId: parentRecord.reviewOwnerId,
         projectCreatedById: parentRecord.project?.createdById ?? null,
+        projectId: parentRecord.projectId,
       })
     ) {
       return NextResponse.json({ error: "Alt görev oluşturma yetkiniz yok" }, { status: 403 });
@@ -149,7 +150,7 @@ export async function POST(req: NextRequest) {
     const authority = await resolveProjectAssignAuthority(userId, effectiveProjectId);
     if (!authority.allowed) {
       return authority.isActiveMember
-        ? NextResponse.json({ error: "Bu projede görev atama yetkiniz yok (en az Senior 1 kıdemi gerekir)" }, { status: 403 })
+        ? NextResponse.json({ error: "Bu projede görev atama yetkiniz yok (kıdeminiz proje içi atama eşiğinin altında)" }, { status: 403 })
         : NextResponse.json({ error: "Proje bulunamadı veya erişim yok" }, { status: 404 });
     }
 

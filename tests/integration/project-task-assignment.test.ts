@@ -1,13 +1,19 @@
 /**
- * Proje görev atama eşiği (Senior 1) + departman sorumlusu bildirimi — entegrasyon testleri
+ * Proje görev atama eşiği (MIN_PROJECT_ASSIGN_LEVEL = 3) + departman sorumlusu bildirimi — entegrasyon testleri
  *
- * Kıdem eşiği (lib/task-permissions.ts canAssignTaskInProject + lib/task-assignment.ts getEligibleAssignees):
- *   PA1  Proje üyesi Senior 1 (5) → aynı projedeki Assistant'a atar → 201
- *   PA2  Senior 1 → başka bir Senior 1'e atayamaz → 403
+ * Kıdem eşiği (lib/task-permissions.ts canAssignTaskInProject + lib/task-assignment.ts getEligibleAssignees),
+ * "Deneme" projesi örneğiyle: Efecan Güvenir (3) → Janset Türkoğlu / Merve Uçan (2) atar,
+ * Oğuz Çetin / Taha Bölek (5) atayamaz.
+ *   PA1  Level 3 proje üyesi, level 2 üyeye atar → 201
+ *   PA2  Level 3, kendinden kıdemli (level 5) üyeye atayamaz → 403
+ *   PA2b Level 3, başka bir level 3'e atayamaz → 403
  *   PA3  Proje üyesi olmayan Senior 2 (6) → o projeye görev atayamaz → 404
  *   PA4  Assistant Manager (7) proje üyesiyse atayabilir → 201
- *   PA5  Experienced Assistant (3) proje üyesi olsa da atayamaz → 403
+ *   PA5  Level 2 proje üyesi hiç kimseye atayamaz (level 1'e bile) → 403
+ *   PA5b Level 5 üye hâlâ atayabilir (level 3'e) → 201
  *   PA6  /api/users/assignable aynı kuralı uygular (tek kaynak)
+ *   PS1  Alt görev: level 3 parent atananı için atanabilir liste boş DEĞİL, alt görev → 201
+ *   PS2  Alt görev: level 2 parent atananı proje alt görevi açamaz → 403; projesizde kural değişmedi
  *
  * Departman sorumlusu bildirimi (lib/notifications.ts notifyProjectSupervisorOfAssignment):
  *   PN1  YMM projesinde görev atanınca Ebubekir'e bildirim gider, Murat'a gitmez (metin birebir)
@@ -35,6 +41,7 @@ import { GET as assignableGET } from "../../app/api/users/assignable/route";
 import { getServerSession } from "next-auth";
 import { getToken } from "next-auth/jwt";
 import { PROJECT_TASK_ASSIGNED, trNameSuffix } from "../../lib/notifications";
+import { MIN_PROJECT_ASSIGN_LEVEL, canCreateSubtask } from "../../lib/task-permissions";
 
 const prisma = new PrismaClient();
 const STAMP = Date.now();
@@ -128,6 +135,8 @@ async function supervisorNotifs(taskId: string) {
 }
 
 let creator: U, senior1: U, senior1b: U, assistant: U, assistant2: U, asstManager: U, expAssistant: U, senior2Outsider: U;
+// "Deneme" projesi örneği
+let efecan: U, janset: U, merve: U, oguz: U, taha: U, stajyer: U;
 let bdSenior1: U, bdAssistant: U;
 let ebubekir: U, murat: U, ahmetOruc: U;
 let ymmProject: { id: string; name: string };
@@ -143,6 +152,12 @@ beforeAll(async () => {
   asstManager = await mkUser("am", "Zeynep Arslan", 7, YMM_DEPT);
   expAssistant = await mkUser("exp", "Burak Şahin", 3, YMM_DEPT);
   senior2Outsider = await mkUser("senior2", "Elif Koç", 6, YMM_DEPT);
+  efecan = await mkUser("efecan", "Efecan Güvenir", 3, YMM_DEPT);
+  janset = await mkUser("janset", "Janset Türkoğlu", 2, YMM_DEPT);
+  merve = await mkUser("merve", "Merve Uçan", 2, YMM_DEPT);
+  oguz = await mkUser("oguz", "Oğuz Çetin", 5, YMM_DEPT);
+  taha = await mkUser("taha", "Taha Bölek", 5, YMM_DEPT);
+  stajyer = await mkUser("stajyer", "Selin Er", 1, YMM_DEPT);
   bdSenior1 = await mkUser("bd-senior1", "Deniz Yıldız", 5, "BAGIMSIZ_DENETIM");
   bdAssistant = await mkUser("bd-assistant", "Ece Tekin", 2, "BAGIMSIZ_DENETIM");
 
@@ -162,7 +177,7 @@ beforeAll(async () => {
 
   await prisma.projectMember.createMany({
     data: [
-      ...[senior1, senior1b, assistant, assistant2, asstManager, expAssistant, ebubekir].map((u) => ({
+      ...[senior1, senior1b, assistant, assistant2, asstManager, expAssistant, ebubekir, efecan, janset, merve, oguz, taha, stajyer].map((u) => ({
         projectId: ymm.id,
         userId: u.id,
         assignedBy: creator.id,
@@ -195,59 +210,110 @@ afterAll(async () => {
 
 // ── Kıdem eşiği ──────────────────────────────────────────────────────────────
 
-describe("Proje görev atama eşiği — Senior 1", () => {
-  it("PA1: proje üyesi Senior 1, aynı projedeki Assistant'a atayabiliyor → 201", async () => {
-    const r = await createTask(senior1, { title: `${PREFIX} PA1`, projectId: ymmProject.id, assigneeIds: [assistant.id] });
-    expect(r.status).toBe(201);
-    expect(r.data.assignedToId).toBe(assistant.id);
+async function assignableIds(u: U): Promise<string[]> {
+  asUser(u);
+  const res = await assignableGET(new Request(`http://localhost/api/users/assignable?projectId=${ymmProject.id}`) as any);
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { id: string }[]).map((x) => x.id);
+}
+
+describe(`Proje görev atama eşiği — MIN_PROJECT_ASSIGN_LEVEL (${MIN_PROJECT_ASSIGN_LEVEL})`, () => {
+  it("eşik tek sabitte: 3 (Experienced Assistant 1)", () => {
+    expect(MIN_PROJECT_ASSIGN_LEVEL).toBe(3);
   });
 
-  it("PA2: Senior 1, başka bir Senior 1'e atayamıyor → 403", async () => {
-    const r = await createTask(senior1, { title: `${PREFIX} PA2`, projectId: ymmProject.id, assigneeIds: [senior1b.id] });
-    expect(r.status).toBe(403);
-    expect(await prisma.task.count({ where: { title: `${PREFIX} PA2` } })).toBe(0);
+  it("PA1: level 3 proje üyesi (Efecan) level 2 üyelere (Janset, Merve) atayabiliyor → 201", async () => {
+    for (const target of [janset, merve]) {
+      const r = await createTask(efecan, { title: `${PREFIX} PA1 ${target.name}`, projectId: ymmProject.id, assigneeIds: [target.id] });
+      expect(r.status).toBe(201);
+      expect(r.data.assignedToId).toBe(target.id);
+    }
   });
 
-  it("PA2b: Senior 1, kendinden kıdemli üyeye (Assistant Manager) atayamıyor → 403", async () => {
-    const r = await createTask(senior1, { title: `${PREFIX} PA2b`, projectId: ymmProject.id, assigneeIds: [asstManager.id] });
+  it("PA2: level 3, kendinden kıdemli level 5 üyelere (Oğuz, Taha) atayamıyor → 403", async () => {
+    for (const target of [oguz, taha]) {
+      const title = `${PREFIX} PA2 ${target.name}`;
+      const r = await createTask(efecan, { title, projectId: ymmProject.id, assigneeIds: [target.id] });
+      expect(r.status).toBe(403);
+      expect(await prisma.task.count({ where: { title } })).toBe(0);
+    }
+  });
+
+  it("PA2b: level 3, başka bir level 3'e atayamıyor → 403", async () => {
+    const r = await createTask(efecan, { title: `${PREFIX} PA2b`, projectId: ymmProject.id, assigneeIds: [expAssistant.id] });
     expect(r.status).toBe(403);
+    expect(await prisma.task.count({ where: { title: `${PREFIX} PA2b` } })).toBe(0);
   });
 
   it("PA3: proje üyesi olmayan Senior 2, o projeye görev atayamıyor → 404", async () => {
     const r = await createTask(senior2Outsider, { title: `${PREFIX} PA3`, projectId: ymmProject.id, assigneeIds: [assistant.id] });
-    expect([403, 404]).toContain(r.status);
     expect(r.status).toBe(404);
     expect(await prisma.task.count({ where: { title: `${PREFIX} PA3` } })).toBe(0);
   });
 
-  it("PA4: Assistant Manager (7) proje üyesiyse atayabiliyor → 201 (Senior 1'e de)", async () => {
+  it("PA4: Assistant Manager (7) proje üyesiyse atayabiliyor → 201", async () => {
     const a = await createTask(asstManager, { title: `${PREFIX} PA4a`, projectId: ymmProject.id, assigneeIds: [assistant.id] });
     expect(a.status).toBe(201);
     const b = await createTask(asstManager, { title: `${PREFIX} PA4b`, projectId: ymmProject.id, assigneeIds: [senior1.id] });
     expect(b.status).toBe(201);
   });
 
-  it("PA5: Experienced Assistant (3) proje üyesi olsa da atayamıyor → 403", async () => {
-    const r = await createTask(expAssistant, { title: `${PREFIX} PA5`, projectId: ymmProject.id, assigneeIds: [assistant.id] });
+  it("PA5: level 2 proje üyesi hiç kimseye atayamıyor (level 1'e bile) → 403", async () => {
+    const r = await createTask(janset, { title: `${PREFIX} PA5`, projectId: ymmProject.id, assigneeIds: [stajyer.id] });
     expect(r.status).toBe(403);
     expect(await prisma.task.count({ where: { title: `${PREFIX} PA5` } })).toBe(0);
   });
 
+  it("PA5b: level 5 üye hâlâ atayabiliyor (level 3'e) → 201; eşit kıdeme (5) atayamıyor → 403", async () => {
+    const ok = await createTask(senior1, { title: `${PREFIX} PA5b ok`, projectId: ymmProject.id, assigneeIds: [efecan.id] });
+    expect(ok.status).toBe(201);
+    const eq = await createTask(senior1, { title: `${PREFIX} PA5b eq`, projectId: ymmProject.id, assigneeIds: [senior1b.id] });
+    expect(eq.status).toBe(403);
+  });
+
   it("PA6: /api/users/assignable aynı kuralı uygular", async () => {
-    const list = async (u: U) => {
-      asUser(u);
-      const res = await assignableGET(new Request(`http://localhost/api/users/assignable?projectId=${ymmProject.id}`) as any);
-      expect(res.status).toBe(200);
-      return ((await res.json()) as { id: string }[]).map((x) => x.id);
-    };
-    const senior1List = await list(senior1);
-    expect(senior1List).toEqual(expect.arrayContaining([assistant.id, assistant2.id, expAssistant.id]));
-    expect(senior1List).not.toContain(senior1b.id); // eşit kıdem
-    expect(senior1List).not.toContain(asstManager.id); // yüksek kıdem
-    expect(senior1List).not.toContain(senior1.id); // kendine atama
-    expect(senior1List).not.toContain(ebubekir.id); // canBeAssignedTasks=false
-    expect(await list(expAssistant)).toEqual([]); // kıdem < 5
-    expect(await list(senior2Outsider)).toEqual([]); // üye değil
+    const efecanList = await assignableIds(efecan);
+    expect(efecanList).toEqual(expect.arrayContaining([janset.id, merve.id, stajyer.id, assistant.id]));
+    for (const id of [oguz.id, taha.id, expAssistant.id, efecan.id, ebubekir.id]) {
+      expect(efecanList).not.toContain(id); // yüksek / eşit kıdem, kendisi, canBeAssignedTasks=false
+    }
+    expect(await assignableIds(janset)).toEqual([]); // level 2 < eşik
+    expect(await assignableIds(senior2Outsider)).toEqual([]); // üye değil
+  });
+});
+
+describe("Proje alt görevi — aynı eşik", () => {
+  it("PS1: level 3 parent atananı için atanabilir liste boş DEĞİL, alt görev oluşturuluyor → 201", async () => {
+    const parent = await createTask(asstManager, { title: `${PREFIX} PS1 parent`, projectId: ymmProject.id, assigneeIds: [efecan.id] });
+    expect(parent.status).toBe(201);
+
+    // TaskDetail'deki "+ Alt Görev Ekle" butonu
+    const efecanWf = { id: efecan.id, role: "EMPLOYEE", seniorityLevel: efecan.seniorityLevel };
+    expect(canCreateSubtask(efecanWf, { assignedToId: efecan.id, reviewOwnerId: asstManager.id, projectId: ymmProject.id })).toBe(true);
+
+    // SubtaskSection → TaskForm fixedProjectId → /api/users/assignable?projectId=…
+    const list = await assignableIds(efecan);
+    expect(list.length).toBeGreaterThan(0);
+    expect(list).toEqual(expect.arrayContaining([janset.id, merve.id]));
+
+    const child = await createTask(efecan, { title: `${PREFIX} PS1 child`, parentTaskId: parent.data.id, assigneeIds: [merve.id] });
+    expect(child.status).toBe(201);
+    expect(child.data.projectId).toBe(ymmProject.id);
+    expect(child.data.parentTaskId).toBe(parent.data.id);
+  });
+
+  it("PS2: level 2 parent atananı proje alt görevi açamıyor → 403; projesiz görevde kural değişmedi", async () => {
+    const parent = await createTask(efecan, { title: `${PREFIX} PS2 parent`, projectId: ymmProject.id, assigneeIds: [janset.id] });
+    expect(parent.status).toBe(201);
+
+    const jansetWf = { id: janset.id, role: "EMPLOYEE", seniorityLevel: janset.seniorityLevel };
+    expect(canCreateSubtask(jansetWf, { assignedToId: janset.id, reviewOwnerId: efecan.id, projectId: ymmProject.id })).toBe(false);
+    const child = await createTask(janset, { title: `${PREFIX} PS2 child`, parentTaskId: parent.data.id, assigneeIds: [stajyer.id] });
+    expect(child.status).toBe(403);
+    expect(await prisma.task.count({ where: { title: `${PREFIX} PS2 child` } })).toBe(0);
+
+    // Projesiz üst görevin atananı: eskisi gibi alt görev açabilir
+    expect(canCreateSubtask(jansetWf, { assignedToId: janset.id, reviewOwnerId: efecan.id, projectId: null })).toBe(true);
   });
 });
 

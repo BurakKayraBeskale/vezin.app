@@ -189,6 +189,11 @@ export function canTakeOverReview(
 /**
  * Alt görev oluşturma yetkisi.
  * Hakkı olanlar: parent'ın assignee, reviewOwner, proje yöneticisi veya yönetici.
+ *
+ * Proje görevinde alt görev bir proje ataması demektir: parent'ın atananı
+ * yalnız kıdemi MIN_PROJECT_ASSIGN_LEVEL ve üstündeyse alt görev açabilir
+ * (aksi halde atanabilir listesi boş gelir, kayıt da reddedilirdi).
+ * Projesiz görevde kural değişmez.
  */
 export function canCreateSubtask(
   user: WorkflowUser,
@@ -196,13 +201,16 @@ export function canCreateSubtask(
     assignedToId?: string | null;
     reviewOwnerId?: string | null;
     projectCreatedById?: string | null;
+    projectId?: string | null;
   }
 ): boolean {
-  if (user.id === parentTask.assignedToId) return true;
   if (isReviewOwner(user.id, parentTask)) return true;
   if (isManager(user)) return true;
   if (isSeniorManager(user)) return true;
   if (user.id === parentTask.projectCreatedById) return true;
+  if (user.id === parentTask.assignedToId) {
+    return !parentTask.projectId || (user.seniorityLevel ?? 0) >= MIN_PROJECT_ASSIGN_LEVEL;
+  }
   return false;
 }
 
@@ -278,8 +286,12 @@ export const ASSIGN_EXCEPTIONS: Record<string, string[]> = {
   "muratozgur@vezin.com.tr": ["ebubekirozturk@vezin.com.tr"],
 };
 
-/** Projenin aktif üyesi olarak görev atayabilmek için gereken en düşük kıdem (Senior 1). */
-export const PROJECT_MEMBER_ASSIGN_MIN_LEVEL = 5;
+/**
+ * Projenin aktif üyesi olarak görev atayabilmek için gereken en düşük kıdem
+ * (3 = Experienced Assistant 1). TEK sabit — atama (canAssignTaskInProject) ve
+ * proje alt görevi oluşturma (canCreateSubtask) bu değeri kullanır.
+ */
+export const MIN_PROJECT_ASSIGN_LEVEL = 3;
 
 /**
  * Proje içinde görev atama yetkisi — tek doğru kaynak (UI ve API kullanır).
@@ -289,7 +301,7 @@ export const PROJECT_MEMBER_ASSIGN_MIN_LEVEL = 5;
  *   - departman sorumlusu (overseesDepartment = proje departmanı)
  *   - Senior Manager+ (≥ 11) aynı departman
  *   - projeyi oluşturan
- *   - projenin AKTİF üyesi ve kıdem ≥ 5 (Senior 1+)
+ *   - projenin AKTİF üyesi ve kıdem ≥ MIN_PROJECT_ASSIGN_LEVEL (Experienced Assistant 1+)
  * ADMIN/canViewAllProjects dışındaki herkes kıdem kuralına tabidir: atayanın
  * kıdemi hedefinkinden KESİN büyük olmalı (eşit/yüksek/kendine atama yasak).
  * Hedefin proje üyeliği ve aktifliği getEligibleAssignees'te (lib/task-assignment.ts) uygulanır.
@@ -321,7 +333,7 @@ export function canAssignTaskInProject(
     (assigner.overseesDepartment != null && assigner.overseesDepartment === project.department) ||
     (assigner.seniorityLevel >= 11 && userProjectDept === project.department) ||
     assigner.id === project.createdById ||
-    (project.assignerIsActiveMember === true && assigner.seniorityLevel >= PROJECT_MEMBER_ASSIGN_MIN_LEVEL);
+    (project.assignerIsActiveMember === true && assigner.seniorityLevel >= MIN_PROJECT_ASSIGN_LEVEL);
   if (!hasProjectAuthority) return false;
   if (!target) return true;
   return assigner.seniorityLevel > target.seniorityLevel;
