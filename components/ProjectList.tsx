@@ -34,6 +34,8 @@ interface ProjectListProps {
   userRole: string;
   seniorityLevel: number;
   overseesDepartment: string | null;
+  /** ?member= ile gelindiyse — yalnız bu kişinin üyesi olduğu (görünür) projeler */
+  memberFilter?: { id: string; name: string } | null;
 }
 
 const DEPT_LABELS: Record<string, string> = {
@@ -91,6 +93,7 @@ export default function ProjectList({
   userRole,
   seniorityLevel,
   overseesDepartment,
+  memberFilter = null,
 }: ProjectListProps) {
   const visibleDepts = getVisibleDepts(canViewAllProjects, userRole, userDepartment, seniorityLevel, overseesDepartment);
   const isAdminOrGlobal = userRole === "ADMIN" || canViewAllProjects;
@@ -103,7 +106,15 @@ export default function ProjectList({
   }, [visibleDepts, isAdminOrGlobal]);
 
   const [projects, setProjects] = useState<Project[]>(initialProjects);
-  const [activeDept, setActiveDept] = useState<string>(defaultDept);
+  const [member, setMember] = useState(memberFilter);
+  // Üye filtresiyle gelindiyse, kişinin aktif projesi olan ilk departman sekmesiyle aç
+  const [activeDept, setActiveDept] = useState<string>(() => {
+    if (!memberFilter) return defaultDept;
+    const hit = initialProjects.find(
+      (p) => p.status === "ACTIVE" && visibleDepts.includes(p.department) && p.members.some((m) => m.user.id === memberFilter.id)
+    );
+    return hit?.department ?? defaultDept;
+  });
   const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "DONE" | "ARCHIVED" | "ALL">("ACTIVE");
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -125,9 +136,10 @@ export default function ProjectList({
       if (p.department !== activeDept) return false;
       if (p.status !== statusFilter && statusFilter !== "ALL") return false;
       if (search.trim() && !p.name.toLowerCase().includes(search.trim().toLowerCase())) return false;
+      if (member && !p.members.some((m) => m.user.id === member.id)) return false;
       return true;
     });
-  }, [projects, activeDept, statusFilter, search]);
+  }, [projects, activeDept, statusFilter, search, member]);
 
   // Departman sekmesi değişince projeleri yeniden yükle
   async function loadProjects(dept: string, status: string) {
@@ -279,6 +291,27 @@ export default function ProjectList({
           ))}
         </div>
       </div>
+
+      {member && (
+        <div className="mb-4 flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium pl-2.5 pr-1.5 py-1 rounded-lg border border-[#F57C28]/30 bg-[#FFF3E9] text-[#F57C28]">
+            Üye: {member.name}
+            <button
+              type="button"
+              aria-label="Üye filtresini kaldır"
+              onClick={() => {
+                setMember(null);
+                try { window.history.replaceState(window.history.state, "", "/projeler"); } catch {}
+              }}
+              className="rounded p-0.5 hover:bg-[#F57C28]/10"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </span>
+        </div>
+      )}
 
       {/* Proje Grid */}
       {loadingProjects ? (

@@ -135,6 +135,11 @@ model Task {
   reviewRounds            TaskReviewRound[]
   sources                 TaskSource[]
   attachments             TaskAttachment[]
+
+  // Dashboard / Görev Takip sayaçları (20260929000000_dashboard_task_indexes)
+  @@index([assignedToId, status])
+  @@index([reviewOwnerId, status])
+  @@index([projectId, status])
 }
 
 // endType: "INDEFINITE" | "SPECIFIC_DATE"

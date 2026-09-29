@@ -1,14 +1,14 @@
 import { getServerSession } from "next-auth";
 import { cookies } from "next/headers";
 import { authOptions } from "@/lib/auth";
-import { fetchBoardData, BoardFilters } from "@/lib/task-board";
+import { fetchBoardData, parseBoardFilters, BoardFilters } from "@/lib/task-board";
 import TaskBoard from "@/components/board/TaskBoard";
 
 export const dynamic = "force-dynamic";
 
 const VIEW_COOKIE = "vezin-board-view";
 
-export default async function BoardPage() {
+export default async function BoardPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await getServerSession(authOptions);
   const isAdmin = session?.user.role === "ADMIN";
   const userId = session!.user.id;
@@ -22,18 +22,16 @@ export default async function BoardPage() {
   // kendi POST /api/tasks kuralları zaten bağımsız olarak da uygulanır).
   const canCreate = isAdmin || canViewAllTasks;
 
-  // #11: son seçilen hızlı görünüm — tarayıcı çerezinden hatırlanır, yoksa "Bana Atananlar"
+  // URL filtre sözleşmesi (lib/task-board-query.ts) — Dashboard drill-down'ları
+  // ?view=all&personId=…&overdue=yes gibi linklerle gelir. URL'de filtre yoksa
+  // #11: son seçilen hızlı görünüm çerezden hatırlanır, yoksa "Bana Atananlar".
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(searchParams ?? {})) {
+    if (typeof v === "string") params.set(k, v);
+  }
   const storedView = cookies().get(VIEW_COOKIE)?.value;
-  const initialFilters: BoardFilters = {
-    view: storedView === "given" || storedView === "all" ? storedView : "mine",
-    q: "",
-    projectId: "",
-    personId: "",
-    priority: "",
-    overdue: "",
-    department: "",
-    completedRange: "30d",
-  };
+  if (!params.has("view")) params.set("view", storedView === "given" || storedView === "all" ? storedView : "mine");
+  const initialFilters: BoardFilters = parseBoardFilters(params);
 
   const boardUser = { id: userId, role, department, seniorityLevel, canViewAllProjects, overseesDepartment, isAdmin };
   const initialData = await fetchBoardData(boardUser, initialFilters);

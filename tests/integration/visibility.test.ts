@@ -282,12 +282,13 @@ describe("Görev detay — GET /api/tasks/[id] → 404 yetkisiz erişim", () => 
 });
 
 describe("Dashboard sayaçları — GET /api/dashboard", () => {
-  it("T6a: Asistan1 dashboard — openTasks sayısı ≥ 1", async () => {
+  it("T6a: Asistan1 dashboard — açık görev sayısı ≥ 0, kendi Dashboard'u", async () => {
     asUser(asistan1);
-    const dashRes = await dashboardGET();
+    const dashRes = await dashboardGET(fakeReq("http://localhost/api/dashboard") as any);
     expect(dashRes.status).toBe(200);
     const dash = await json(dashRes);
-    expect(dash.openTasks).toBeGreaterThanOrEqual(0);
+    expect(dash.kpis.open.count).toBeGreaterThanOrEqual(0);
+    expect(dash.person.isSelf).toBe(true);
   });
 
   it("T6b: Müdür2 dashboard — Proje 1 görevleri yansımaz", async () => {

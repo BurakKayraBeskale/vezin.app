@@ -17,47 +17,29 @@ import { prisma } from "@/lib/prisma";
 import { buildTaskVisibilityWhereForUser, filterRelatedTaskVisibility, VisibilityUser } from "@/lib/task-visibility";
 import { projectDeptToUserDept } from "@/lib/access";
 
-export const BOARD_STATUSES = ["TODO", "IN_PROGRESS", "REVIEW", "DONE"] as const;
-export type BoardStatus = (typeof BOARD_STATUSES)[number];
-
-export type BoardQuickView = "mine" | "given" | "all";
-export type BoardOverdueFilter = "" | "yes" | "no";
-export type BoardCompletedRange = "30d" | "all";
+export {
+  BOARD_STATUSES,
+  DUE_WITHIN_DAYS_MAX,
+  boardFiltersToParams,
+  currentWeekStart,
+  dueWithinDaysEnd,
+  istanbulDayStart,
+  parseBoardFilters,
+} from "@/lib/task-board-query";
+export type { BoardCompletedRange, BoardFilters, BoardOverdueFilter, BoardQuickView, BoardStatus } from "@/lib/task-board-query";
+import {
+  BOARD_STATUSES,
+  currentWeekStart,
+  dueWithinDaysEnd,
+  type BoardFilters,
+  type BoardStatus,
+} from "@/lib/task-board-query";
 
 export const BOARD_PAGE_SIZE = 30;
 /** "Tümünü Göster" + arama birlikte kullanıldığında DONE için tek seferde
  *  DB'den çekilecek üst sınır — pano bir arşiv değildir (bkz. ekranın amacı);
  *  bu kombinasyonda arama en son tamamlanan N görev içinde çalışır. */
 const DONE_ALL_SEARCH_CAP = 1000;
-
-export interface BoardFilters {
-  view: BoardQuickView;
-  q: string;
-  /** "" = tümü, "none" = projesiz, aksi halde proje id'si */
-  projectId: string;
-  /** "" = tümü, aksi halde assignedToId */
-  personId: string;
-  /** "" = tümü, aksi halde LOW|MEDIUM|HIGH */
-  priority: string;
-  overdue: BoardOverdueFilter;
-  /** yalnızca ADMIN için anlamlıdır; diğer kullanıcılarda sunucu tarafında yok sayılır */
-  department: string;
-  completedRange: BoardCompletedRange;
-}
-
-export function parseBoardFilters(params: URLSearchParams): BoardFilters {
-  const view = params.get("view");
-  return {
-    view: view === "given" || view === "all" ? view : "mine",
-    q: params.get("q") ?? "",
-    projectId: params.get("projectId") ?? "",
-    personId: params.get("personId") ?? "",
-    priority: params.get("priority") ?? "",
-    overdue: params.get("overdue") === "yes" || params.get("overdue") === "no" ? (params.get("overdue") as BoardOverdueFilter) : "",
-    department: params.get("department") ?? "",
-    completedRange: params.get("completedRange") === "all" ? "all" : "30d",
-  };
-}
 
 export interface BoardQueryUser extends VisibilityUser {
   isAdmin: boolean;
@@ -149,9 +131,13 @@ function departmentWhere(deptFilter: string): object {
 
 /**
  * Güvenlik + hızlı görünüm + filtre WHERE'i — status/tamamlanma tarihi HARİÇ
- * (bunlar fetchStatusColumn içinde kolon bazlı eklenir).
+ * (bunlar boardStatusWhere ile kolon bazlı eklenir).
+ *
+ * Dashboard KPI sayıları da bu fonksiyon + boardStatusWhere ile, drill-down
+ * linkinin taşıdığı AYNI filtre nesnesinden hesaplanır (lib/dashboard/service.ts):
+ * kart sayısı ile tıklanınca açılan Görev Takip görünümü tek sorgu tanımından gelir.
  */
-function buildBaseWhere(user: BoardQueryUser, filters: BoardFilters): object {
+export function buildBoardBaseWhere(user: BoardQueryUser, filters: BoardFilters): object {
   const and: object[] = [buildTaskVisibilityWhereForUser(user)];
 
   if (filters.view === "mine") and.push({ assignedToId: user.id });
@@ -162,12 +148,19 @@ function buildBaseWhere(user: BoardQueryUser, filters: BoardFilters): object {
 
   if (filters.personId) and.push({ assignedToId: filters.personId });
 
+  if (filters.reviewerId) and.push({ reviewOwnerId: filters.reviewerId });
+
   if (filters.priority) and.push({ priority: filters.priority });
 
   if (filters.overdue === "yes") {
     and.push({ status: { not: "DONE" }, dueDate: { lt: new Date() } });
   } else if (filters.overdue === "no") {
     and.push({ OR: [{ status: "DONE" }, { dueDate: null }, { dueDate: { gte: new Date() } }] });
+  }
+
+  // Tamamlanmamış ve son tarihi bugün+N gün sonuna kadar olanlar (gecikmişler dahil)
+  if (filters.dueWithinDays !== null) {
+    and.push({ status: { not: "DONE" }, dueDate: { not: null, lt: dueWithinDaysEnd(filters.dueWithinDays) } });
   }
 
   // department: yalnızca admin için anlamlı — çağıran taraf (API ucu) admin
@@ -177,6 +170,29 @@ function buildBaseWhere(user: BoardQueryUser, filters: BoardFilters): object {
 
   return { AND: and };
 }
+
+/**
+ * Bir kolonun WHERE'i — DONE kolonunda tamamlanma aralığı (30d: son 30 gün,
+ * week: içinde bulunulan takvim haftası, all: sınırsız) completedAt üzerinden.
+ */
+export function boardStatusWhere(baseWhere: object, status: BoardStatus, filters: BoardFilters, now: Date): object {
+  if (status === "DONE" && filters.completedRange === "30d") {
+    const cutoff = new Date(now);
+    cutoff.setDate(cutoff.getDate() - 30);
+    return { AND: [baseWhere, { status }, { completedAt: { gte: cutoff } }] };
+  }
+  if (status === "DONE" && filters.completedRange === "week") {
+    return { AND: [baseWhere, { status }, { completedAt: { gte: currentWeekStart(now) } }] };
+  }
+  return { AND: [baseWhere, { status }] };
+}
+
+/** Durum kümesi filtresi (statuses) dışında kalan kolon — sorgu yapılmaz, boş döner. */
+function isColumnExcluded(status: BoardStatus, filters: BoardFilters): boolean {
+  return filters.statuses.length > 0 && !filters.statuses.includes(status);
+}
+
+const EMPTY_COLUMN = { items: [] as BoardTaskRow[], total: 0, hasMore: false };
 
 interface FetchColumnResult {
   items: BoardTaskRow[];
@@ -194,12 +210,7 @@ async function fetchStatusColumn(
 ): Promise<FetchColumnResult> {
   const trimmedQ = filters.q.trim() ? trFold(filters.q.trim()) : "";
 
-  let statusWhere: any = { AND: [baseWhere, { status }] };
-  if (status === "DONE" && filters.completedRange === "30d") {
-    const cutoff = new Date(now);
-    cutoff.setDate(cutoff.getDate() - 30);
-    statusWhere = { AND: [baseWhere, { status }, { completedAt: { gte: cutoff } }] };
-  }
+  const statusWhere: any = boardStatusWhere(baseWhere, status, filters, now);
 
   // DONE + Tümünü Göster + arama: pano bir arşiv değildir — DB'den yalnızca
   // en son tamamlanan DONE_ALL_SEARCH_CAP kaydı çekilir (bkz. dosya başı notu).
@@ -240,6 +251,17 @@ async function fetchStatusColumn(
 export interface BoardMeta {
   projects: { id: string; name: string }[];
   people: { id: string; name: string }[];
+  /** URL'den gelen kişi/inceleme sahibi filtrelerinin okunur adları (seçenek listesinde yoksa) */
+  labels?: { personName?: string | null; reviewerName?: string | null };
+}
+
+/** Filtredeki kişi/inceleme sahibi id'lerinin adları — yalnız id verilmişse, tek sorgu. */
+async function fetchFilterLabels(filters: BoardFilters): Promise<BoardMeta["labels"]> {
+  const ids = [filters.personId, filters.reviewerId].filter(Boolean);
+  if (ids.length === 0) return undefined;
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  const nameOf = (id: string) => (id ? users.find((u) => u.id === id)?.name ?? null : null);
+  return { personName: nameOf(filters.personId), reviewerName: nameOf(filters.reviewerId) };
 }
 
 /**
@@ -288,14 +310,20 @@ export interface BoardData {
 export async function fetchBoardData(user: BoardQueryUser, filters: BoardFilters): Promise<BoardData> {
   const now = new Date();
   const effectiveFilters: BoardFilters = { ...filters, department: user.isAdmin ? filters.department : "" };
-  const baseWhere = buildBaseWhere(user, effectiveFilters);
+  const baseWhere = buildBoardBaseWhere(user, effectiveFilters);
 
-  const [columnResults, meta] = await Promise.all([
+  const [columnResults, meta, labels] = await Promise.all([
     Promise.all(
-      BOARD_STATUSES.map((status) => fetchStatusColumn(baseWhere, status, effectiveFilters, 0, BOARD_PAGE_SIZE, now))
+      BOARD_STATUSES.map((status) =>
+        isColumnExcluded(status, effectiveFilters)
+          ? Promise.resolve(EMPTY_COLUMN)
+          : fetchStatusColumn(baseWhere, status, effectiveFilters, 0, BOARD_PAGE_SIZE, now)
+      )
     ),
     fetchBoardMeta(user),
+    fetchFilterLabels(effectiveFilters),
   ]);
+  if (labels) meta.labels = labels;
 
   // parent sızıntısı koruması — TÜM kolonlardaki satırlar için TEK sorguda
   const allItems = columnResults.flatMap((c) => c.items);
@@ -320,7 +348,8 @@ export async function fetchBoardColumn(
 ): Promise<BoardColumnPayload> {
   const now = new Date();
   const effectiveFilters: BoardFilters = { ...filters, department: user.isAdmin ? filters.department : "" };
-  const baseWhere = buildBaseWhere(user, effectiveFilters);
+  if (isColumnExcluded(status, effectiveFilters)) return { status, ...EMPTY_COLUMN };
+  const baseWhere = buildBoardBaseWhere(user, effectiveFilters);
   const result = await fetchStatusColumn(baseWhere, status, effectiveFilters, offset, BOARD_PAGE_SIZE, now);
   const sanitized = await filterRelatedTaskVisibility(result.items as any, user);
   return { status, items: sanitized as unknown as BoardTaskRow[], total: result.total, hasMore: result.hasMore };

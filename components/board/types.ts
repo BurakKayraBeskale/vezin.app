@@ -3,10 +3,9 @@
  * lib/task-board.ts'deki BoardTaskRow ile aynı şekli, prisma bağımlılığı olmadan taşır.
  */
 
-export type BoardStatus = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE";
-export type BoardQuickView = "mine" | "given" | "all";
-export type BoardOverdueFilter = "" | "yes" | "no";
-export type BoardCompletedRange = "30d" | "all";
+import type { BoardStatus } from "@/lib/task-board-query";
+// Filtre tipleri tek kaynaktan (client-safe URL sözleşmesi)
+export type { BoardCompletedRange, BoardFilters, BoardOverdueFilter, BoardQuickView, BoardStatus } from "@/lib/task-board-query";
 
 export type BoardTaskParent = { id: string; title: string } | { restricted: true } | null;
 
@@ -38,6 +37,8 @@ export interface BoardColumnState {
 export interface BoardMeta {
   projects: { id: string; name: string }[];
   people: { id: string; name: string }[];
+  /** URL'den gelen kişi/inceleme sahibi filtrelerinin okunur adları (seçenek listesinde yoksa) */
+  labels?: { personName?: string | null; reviewerName?: string | null };
 }
 
 export interface BoardData {
@@ -45,16 +46,6 @@ export interface BoardData {
   meta: BoardMeta;
 }
 
-export interface BoardFilters {
-  view: BoardQuickView;
-  q: string;
-  projectId: string;
-  personId: string;
-  priority: string;
-  overdue: BoardOverdueFilter;
-  department: string;
-  completedRange: BoardCompletedRange;
-}
 
 export const BOARD_COLUMN_DEFS: { id: BoardStatus; label: string; color: string; bg: string; darkBg: string; ring: string }[] = [
   { id: "TODO",        label: "Yapılacak",    color: "#6B7280", bg: "#F3F4F6", darkBg: "rgba(107,114,128,0.12)", ring: "ring-gray-300" },

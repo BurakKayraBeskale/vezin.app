@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { PRIORITY_OPTIONS } from "@/lib/task-fields";
 import type { BoardFilters, BoardMeta, BoardQuickView } from "./types";
-import { DEPARTMENT_FILTER_OPTIONS } from "./types";
+import { BOARD_COLUMN_DEFS, DEPARTMENT_FILTER_OPTIONS } from "./types";
 
 const QUICK_VIEWS: { value: BoardQuickView; label: string }[] = [
   { value: "mine", label: "Bana Atananlar" },
@@ -84,6 +84,10 @@ export default function BoardFilters({ filters, onChange, meta, isAdmin }: Props
 
         <select value={filters.personId} onChange={(e) => onChange({ personId: e.target.value })} className={selectCls}>
           <option value="">Kişi: Tümü</option>
+          {/* Drill-down ile gelen kişi seçenek listesinde yoksa (ör. görünür görevi yok) yine gösterilir */}
+          {filters.personId && !meta.people.some((p) => p.id === filters.personId) && (
+            <option value={filters.personId}>{meta.labels?.personName ?? "Seçili kişi"}</option>
+          )}
           {meta.people.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
@@ -112,6 +116,43 @@ export default function BoardFilters({ filters, onChange, meta, isAdmin }: Props
           </select>
         )}
       </div>
+
+      {/* Dashboard drill-down filtreleri — yalnız aktifken görünür, tek tıkla kaldırılır */}
+      {(filters.reviewerId || filters.statuses.length > 0 || filters.dueWithinDays !== null) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {filters.reviewerId && (
+            <FilterChip
+              label={`İnceleme sahibi: ${meta.labels?.reviewerName ?? "seçili kişi"}`}
+              onClear={() => onChange({ reviewerId: "" })}
+            />
+          )}
+          {filters.statuses.length > 0 && (
+            <FilterChip
+              label={`Durum: ${filters.statuses.map((st) => BOARD_COLUMN_DEFS.find((c) => c.id === st)?.label ?? st).join(", ")}`}
+              onClear={() => onChange({ statuses: [] })}
+            />
+          )}
+          {filters.dueWithinDays !== null && (
+            <FilterChip
+              label={`Son tarih: önümüzdeki ${filters.dueWithinDays} gün (gecikmişler dahil)`}
+              onClear={() => onChange({ dueWithinDays: null })}
+            />
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium pl-2.5 pr-1.5 py-1 rounded-lg border border-[#F57C28]/30 bg-[#FFF3E9] text-[#F57C28]">
+      {label}
+      <button type="button" onClick={onClear} aria-label={`${label} filtresini kaldır`} className="rounded p-0.5 hover:bg-[#F57C28]/10">
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </span>
   );
 }

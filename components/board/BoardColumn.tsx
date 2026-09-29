@@ -40,10 +40,11 @@ export default function BoardColumn({
         </span>
       </div>
 
-      {/* #37: DONE kolonu — Son 30 Gün / Tümünü Göster seçici */}
+      {/* #37: DONE kolonu — Bu Hafta / Son 30 Gün / Tümünü Göster seçici */}
       {column.status === "DONE" && completedRange && onCompletedRangeChange && (
         <div className="flex items-center gap-1 mb-2.5 p-0.5 rounded-lg bg-gray-100 w-fit">
           {([
+            { value: "week" as const, label: "Bu Hafta" },
             { value: "30d" as const, label: "Son 30 Gün" },
             { value: "all" as const, label: "Tümünü Göster" },
           ]).map((opt) => (

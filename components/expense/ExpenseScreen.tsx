@@ -49,14 +49,30 @@ function SummaryCard({ label, amount, sub, tone }: { label: string; amount: stri
   );
 }
 
-export default function ExpenseScreen({ access, initialTab }: { access: ExpenseTabAccess; initialTab?: string }) {
+/**
+ * initialFilters: URL'den (Dashboard drill-down, ör. ?tab=accounting&status=PAYMENT_PENDING)
+ * gelen başlangıç filtreleri — yalnız ilk açılışta uygulanır; yetki API'de doğrulanır.
+ */
+export default function ExpenseScreen({
+  access,
+  initialTab,
+  initialFilters,
+}: {
+  access: ExpenseTabAccess;
+  initialTab?: string;
+  initialFilters?: { status?: string; ownerId?: string; view?: string };
+}) {
   const tabs = useMemo(
     () => (Object.keys(TAB_LABELS) as ExpenseTab[]).filter((t) => access[t]),
     [access]
   );
   const [tab, setTab] = useState<ExpenseTab>(tabs.includes(initialTab as ExpenseTab) ? (initialTab as ExpenseTab) : "mine");
-  const [view, setView] = useState<"pending" | "all">("pending");
-  const [filters, setFilters] = useState<ExpenseFilterValue>(EMPTY_FILTERS);
+  const [view, setView] = useState<"pending" | "all">(initialFilters?.view === "all" ? "all" : "pending");
+  const [filters, setFilters] = useState<ExpenseFilterValue>({
+    ...EMPTY_FILTERS,
+    status: initialFilters?.status ?? "",
+    ownerId: initialFilters?.ownerId ?? "",
+  });
   const [debouncedQ, setDebouncedQ] = useState("");
   const [data, setData] = useState<ExpenseListResponse | null>(null);
   const [loading, setLoading] = useState(false);

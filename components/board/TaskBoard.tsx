@@ -9,6 +9,7 @@ import { WorkflowUser } from "@/lib/task-permissions";
 import BoardFiltersBar from "./BoardFilters";
 import BoardColumn from "./BoardColumn";
 import { BoardCompletedRange, BoardData, BoardFilters, BoardStatus } from "./types";
+import { boardFiltersToParams } from "@/lib/task-board-query";
 
 const VIEW_COOKIE = "vezin-board-view";
 
@@ -21,18 +22,20 @@ interface Props {
   canCreate: boolean;
 }
 
+/** URL sözleşmesi tek kaynaktan (lib/task-board-query.ts) — sayfa, API ve Dashboard linkleri aynı. */
 function buildQuery(filters: BoardFilters, extra?: Record<string, string>): string {
-  const p = new URLSearchParams();
-  p.set("view", filters.view);
-  if (filters.q) p.set("q", filters.q);
-  if (filters.projectId) p.set("projectId", filters.projectId);
-  if (filters.personId) p.set("personId", filters.personId);
-  if (filters.priority) p.set("priority", filters.priority);
-  if (filters.overdue) p.set("overdue", filters.overdue);
-  if (filters.department) p.set("department", filters.department);
-  p.set("completedRange", filters.completedRange);
+  const p = boardFiltersToParams(filters);
   if (extra) for (const [k, v] of Object.entries(extra)) p.set(k, v);
   return p.toString();
+}
+
+/** Aktif filtreleri adres çubuğuna yansıt — yenileme/geri dönüşte görünüm korunur (navigasyon yok). */
+function syncUrl(filters: BoardFilters) {
+  try {
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}?${buildQuery(filters)}`);
+  } catch {
+    /* yok say */
+  }
 }
 
 /**
@@ -86,6 +89,7 @@ export default function TaskBoard({ initialData, initialFilters, currentUserId, 
   function updateFilters(patch: Partial<BoardFilters>) {
     const next = { ...filters, ...patch };
     setFilters(next);
+    syncUrl(next);
     if (patch.view) {
       try { document.cookie = `${VIEW_COOKIE}=${patch.view}; path=/; max-age=31536000`; } catch {}
     }
@@ -179,7 +183,9 @@ export default function TaskBoard({ initialData, initialFilters, currentUserId, 
 
       <div className={loading ? "opacity-60 pointer-events-none transition-opacity" : "transition-opacity"}>
         <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-4 -mx-4 sm:mx-0 px-4 sm:px-0">
-          {data.columns.map((column) => (
+          {data.columns
+            .filter((column) => filters.statuses.length === 0 || filters.statuses.includes(column.status))
+            .map((column) => (
             <BoardColumn
               key={column.status}
               column={column}

@@ -6,7 +6,7 @@ import { getVisibleProjectIds, buildProjectVisibilityWhere } from "@/lib/task-vi
 import { canAccessProjects, canCreateProject } from "@/lib/access";
 import ProjectList from "@/components/ProjectList";
 
-export default async function ProjelerPage() {
+export default async function ProjelerPage({ searchParams }: { searchParams?: { member?: string } }) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
@@ -72,6 +72,12 @@ export default async function ProjelerPage() {
 
   const canCreate = canCreateProject({ seniorityLevel, role: userRole });
 
+  // ?member=<userId> (Dashboard "Tüm Projeleri Gör") — yalnız zaten görünen
+  // projeler içinde üyeliğe göre süzer; yeni görünürlük vermez.
+  const memberUser = searchParams?.member
+    ? await prisma.user.findUnique({ where: { id: searchParams.member }, select: { id: true, name: true } })
+    : null;
+
   return (
     <ProjectList
       initialProjects={projects as any}
@@ -88,6 +94,7 @@ export default async function ProjelerPage() {
       userRole={userRole}
       seniorityLevel={seniorityLevel}
       overseesDepartment={overseesDepartment}
+      memberFilter={memberUser}
     />
   );
 }
