@@ -27,6 +27,7 @@ import { prisma } from "@/lib/prisma";
 import { sendNotification, sendNotificationToMany } from "@/lib/notifications";
 import { computeExpenseTotals, formatTRY, netDirection, statusAfterAccountingApproval } from "./calc";
 import {
+  EXPENSE_CLOSED_STATUSES,
   EXPENSE_EDITABLE_STATUSES,
   EXPENSE_NOTIFICATION_TYPES as NT,
   EXPENSE_NO_APPROVER_MESSAGE,
@@ -37,9 +38,10 @@ import {
   EXPENSE_FORM_NO_PREFIX,
   type ExpenseStatus,
 } from "./constants";
-import { accountingRecipientIds, resolveDepartmentApprovers, type ExpenseActorFull } from "./data";
+import { accountingRecipientIds, documentRoundNumbers, resolveDepartmentApprovers, type ExpenseActorFull } from "./data";
 import {
   canDeleteExpenseForm,
+  canDeleteExpensePdf,
   canViewExpenseForm,
   currentRound,
   hasExpenseAccountingRole,
@@ -109,8 +111,8 @@ async function audit(
   actor: { id: string; name: string } | null,
   action: string,
   opts: { from?: string | null; to?: string | null; note?: string | null; meta?: Record<string, unknown> } = {}
-) {
-  await tx.expenseAudit.create({
+): Promise<string> {
+  const row = await tx.expenseAudit.create({
     data: {
       formId,
       action,
@@ -122,6 +124,7 @@ async function audit(
       meta: opts.meta ? JSON.stringify(opts.meta) : null,
     },
   });
+  return row.id;
 }
 
 const actionFormInclude = {
@@ -286,6 +289,71 @@ export async function readExpenseDocument(actor: ExpenseActorFull, scope: Expens
     return { name: doc.name, buffer };
   } catch {
     throw new ExpenseError(404, "Belge diskte bulunamadı");
+  }
+}
+
+/**
+ * Harcama belgesi PDF'ini sunucudan kalıcı olarak kaldırır (manuel temizlik —
+ * otomatik saklama süresi YOK). Yalnız Muhasebe/Admin, yalnız kapanmış formda.
+ *
+ * Kayıt SİLİNMEZ: ad, yükleyen, yükleme zamanı, kullanıldığı turlar korunur;
+ * deletedAt/deletedById dolar ve DOCUMENT_DELETED audit'i yazılır.
+ *
+ * Sıra bozuk referansı önler: önce kayıt koşullu olarak (form hâlâ kapalıyken)
+ * işaretlenir, sonra dosya silinir. Dosya silinemezse (ENOENT hariç) işaret geri
+ * alınır — kayıt ile disk her durumda tutarlı kalır. Diskteki dosyanın elle
+ * silinmesine dayanan bir akış yoktur.
+ */
+export async function deleteExpenseDocumentFile(
+  actor: ExpenseActorFull,
+  scope: ExpenseActorScope,
+  formId: string,
+  docId: string
+): Promise<void> {
+  const form = await loadForAction(formId, actor, scope);
+  const doc = await prisma.expenseDocument.findFirst({ where: { id: docId, formId } });
+  if (!doc) throw new ExpenseError(404, "Belge bulunamadı");
+  if (!hasExpenseAccountingRole(actor)) {
+    throw new ExpenseError(403, "Harcama belgesini yalnızca Muhasebe veya Admin kaldırabilir");
+  }
+  if (!canDeleteExpensePdf(actor, form)) {
+    throw new ExpenseError(403, "Süreç devam eden formun harcama belgesi silinemez; yalnız kapanmış formlarda kaldırılabilir");
+  }
+  if (doc.deletedAt) throw new ExpenseError(409, "Bu belge zaten sunucudan kaldırılmış");
+
+  const now = new Date();
+  const roundNumbers = documentRoundNumbers(doc, form.rounds);
+  const auditId = await prisma.$transaction(async (tx) => {
+    const res = await tx.expenseDocument.updateMany({
+      where: { id: doc.id, deletedAt: null, form: { status: { in: EXPENSE_CLOSED_STATUSES } } },
+      data: { deletedAt: now, deletedById: actor.id },
+    });
+    if (res.count !== 1) stale();
+    return audit(tx, formId, actor, "DOCUMENT_DELETED", {
+      meta: {
+        documentId: doc.id,
+        name: doc.name,
+        size: doc.size,
+        uploadedById: doc.uploadedById,
+        uploadedByName: doc.uploadedByName,
+        uploadedAt: doc.createdAt.toISOString(),
+        roundNumbers,
+        wasActive: !doc.replacedAt,
+        formStatus: form.status,
+      },
+    });
+  });
+
+  try {
+    await unlink(path.join(uploadsDir(), path.basename(doc.storageKey)));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+      await prisma.$transaction([
+        prisma.expenseDocument.updateMany({ where: { id: doc.id, deletedAt: now }, data: { deletedAt: null, deletedById: null } }),
+        prisma.expenseAudit.deleteMany({ where: { id: auditId } }),
+      ]);
+      throw new ExpenseError(500, "Belge dosyası sunucudan kaldırılamadı; kayıt değiştirilmedi. Lütfen tekrar deneyin.");
+    }
   }
 }
 

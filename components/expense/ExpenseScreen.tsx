@@ -61,6 +61,7 @@ export default function ExpenseScreen({ access, initialTab }: { access: ExpenseT
   const [data, setData] = useState<ExpenseListResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   function switchTab(t: ExpenseTab) {
     setTab(t);
@@ -80,8 +81,8 @@ export default function ExpenseScreen({ access, initialTab }: { access: ExpenseT
     return () => clearTimeout(h);
   }, [filters.q]);
 
-  useEffect(() => {
-    if (tab === "settings") return;
+  /** Liste ve Excel export AYNI parametreleri kullanır — ekrandaki filtreler export'a birebir uygulanır. */
+  function listParams(): URLSearchParams {
     const params = new URLSearchParams({ scope: tab });
     if (tab === "approvals" || tab === "accounting") params.set("view", view);
     if (debouncedQ) params.set("q", debouncedQ);
@@ -92,6 +93,39 @@ export default function ExpenseScreen({ access, initialTab }: { access: ExpenseT
       if (filters.department) params.set("department", filters.department);
       if (filters.ownerId) params.set("ownerId", filters.ownerId);
     }
+    return params;
+  }
+
+  async function exportExcel() {
+    setExporting(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/expenses/export?${listParams()}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setError(body?.error ?? "Excel oluşturulamadı");
+        return;
+      }
+      const blob = await res.blob();
+      const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? "harcama-formlari.xlsx";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      setError("Sunucuya ulaşılamadı");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === "settings") return;
+    const params = listParams();
     let cancelled = false;
     setLoading(true);
     setError("");
@@ -111,10 +145,13 @@ export default function ExpenseScreen({ access, initialTab }: { access: ExpenseT
     return () => {
       cancelled = true;
     };
+    // listParams yalnız bu bağımlılıklardan türetilir
   }, [tab, view, debouncedQ, filters.status, filters.dateFrom, filters.dateTo, filters.department, filters.ownerId]);
 
   const columns = tab === "mine" ? MINE_COLUMNS : tab === "approvals" ? APPROVAL_COLUMNS : STAFF_COLUMNS;
   const hasViewToggle = tab === "approvals" || tab === "accounting";
+  // Muhasebe İşlemleri (muhasebe) ve Tüm Formlar (Admin) — yetki sunucuda yeniden doğrulanır
+  const canExport = tab === "accounting" || tab === "all";
   const summary = tab === "mine" ? data?.summary : null;
 
   return (
@@ -178,21 +215,35 @@ export default function ExpenseScreen({ access, initialTab }: { access: ExpenseT
           )}
 
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-            {hasViewToggle && (
-              <div className="px-5 pt-3 flex gap-1.5">
-                {(["pending", "all"] as const).map((v) => (
+            {(hasViewToggle || canExport) && (
+              <div className="px-5 pt-3 flex gap-1.5 items-center">
+                {hasViewToggle &&
+                  (["pending", "all"] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setView(v)}
+                      className={clsx(
+                        "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors",
+                        view === v ? "border-[#F57C28] bg-[#FFF3E9] text-[#F57C28]" : "border-gray-200 text-gray-500 hover:border-gray-300"
+                      )}
+                    >
+                      {v === "pending" ? (tab === "approvals" ? "Onayımı Bekleyenler" : "Bekleyen İşlemler") : "Tümü"}
+                    </button>
+                  ))}
+                {canExport && (
                   <button
-                    key={v}
                     type="button"
-                    onClick={() => setView(v)}
-                    className={clsx(
-                      "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors",
-                      view === v ? "border-[#F57C28] bg-[#FFF3E9] text-[#F57C28]" : "border-gray-200 text-gray-500 hover:border-gray-300"
-                    )}
+                    onClick={exportExcel}
+                    disabled={exporting || !data || data.forms.length === 0}
+                    className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors"
                   >
-                    {v === "pending" ? (tab === "approvals" ? "Onayımı Bekleyenler" : "Bekleyen İşlemler") : "Tümü"}
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
+                    </svg>
+                    {exporting ? "Hazırlanıyor…" : "Excel'e Aktar"}
                   </button>
-                ))}
+                )}
               </div>
             )}
             <ExpenseFilters value={filters} onChange={setFilters} showDepartmentAndOwner={tab !== "mine"} facets={data?.facets ?? null} />

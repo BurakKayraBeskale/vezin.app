@@ -55,6 +55,11 @@ export const EXPENSE_EDITABLE_STATUSES: ExpenseStatus[] = ["DRAFT", "REVISION"];
 export const EXPENSE_IN_APPROVAL_STATUSES: ExpenseStatus[] = ["DEPT_APPROVAL", "ACCOUNTING_APPROVAL"];
 /** Muhasebe İşlemleri sekmesinde "Bekleyen" görünümü. */
 export const EXPENSE_ACCOUNTING_OPEN_STATUSES: ExpenseStatus[] = ["ACCOUNTING_APPROVAL", "PAYMENT_PENDING", "REFUND_PENDING"];
+/**
+ * Kapanmış formlar — harcama belgesi PDF'i yalnız bu durumlarda sunucudan
+ * kaldırılabilir. Süreç devam ederken (onay/düzeltme/ödeme/iade bekleyen) belge korunur.
+ */
+export const EXPENSE_CLOSED_STATUSES: ExpenseStatus[] = ["PAID", "REFUND_RECEIVED", "SETTLED", "CANCELLED"];
 /** Admin'in geri alabildiği kapanış durumları → geri alınınca dönülecek durum. */
 export const EXPENSE_REVERT_TARGET: Partial<Record<ExpenseStatus, ExpenseStatus>> = {
   PAID:            "PAYMENT_PENDING",
@@ -93,6 +98,7 @@ export const EXPENSE_AUDIT_LABELS: Record<string, string> = {
   UPDATED:             "Form düzeltildi",
   DOCUMENT_UPLOADED:   "PDF yüklendi",
   DOCUMENT_REPLACED:   "PDF değiştirildi",
+  DOCUMENT_DELETED:    "Harcama belgesi PDF'i sunucudan kaldırıldı",
   SUBMITTED:           "Onaya gönderildi",
   RESUBMITTED:         "Yeniden gönderildi",
   ROUND_CREATED:       "Onay turu oluşturuldu",
@@ -141,6 +147,10 @@ export function formatExpenseFormNo(year: number, seq: number): string {
 // ── Belge ────────────────────────────────────────────────────────────────────
 
 export const EXPENSE_PDF_MAX_BYTES = 20 * 1024 * 1024;
+
+export const EXPENSE_PDF_DELETE_CONFIRM =
+  "Harcama belgesi PDF dosyası sunucudan kalıcı olarak kaldırılacaktır. Form, harcama bilgileri ve onay geçmişi korunacaktır. Bu işlem geri alınamaz.";
+export const EXPENSE_DOCUMENT_ARCHIVED_MESSAGE = "Fiziksel belge arşivlendikten sonra sistemden kaldırılmıştır.";
 
 // ── Mesajlar ─────────────────────────────────────────────────────────────────
 

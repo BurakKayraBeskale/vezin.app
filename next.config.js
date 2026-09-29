@@ -2,7 +2,8 @@
 const nextConfig = {
   images: { unoptimized: true },
   experimental: {
-    serverComponentsExternalPackages: ["unpdf", "pdf-to-img", "pdfjs-dist"],
+    // jspdf: sunucuda (harcama formu PDF'i) Node derlemesi kullanılsın diye bundle dışı
+    serverComponentsExternalPackages: ["unpdf", "pdf-to-img", "pdfjs-dist", "jspdf", "jspdf-autotable"],
   },
   async headers() {
     return [

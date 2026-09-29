@@ -9,7 +9,12 @@
 
 import { useState } from "react";
 import { formatTRY, netDirection, statusAfterAccountingApproval } from "@/lib/expense/calc";
-import { EXPENSE_STATUS_LABELS, expenseDepartmentLabel } from "@/lib/expense/constants";
+import {
+  EXPENSE_DOCUMENT_ARCHIVED_MESSAGE,
+  EXPENSE_PDF_DELETE_CONFIRM,
+  EXPENSE_STATUS_LABELS,
+  expenseDepartmentLabel,
+} from "@/lib/expense/constants";
 import ExpenseEditor from "./ExpenseEditor";
 import { AccountingSection, AuditSection, DepartmentApprovalSection, RoundHistorySection } from "./ExpenseHistorySections";
 import type { ExpenseDetailDTO } from "./types";
@@ -40,7 +45,32 @@ type ActionModal =
   | { kind: "mark-paid" }
   | { kind: "mark-refund-received" }
   | { kind: "revert-settlement" }
-  | { kind: "replace-approver"; approvalId: string };
+  | { kind: "replace-approver"; approvalId: string }
+  | { kind: "delete-document"; docId: string; docName: string };
+
+function formatSize(bytes: number): string {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** PDF'i görünmez iframe'de açıp yazdırma penceresini getirir (aynı origin). */
+function printPdf(url: string) {
+  const frame = document.createElement("iframe");
+  frame.style.position = "fixed";
+  frame.style.width = "0";
+  frame.style.height = "0";
+  frame.style.border = "0";
+  frame.src = url;
+  frame.onload = () => {
+    try {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+    } catch {
+      window.open(url, "_blank");
+    }
+    setTimeout(() => frame.remove(), 60_000);
+  };
+  document.body.appendChild(frame);
+}
 
 export default function ExpenseDetailView({ initial }: { initial: ExpenseDetailDTO }) {
   const [detail, setDetail] = useState<ExpenseDetailDTO>(initial);
@@ -68,15 +98,19 @@ export default function ExpenseDetailView({ initial }: { initial: ExpenseDetailD
     if (res.ok) setDetail(await res.json());
   }
 
-  async function run(body: Record<string, unknown>) {
+  function run(body: Record<string, unknown>) {
+    return request(`/api/expenses/${detail.id}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function request(url: string, init: RequestInit) {
     setBusy(true);
     setModalError("");
     try {
-      const res = await fetch(`/api/expenses/${detail.id}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(url, init);
       if (res.status === 409) {
         // Stale ekran: başka biri işlem yaptı — güncel hali göster
         setModal(null);
@@ -114,6 +148,8 @@ export default function ExpenseDetailView({ initial }: { initial: ExpenseDetailD
         return run({ action: "revert-settlement", version: detail.version, reason: note });
       case "replace-approver":
         return run({ action: "replace-approver", approvalId: modal.approvalId, newApproverId });
+      case "delete-document":
+        return request(`/api/expenses/${detail.id}/document/${modal.docId}`, { method: "DELETE" });
     }
   }
 
@@ -258,7 +294,7 @@ export default function ExpenseDetailView({ initial }: { initial: ExpenseDetailD
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card title="Toplamlar">
           <div className="p-5 space-y-2.5 text-sm">
             <div className="flex justify-between"><span className="text-gray-500">Genel Toplam</span><span className="tabular-nums font-semibold text-gray-800">{formatTRY(detail.totalAmount)}</span></div>
@@ -279,10 +315,7 @@ export default function ExpenseDetailView({ initial }: { initial: ExpenseDetailD
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-700 truncate">{detail.activeDocument.name}</p>
                   <p className="text-[11px] text-gray-400">
-                    {detail.activeDocument.size < 1024 * 1024
-                      ? `${Math.max(1, Math.round(detail.activeDocument.size / 1024))} KB`
-                      : `${(detail.activeDocument.size / 1024 / 1024).toFixed(1)} MB`}{" "}
-                    · {formatDateTime(detail.activeDocument.createdAt)}
+                    {formatSize(detail.activeDocument.size)} · {formatDateTime(detail.activeDocument.createdAt)}
                   </p>
                 </div>
                 <div className="flex gap-3 flex-shrink-0">
@@ -292,10 +325,19 @@ export default function ExpenseDetailView({ initial }: { initial: ExpenseDetailD
                   <a href={`/api/expenses/${detail.id}/document/${detail.activeDocument.id}?download=1`} className="text-xs font-semibold text-gray-500 hover:underline">
                     İndir
                   </a>
+                  {p.canDeleteDocument && (
+                    <button
+                      type="button"
+                      onClick={() => open({ kind: "delete-document", docId: detail.activeDocument!.id, docName: detail.activeDocument!.name })}
+                      className="text-xs font-semibold text-red-600 hover:underline"
+                    >
+                      Sunucudan Kaldır
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-gray-400">PDF yok.</p>
+              detail.archivedDocuments.length === 0 && <p className="text-sm text-gray-400">PDF yok.</p>
             )}
             {detail.previousDocuments.length > 0 && (
               <details className="text-xs">
@@ -304,12 +346,68 @@ export default function ExpenseDetailView({ initial }: { initial: ExpenseDetailD
                   {detail.previousDocuments.map((d) => (
                     <li key={d.id} className="flex justify-between gap-3">
                       <a href={`/api/expenses/${detail.id}/document/${d.id}`} target="_blank" rel="noreferrer" className="text-gray-500 hover:underline truncate">{d.name}</a>
-                      <span className="text-gray-400 flex-shrink-0">değiştirildi {formatDateTime(d.replacedAt)}</span>
+                      <span className="text-gray-400 flex-shrink-0">
+                        değiştirildi {formatDateTime(d.replacedAt)}
+                        {p.canDeleteDocument && (
+                          <button
+                            type="button"
+                            onClick={() => open({ kind: "delete-document", docId: d.id, docName: d.name })}
+                            className="ml-2 font-semibold text-red-600 hover:underline"
+                          >
+                            Kaldır
+                          </button>
+                        )}
+                      </span>
                     </li>
                   ))}
                 </ul>
               </details>
             )}
+            {detail.archivedDocuments.length > 0 && (
+              <ul className="space-y-2">
+                {detail.archivedDocuments.map((d) => (
+                  <li key={d.id} className="rounded-xl border border-dashed border-gray-200 px-3 py-2.5">
+                    <p className="text-sm font-medium text-gray-500 truncate line-through decoration-gray-300">{d.name}</p>
+                    <p className="text-xs text-gray-600 mt-0.5">{EXPENSE_DOCUMENT_ARCHIVED_MESSAGE}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      Yükleyen {d.uploadedByName} · {formatDateTime(d.createdAt)}
+                      {d.roundNumbers.length > 0 && <> · Tur {d.roundNumbers.join(", ")}</>}
+                    </p>
+                    <p className="text-[11px] text-gray-400">
+                      Kaldıran {d.deletedByName ?? "—"} · {formatDateTime(d.deletedAt)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Card>
+        <Card title="Form Çıktıları">
+          <div className="p-5 space-y-4 text-sm">
+            <div>
+              <p className="font-medium text-gray-700">Form PDF</p>
+              <p className="text-[11px] text-gray-400 mb-1.5">Sistemin ürettiği Personel Harcama Formu</p>
+              <div className="flex gap-3 flex-wrap">
+                <a href={`/api/expenses/${detail.id}/pdf`} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#F57C28] hover:underline">Görüntüle</a>
+                <a href={`/api/expenses/${detail.id}/pdf?download=1`} className="text-xs font-semibold text-gray-500 hover:underline">İndir</a>
+                <button type="button" onClick={() => printPdf(`/api/expenses/${detail.id}/pdf`)} className="text-xs font-semibold text-gray-500 hover:underline">Yazdır</button>
+              </div>
+            </div>
+            <div className="border-t border-gray-100 pt-3">
+              <p className="font-medium text-gray-700">Form + Harcama Belgeleri</p>
+              <p className="text-[11px] text-gray-400 mb-1.5">Form PDF&apos;i ve yüklenen belgeler tek PDF&apos;te</p>
+              <div className="flex gap-3 flex-wrap">
+                <a href={`/api/expenses/${detail.id}/pdf?documents=1`} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#F57C28] hover:underline">Görüntüle</a>
+                <a href={`/api/expenses/${detail.id}/pdf?documents=1&download=1`} className="text-xs font-semibold text-gray-500 hover:underline">İndir</a>
+              </div>
+              {!detail.activeDocument && (
+                <p className="text-[11px] text-orange-700 bg-orange-50 border border-orange-200 rounded-lg px-2.5 py-1.5 mt-2">
+                  {detail.archivedDocuments.length > 0
+                    ? "Harcama belgesi arşivlenip sistemden kaldırıldığı için yalnız form PDF'i üretilir."
+                    : "Yüklü harcama belgesi yok; yalnız form PDF'i üretilir."}
+                </p>
+              )}
+            </div>
           </div>
         </Card>
       </div>
@@ -365,7 +463,14 @@ export default function ExpenseDetailView({ initial }: { initial: ExpenseDetailD
               </div>
             )}
 
-            {modal.kind !== "dept-approve" && modal.kind !== "accounting-approve" && modal.kind !== "replace-approver" && (
+            {modal.kind === "delete-document" && (
+              <div className="space-y-2 text-sm">
+                <p className="text-gray-800 font-medium break-all">{modal.docName}</p>
+                <p className="text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{EXPENSE_PDF_DELETE_CONFIRM}</p>
+              </div>
+            )}
+
+            {NOTE_LABELS[modal.kind] && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {NOTE_LABELS[modal.kind]}
@@ -387,7 +492,7 @@ export default function ExpenseDetailView({ initial }: { initial: ExpenseDetailD
                   (NOTE_REQUIRED.includes(modal.kind) && !note.trim()) ||
                   (modal.kind === "replace-approver" && !newApproverId)
                 }
-                className={`${modal.kind.endsWith("reject") ? btnDanger : btnPrimary} flex-1`}
+                className={`${modal.kind.endsWith("reject") || modal.kind === "delete-document" ? btnDanger : btnPrimary} flex-1`}
               >
                 {busy ? "…" : CONFIRM_LABELS[modal.kind]}
               </button>
@@ -408,6 +513,7 @@ const MODAL_TITLES: Record<ActionModal["kind"], string> = {
   "mark-refund-received": "İade Alındı Olarak İşaretle",
   "revert-settlement": "Kapanışı Geri Al",
   "replace-approver": "Onaycıyı Değiştir",
+  "delete-document": "Harcama Belgesini Sunucudan Kaldır",
 };
 
 const CONFIRM_LABELS: Record<ActionModal["kind"], string> = {
@@ -419,6 +525,7 @@ const CONFIRM_LABELS: Record<ActionModal["kind"], string> = {
   "mark-refund-received": "Kaydet",
   "revert-settlement": "Geri Al",
   "replace-approver": "Değiştir",
+  "delete-document": "Kalıcı Olarak Kaldır",
 };
 
 const NOTE_LABELS: Partial<Record<ActionModal["kind"], string>> = {

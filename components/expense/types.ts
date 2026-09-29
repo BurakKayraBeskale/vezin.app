@@ -31,6 +31,8 @@ export interface ExpenseDetailDTO {
   }[];
   activeDocument: ExpenseDocumentDTO | null;
   previousDocuments: ExpenseDocumentDTO[];
+  /** Fiziksel dosyası sunucudan kaldırılmış belgeler — metadata korunur */
+  archivedDocuments: ExpenseDocumentDTO[];
   rounds: ExpenseRoundDTO[];
   settlements: {
     id: string;
@@ -66,6 +68,10 @@ export interface ExpenseDocumentDTO {
   createdAt: string;
   uploadedByName: string;
   replacedAt: string | null;
+  deletedAt: string | null;
+  deletedByName: string | null;
+  /** Belgenin kullanıldığı onay turları */
+  roundNumbers: number[];
 }
 
 export interface ExpenseRoundDTO {

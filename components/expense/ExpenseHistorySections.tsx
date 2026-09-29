@@ -224,6 +224,10 @@ function metaSummary(action: string, meta: Record<string, unknown> | null): stri
     case "DOCUMENT_UPLOADED":
     case "DOCUMENT_REPLACED":
       return meta.previousName ? `${meta.previousName} → ${meta.name}` : String(meta.name ?? "");
+    case "DOCUMENT_DELETED":
+      return Array.isArray(meta.roundNumbers) && meta.roundNumbers.length
+        ? `${meta.name} (Tur ${(meta.roundNumbers as number[]).join(", ")})`
+        : String(meta.name ?? "");
     case "UPDATED":
       return typeof meta.netAmount === "number" ? `Net ${formatTRY(meta.netAmount)}, ${meta.itemCount} satır` : null;
     default:

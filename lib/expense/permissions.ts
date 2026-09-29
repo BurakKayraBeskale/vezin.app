@@ -19,6 +19,7 @@
  */
 
 import {
+  EXPENSE_CLOSED_STATUSES,
   EXPENSE_EDITABLE_STATUSES,
   EXPENSE_REVERT_TARGET,
   isExpenseAccountingUser,
@@ -189,6 +190,21 @@ export function hasExpenseAccountingRole(actor: ExpenseActor): boolean {
   return isActive(actor) && isAccountingOrAdmin(actor);
 }
 
+// ── Çıktılar / belge temizliği ───────────────────────────────────────────────
+
+/**
+ * Harcama belgesi PDF'inin sunucudan fiziksel olarak kaldırılması — Muhasebe
+ * veya Admin, yalnız kapanmış formda. Formu görme yetkisi ayrıca aranır (yoksa 404).
+ */
+export function canDeleteExpensePdf(actor: ExpenseActor, form: ExpenseFormLite): boolean {
+  return hasExpenseAccountingRole(actor) && EXPENSE_CLOSED_STATUSES.includes(form.status as ExpenseStatus);
+}
+
+/** Excel'e Aktar — Muhasebe veya Admin. Dışa aktarılan satırlar yine görünürlük filtresinden geçer. */
+export function canExportExpenseForms(actor: ExpenseActor): boolean {
+  return hasExpenseAccountingRole(actor);
+}
+
 // ── Admin ────────────────────────────────────────────────────────────────────
 
 export function canRevertSettlement(actor: ExpenseActor, form: ExpenseFormLite): boolean {
@@ -237,6 +253,7 @@ export interface ExpensePermissionFlags {
   canMarkRefundReceived: boolean;
   canRevertSettlement: boolean;
   canReplaceApprover: boolean;
+  canDeleteDocument: boolean;
   /** Admin'in departman onayı turun üyesi olarak değil, aşamayı kapatarak mı yapılacağı */
   departmentActionIsAdminOverride: boolean;
 }
@@ -254,6 +271,7 @@ export function getExpensePermissions(actor: ExpenseActor, form: ExpenseFormLite
     canMarkRefundReceived: canMarkRefundReceived(actor, form),
     canRevertSettlement: canRevertSettlement(actor, form),
     canReplaceApprover: canReplaceExpenseApprover(actor, form),
+    canDeleteDocument: canDeleteExpensePdf(actor, form),
     departmentActionIsAdminOverride: canApproveDepartment && !pendingApprovalFor(actor, form),
   };
 }

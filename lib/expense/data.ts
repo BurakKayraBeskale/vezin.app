@@ -14,6 +14,7 @@ import {
 } from "./constants";
 import {
   buildExpenseVisibilityWhere,
+  canExportExpenseForms,
   canViewExpenseForm,
   currentRound,
   getExpensePermissions,
@@ -102,7 +103,8 @@ export const expenseDetailInclude = {
       },
     },
   },
-  documents: { where: { deletedAt: null }, orderBy: { createdAt: "desc" as const } },
+  // Fiziksel dosyası kaldırılmış belgeler de gelir — metadata korunur (archivedDocuments)
+  documents: { orderBy: { createdAt: "desc" as const } },
   settlements: { orderBy: { createdAt: "asc" as const } },
   audits: { orderBy: { createdAt: "asc" as const } },
 };
@@ -124,6 +126,21 @@ function parseMeta(meta: string | null): Record<string, unknown> | null {
 }
 
 /**
+ * Belgenin kullanıldığı onay turları: tur gönderildiği anda etkin olan belge
+ * (o andan önce yüklenmiş, o andan sonra değiştirilmiş/değiştirilmemiş).
+ * Belge yalnız Taslak/Düzeltme'de değişebildiği için gönderim anı belirleyicidir.
+ */
+export function documentRoundNumbers(
+  doc: { createdAt: Date; replacedAt: Date | null },
+  rounds: { roundNumber: number; submittedAt: Date }[]
+): number[] {
+  return rounds
+    .filter((r) => doc.createdAt <= r.submittedAt && (!doc.replacedAt || r.submittedAt < doc.replacedAt))
+    .map((r) => r.roundNumber)
+    .sort((a, b) => a - b);
+}
+
+/**
  * Tek formun tam detayı — görüntüleme yetkisi yoksa 404. Yanıt, UI'ın ihtiyaç
  * duyduğu yetki bayraklarını (permissions) da içerir; bayraklar yalnız UI
  * içindir, her işlem sunucuda yeniden doğrulanır.
@@ -134,6 +151,7 @@ export async function getExpenseDetail(formId: string, actor: ExpenseActorFull, 
 
   const names = await userNameMap([
     ...form.rounds.flatMap((r) => [r.submittedById, r.closedById, r.accountingById, ...r.approvals.map((a) => a.replacedById)]),
+    ...form.documents.map((d) => d.deletedById),
   ]);
   const permissions = getExpensePermissions(actor, form);
   const latest = currentRound(form);
@@ -156,9 +174,18 @@ export async function getExpenseDetail(formId: string, actor: ExpenseActorFull, 
     };
   }
 
-  const activeDocument = form.documents.find((d) => !d.replacedAt) ?? null;
+  const liveDocuments = form.documents.filter((d) => !d.deletedAt);
+  const activeDocument = liveDocuments.find((d) => !d.replacedAt) ?? null;
   const docOut = (d: (typeof form.documents)[number]) => ({
-    id: d.id, name: d.name, size: d.size, createdAt: d.createdAt, uploadedByName: d.uploadedByName, replacedAt: d.replacedAt,
+    id: d.id,
+    name: d.name,
+    size: d.size,
+    createdAt: d.createdAt,
+    uploadedByName: d.uploadedByName,
+    replacedAt: d.replacedAt,
+    deletedAt: d.deletedAt,
+    deletedByName: d.deletedById ? names.get(d.deletedById) ?? null : null,
+    roundNumbers: documentRoundNumbers(d, form.rounds),
   });
 
   let approverCandidates: { id: string; name: string; title: string }[] = [];
@@ -204,7 +231,8 @@ export async function getExpenseDetail(formId: string, actor: ExpenseActorFull, 
       amount: i.amount,
     })),
     activeDocument: activeDocument ? docOut(activeDocument) : null,
-    previousDocuments: form.documents.filter((d) => d.replacedAt).map(docOut),
+    previousDocuments: liveDocuments.filter((d) => d.replacedAt).map(docOut),
+    archivedDocuments: form.documents.filter((d) => d.deletedAt).map(docOut),
     rounds: form.rounds.map((r) => ({
       id: r.id,
       roundNumber: r.roundNumber,
@@ -315,13 +343,18 @@ function scopeWhere(listScope: ExpenseListScope, actor: ExpenseActor, scope: Exp
   }
 }
 
-export async function listExpenseForms(
+/**
+ * Liste WHERE'i — ekran listesi ve Excel export AYNI fonksiyonu kullanır; böylece
+ * ekrandaki filtreler export'a birebir uygulanır.
+ *   base → görünürlük + sekme kapsamı (filtresiz), and → base + ekran filtreleri
+ */
+function buildExpenseListWhere(
   actor: ExpenseActor,
   scope: ExpenseActorScope,
   access: ExpenseTabAccess,
   listScope: ExpenseListScope,
   filters: ExpenseListFilters
-) {
+): { base: object[]; and: object[] } {
   const view = filters.view === "all" ? "all" : "pending";
   const base: object[] = [buildExpenseVisibilityWhere(actor, scope), scopeWhere(listScope, actor, scope, access, view)];
   const and: object[] = [...base];
@@ -368,6 +401,17 @@ export async function listExpenseForms(
     }
     if (filters.ownerId) and.push({ ownerId: filters.ownerId });
   }
+  return { base, and };
+}
+
+export async function listExpenseForms(
+  actor: ExpenseActor,
+  scope: ExpenseActorScope,
+  access: ExpenseTabAccess,
+  listScope: ExpenseListScope,
+  filters: ExpenseListFilters
+) {
+  const { base, and } = buildExpenseListWhere(actor, scope, access, listScope, filters);
 
   const rows = await prisma.expenseForm.findMany({
     where: { AND: and },
@@ -435,6 +479,86 @@ export async function listExpenseForms(
   }
 
   return { forms, facets, truncated: rows.length === LIST_LIMIT };
+}
+
+// ── Excel export ─────────────────────────────────────────────────────────────
+
+const EXPORT_LIMIT = 10_000;
+const EXPORT_SCOPES: ExpenseListScope[] = ["accounting", "all"];
+
+export interface ExpenseExportForm {
+  formNo: string;
+  ownerName: string;
+  department: string;
+  status: string;
+  totalAmount: number;
+  cashAdvance: number;
+  netAmount: number;
+  accountingApprovedAt: Date | null;
+  settledAt: Date | null;
+  items: {
+    date: Date | null;
+    subject: string;
+    vendor: string;
+    description: string;
+    clientProject: string | null;
+    amount: number;
+  }[];
+}
+
+/**
+ * Muhasebe İşlemleri (ve Admin'in Tüm Formlar) ekranının Excel verisi.
+ * Yetki: Muhasebe/Admin (403); sekme kapsamı listeyle aynı (erişilemeyen sekme 404).
+ * Satırlar ekran listesiyle AYNI WHERE'den geçer — görünürlük + aktif filtreler.
+ */
+export async function listExpenseFormsForExport(
+  actor: ExpenseActor,
+  scope: ExpenseActorScope,
+  access: ExpenseTabAccess,
+  listScope: ExpenseListScope,
+  filters: ExpenseListFilters
+): Promise<ExpenseExportForm[]> {
+  if (!canExportExpenseForms(actor)) throw new ExpenseError(403, "Excel'e aktarma yetkiniz yok");
+  if (!EXPORT_SCOPES.includes(listScope)) throw new ExpenseError(400, "Geçersiz liste");
+  const { and } = buildExpenseListWhere(actor, scope, access, listScope, filters);
+
+  const rows = await prisma.expenseForm.findMany({
+    where: { AND: and },
+    orderBy: { lastActionAt: "desc" },
+    take: EXPORT_LIMIT,
+    select: {
+      formNo: true,
+      status: true,
+      totalAmount: true,
+      cashAdvance: true,
+      netAmount: true,
+      ownerNameSnapshot: true,
+      departmentSnapshot: true,
+      owner: { select: { name: true, department: true } },
+      items: {
+        orderBy: { sortOrder: "asc" },
+        select: { date: true, subject: true, vendor: true, description: true, clientProject: true, amount: true },
+      },
+      rounds: { orderBy: { roundNumber: "desc" }, take: 1, select: { accountingStatus: true, accountingAt: true } },
+      settlements: { where: { revertedAt: null }, orderBy: { createdAt: "desc" }, take: 1, select: { transactionDate: true } },
+    },
+  });
+
+  return rows.map((f) => {
+    const round = f.rounds[0];
+    return {
+      formNo: f.formNo,
+      ownerName: f.ownerNameSnapshot ?? f.owner.name,
+      department: f.departmentSnapshot ?? f.owner.department,
+      status: f.status,
+      totalAmount: f.totalAmount,
+      cashAdvance: f.cashAdvance,
+      netAmount: f.netAmount,
+      accountingApprovedAt: round?.accountingStatus === "APPROVED" ? round.accountingAt : null,
+      settledAt: f.settlements[0]?.transactionDate ?? null,
+      items: f.items,
+    };
+  });
 }
 
 /**
