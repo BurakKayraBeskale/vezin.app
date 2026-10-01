@@ -33,3 +33,19 @@ export const USER_DEPT_LABELS: Record<string, string> = {
   MUHASEBE: "Muhasebe",
   YEMINLI_MALI_MUSAVIR: "YMM",
 };
+
+/** Planlanan başlangıç / son tarih için ortak hata metni (API + TaskForm). */
+export const TASK_START_AFTER_DUE_ERROR = "Planlanan başlangıç tarihi son tarihten sonra olamaz";
+
+/**
+ * Planlanan başlangıç son tarihten sonra mı? Tarih-yalnız karşılaştırma
+ * ("YYYY-MM-DD" ya da UTC gece yarısı Date). İkisinden biri boşsa kural yok.
+ */
+export function isTaskStartAfterDue(
+  startDate: Date | string | null | undefined,
+  dueDate: Date | string | null | undefined
+): boolean {
+  if (!startDate || !dueDate) return false;
+  const key = (v: Date | string) => (typeof v === "string" ? v : v.toISOString()).slice(0, 10);
+  return key(startDate) > key(dueDate);
+}

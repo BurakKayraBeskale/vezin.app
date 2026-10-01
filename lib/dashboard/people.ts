@@ -131,3 +131,16 @@ export async function canViewDashboardOf(viewer: DashboardViewer, targetId: stri
   const people = await getDashboardSelectableUsers(viewer);
   return people.some((p) => p.id === targetId);
 }
+
+/**
+ * API kapısı + hedef kişi: viewer'ın seçemeyeceği ya da aktif olmayan kişi → null
+ * (çağıran 404 döner). /api/dashboard ve /api/dashboard/calendar ortak kullanır.
+ */
+export async function loadDashboardTarget(viewer: DashboardViewer, targetId: string) {
+  if (!(await canViewDashboardOf(viewer, targetId))) return null;
+  const target = await prisma.user.findUnique({
+    where: { id: targetId },
+    select: { id: true, name: true, role: true, email: true, department: true, status: true },
+  });
+  return target && target.status === "ACTIVE" ? target : null;
+}

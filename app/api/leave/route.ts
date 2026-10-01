@@ -11,6 +11,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isGunuSayisi, isValidLeaveType, leaveInclude, LEAVE_TYPE_LABELS, LeaveType } from "@/lib/leave";
 import { getLeaveApprovers } from "@/lib/access";
+import { loadFullDayHolidayKeys } from "@/lib/holidays-data";
+import { localDateKey } from "@/lib/holidays";
 import { sendNotificationToMany } from "@/lib/notifications";
 
 export async function GET() {
@@ -56,8 +58,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Bitiş tarihi başlangıçtan önce olamaz" }, { status: 400 });
   }
 
-  // İş günü (Cmt-Paz hariç) — tek doğru kaynak lib/leave.ts → isGunuSayisi
-  const days = isGunuSayisi(start, end);
+  // İş günü (Cmt-Paz ve merkezi Resmî Tatiller'deki tam gün tatiller hariç) —
+  // tek doğru kaynak lib/leave.ts → isGunuSayisi + lib/holidays-data.ts
+  const tatilGunleri = await loadFullDayHolidayKeys(localDateKey(start), localDateKey(end));
+  const days = isGunuSayisi(start, end, tatilGunleri);
   if (days === 0) {
     return NextResponse.json({ error: "Seçilen aralıkta iş günü bulunmuyor" }, { status: 400 });
   }

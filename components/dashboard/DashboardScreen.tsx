@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * Dashboard — çalışma kontrol merkezi (A bloğu).
+ * Dashboard — çalışma kontrol merkezi (A + B blokları).
  *
  * TEK master state: selectedDashboardUser. KPI, Bekleyen İşlemler, Bugün &
  * Yaklaşan, Görev Dağılımı, Öne Çıkan Projeler ve finansal özet aynı kişiden
  * ve tek istekten (/api/dashboard?userId=) gelir — bölümler arasında kişi
- * ayrışması olamaz.
+ * ayrışması olamaz. Akıllı Takvim (B bloğu) ay gezintisi bağımsız olduğu için
+ * ayrı uçtan (/api/dashboard/calendar?userId=) ama AYNI master kişiyle yüklenir.
  *
  * Kişi değişiminde eski kişinin verisi HEMEN kaldırılır (skeleton); hızlı
  * geçişlerde (Ahmet → Mehmet → Ayşe) önceki istek iptal edilir ve sıra
@@ -19,8 +20,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import TaskDetail from "@/components/TaskDetail";
 import PersonSelector from "./PersonSelector";
+import SmartCalendar, { currentCalendarMonth, type CalendarMonth } from "./SmartCalendar";
 import {
-  CalendarPlaceholder,
   DashboardSkeleton,
   FeaturedProjects,
   FinanceSummary,
@@ -50,12 +51,16 @@ export default function DashboardScreen({
   const [data, setData] = useState<DashboardSummaryDTO | null>(null);
   const [error, setError] = useState("");
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  /** Takvimin sessiz tazelenmesi (görev güncellemesi / sekmeye dönüş) */
+  const [calendarVersion, setCalendarVersion] = useState(0);
+  const [calendarMonth, setCalendarMonth] = useState<CalendarMonth>(currentCalendarMonth);
 
   const requestSeq = useRef(0);
   const inflight = useRef<AbortController | null>(null);
 
   /** silent=true → mevcut veri ekranda kalır (görev güncellemesi sonrası arka plan tazeleme). */
   const load = useCallback(async (personId: string, silent: boolean) => {
+    if (silent) setCalendarVersion((v) => v + 1);
     inflight.current?.abort();
     const controller = new AbortController();
     inflight.current = controller;
@@ -156,7 +161,15 @@ export default function DashboardScreen({
             </div>
           </div>
 
-          <CalendarPlaceholder />
+          <SmartCalendar
+            personId={shown.person.id}
+            isSelf={shown.person.isSelf}
+            personName={shown.person.name}
+            refreshKey={calendarVersion}
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            onOpenTask={setOpenTaskId}
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
             <TaskDistribution data={shown} />

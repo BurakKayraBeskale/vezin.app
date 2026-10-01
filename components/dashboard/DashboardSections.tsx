@@ -218,18 +218,6 @@ export function UpcomingTasks({ data, onOpenTask }: { data: DashboardSummaryDTO;
   );
 }
 
-// ── Akıllı Takvim (B bloğu) ──────────────────────────────────────────────────
-
-export function CalendarPlaceholder() {
-  return (
-    <Panel title="Akıllı Takvim" subtitle="Görevler, onaylı izinler ve resmî tatiller">
-      <div className="px-5 py-10 text-center">
-        <p className="text-sm text-gray-400">Akıllı Takvim bir sonraki güncellemede bu alana eklenecek.</p>
-      </div>
-    </Panel>
-  );
-}
-
 // ── Görev Dağılımı ───────────────────────────────────────────────────────────
 
 export function TaskDistribution({ data }: { data: DashboardSummaryDTO }) {

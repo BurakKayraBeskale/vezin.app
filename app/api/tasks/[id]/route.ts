@@ -17,6 +17,7 @@ import { isEligibleAssignee } from "@/lib/task-assignment";
 import { projectDeptToUserDept, userDeptToProjectDept } from "@/lib/access";
 import { notifyProjectSupervisorOfAssignment, sendNotification, sendNotificationToMany, TaskNotif } from "@/lib/notifications";
 import { computeRetentionUntil } from "@/lib/recurring";
+import { isTaskStartAfterDue, TASK_START_AFTER_DUE_ERROR } from "@/lib/task-fields";
 
 /**
  * Bir görevin TÜM alt görev ağacını (torunlar dahil) iteratif BFS ile döner.
@@ -185,6 +186,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         parentTaskId: true,
         projectId: true,
         departmentId: true,
+        dueDate: true,
+        startDate: true,
       },
     });
     if (!current) return NextResponse.json({ error: "Görev bulunamadı" }, { status: 404 });
@@ -197,7 +200,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
     if (current.status === "DONE" && !body.action) {
       // Herhangi bir alan güncellemesi → 403
-      const editFields = ["title", "description", "priority", "dueDate", "status",
+      const editFields = ["title", "description", "priority", "dueDate", "startDate", "status",
         "assigneeIds", "assignedToId", "parentTaskId", "isRecurring", "projectId"];
       if (editFields.some((f) => body[f] !== undefined)) {
         return NextResponse.json({ error: "Tamamlanmış görev düzenlenemez" }, { status: 403 });
@@ -574,6 +577,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (body.description !== undefined) allowed.description = body.description;
       if (body.priority !== undefined) allowed.priority = body.priority;
       if (body.dueDate !== undefined) allowed.dueDate = body.dueDate ? new Date(body.dueDate) : null;
+      if (body.startDate !== undefined) allowed.startDate = body.startDate ? new Date(body.startDate) : null;
+      // Planlanan başlangıç son tarihten sonra olamaz — gönderilmeyen alan mevcut değerinden
+      if (
+        (body.dueDate !== undefined || body.startDate !== undefined) &&
+        isTaskStartAfterDue(
+          body.startDate !== undefined ? (body.startDate || null) : current.startDate,
+          body.dueDate !== undefined ? (body.dueDate || null) : current.dueDate
+        )
+      ) {
+        return NextResponse.json({ error: TASK_START_AFTER_DUE_ERROR }, { status: 400 });
+      }
       if (body.isRecurring !== undefined) allowed.isRecurring = body.isRecurring;
       if (body.recurringType !== undefined) allowed.recurringType = body.recurringType || null;
       if (body.recurringDay !== undefined) allowed.recurringDay = body.recurringDay ?? null;

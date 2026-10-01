@@ -27,6 +27,11 @@
   --badge-emerald-bg:    #ECFDF5;
   --badge-emerald-text:  #10B981;
   --badge-emerald-border: #A7F3D0;
+  /* Akıllı Takvim: resmî tatil (izin yeşilinden ayrı, sakin mavi) */
+  --cal-holiday-bg:     #F0F9FF;
+  --cal-holiday-text:   #0369A1;
+  --cal-holiday-border: #BAE6FD;
+  --cal-weekend-bg:     #FAFAFB;
   /* UI */
   --page-bg:   #F8F9FB;
   --card-bg:   #FFFFFF;
@@ -53,6 +58,10 @@
   --badge-emerald-bg:    rgba(16,185,129,0.12);
   --badge-emerald-text:  #34D399;
   --badge-emerald-border: rgba(16,185,129,0.3);
+  --cal-holiday-bg:     rgba(56,189,248,0.08);
+  --cal-holiday-text:   #7DD3FC;
+  --cal-holiday-border: rgba(56,189,248,0.28);
+  --cal-weekend-bg:     rgba(255,255,255,0.015);
   --page-bg:   #0B0B17;
   --card-bg:   #13132A;
   --border:    #20203C;

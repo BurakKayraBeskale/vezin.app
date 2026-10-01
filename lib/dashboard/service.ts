@@ -112,7 +112,7 @@ export interface DashboardSummary {
   generatedAt: Date;
 }
 
-function boardUserOf(viewer: DashboardViewer): BoardQueryUser {
+export function boardUserOf(viewer: DashboardViewer): BoardQueryUser {
   return {
     id: viewer.id,
     role: viewer.role,

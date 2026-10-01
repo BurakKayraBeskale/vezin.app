@@ -68,6 +68,14 @@ export function upcomingBoardFilters(personId: string): BoardFilters {
   return boardFilters({ personId, statuses: OPEN_STATUSES, dueWithinDays: DASHBOARD_UPCOMING_DAYS });
 }
 
+/**
+ * Akıllı Takvim'in görev kapsamı: atanan = kişi, tüm durumlar (tarih koşulu
+ * lib/dashboard/calendar-service.ts'te eklenir). KPI'larla aynı kişi tanımı.
+ */
+export function calendarBoardFilters(personId: string): BoardFilters {
+  return boardFilters({ personId, completedRange: "all" });
+}
+
 export function boardHref(filters: BoardFilters): string {
   return `/board?${boardFiltersToParams(filters).toString()}`;
 }

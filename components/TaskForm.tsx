@@ -25,7 +25,7 @@ import { useState, useEffect, useRef, FormEvent } from "react";
 import { useSession } from "next-auth/react";
 import { userDeptToProjectDept, projectDeptToUserDept } from "@/lib/access";
 import { canMoveTaskToProject } from "@/lib/task-permissions";
-import { PRIORITY_OPTIONS, DEFAULT_PRIORITY, PROJECT_DEPT_LABELS, USER_DEPT_LABELS } from "@/lib/task-fields";
+import { PRIORITY_OPTIONS, DEFAULT_PRIORITY, PROJECT_DEPT_LABELS, USER_DEPT_LABELS, isTaskStartAfterDue, TASK_START_AFTER_DUE_ERROR } from "@/lib/task-fields";
 import { TaskFull } from "./TaskModal";
 
 interface AssignableUser {
@@ -113,6 +113,7 @@ export default function TaskForm({
   const [assignedToId, setAssignedToId] = useState(task?.assignedToId ?? "");
   const [priority, setPriority] = useState<string>(task?.priority ?? DEFAULT_PRIORITY);
   const [dueDate, setDueDate] = useState(task?.dueDate ? task.dueDate.slice(0, 10) : "");
+  const [startDate, setStartDate] = useState(task?.startDate ? task.startDate.slice(0, 10) : "");
   const [departmentId, setDepartmentId] = useState(""); // yalnızca create + ADMIN, projesiz görev
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringType, setRecurringType] = useState("WEEKLY");
@@ -235,6 +236,10 @@ export default function TaskForm({
       setError("Atanan kişi zorunlu");
       return;
     }
+    if (isTaskStartAfterDue(startDate || null, dueDate || null)) {
+      setError(TASK_START_AFTER_DUE_ERROR);
+      return;
+    }
     if (!isEdit && !parentTaskId && isAdmin && !projectId && !departmentId) {
       setError("Projesiz görev için departman seçmelisiniz");
       return;
@@ -253,6 +258,7 @@ export default function TaskForm({
           priority,
           assignedToId,
           dueDate: dueDate || null,
+          startDate: startDate || null,
         };
         if (!isSubtask) {
           payload.projectId = projectId || null;
@@ -269,6 +275,7 @@ export default function TaskForm({
           priority,
           assignedToId,
           dueDate: dueDate || null,
+          startDate: startDate || null,
           isRecurring,
           ...(parentTaskId
             ? { parentTaskId }
@@ -493,8 +500,8 @@ export default function TaskForm({
             )}
           </div>
 
-          {/* Öncelik + Son Tarih */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Öncelik + Planlanan Başlangıç + Son Tarih */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Öncelik</label>
               <select
@@ -508,10 +515,23 @@ export default function TaskForm({
               </select>
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Planlanan Başlangıç <span className="text-gray-400 font-normal">(opsiyonel)</span>
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                max={dueDate || undefined}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
+              />
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Son Tarih</label>
               <input
                 type="date"
                 value={dueDate}
+                min={startDate || undefined}
                 onChange={(e) => setDueDate(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30 focus:border-[#F57C28]"
               />

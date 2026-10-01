@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LEAVE_TYPES, LEAVE_TYPE_LABELS, LeaveType, isGunuSayisi } from "@/lib/leave";
+import { fullDayHolidayKeys, type HolidayOccurrence } from "@/lib/holidays";
 import { LeaveRequestRecord } from "./types";
 
 interface Props {
@@ -20,13 +21,31 @@ export default function NewLeaveRequestModal({ onClose, onCreated }: Props) {
 
   const today = useMemo(() => new Date().toISOString().split("T")[0], []);
 
+  // Merkezi Resmî Tatiller — sunucu (POST /api/leave) aynı listeyle hesaplar;
+  // önizleme yalnız bilgi amaçlı, kesin gün sayısını sunucu belirler.
+  const [holidays, setHolidays] = useState<HolidayOccurrence[]>([]);
+  useEffect(() => {
+    setHolidays([]);
+    if (!startDate || !endDate || endDate < startDate) return;
+    const controller = new AbortController();
+    fetch(`/api/holidays?from=${startDate}&to=${endDate}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.holidays && setHolidays(d.holidays))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [startDate, endDate]);
+
   const dayPreview = useMemo(() => {
     if (!startDate || !endDate) return null;
     const s = new Date(startDate);
     const e = new Date(endDate);
     if (e < s) return null;
-    return isGunuSayisi(s, e);
-  }, [startDate, endDate]);
+    return isGunuSayisi(s, e, fullDayHolidayKeys(holidays));
+  }, [startDate, endDate, holidays]);
+  const weekdayHolidays = holidays.filter((h) => {
+    const dow = new Date(h.date).getUTCDay();
+    return dow !== 0 && dow !== 6;
+  });
 
   function addFiles(list: FileList | null) {
     if (!list) return;
@@ -139,7 +158,17 @@ export default function NewLeaveRequestModal({ onClose, onCreated }: Props) {
 
           {dayPreview !== null && (
             <p className="text-xs text-gray-400">
-              {dayPreview > 0 ? `${dayPreview} iş günü (hafta sonları hariç)` : "Seçilen aralıkta iş günü yok"}
+              {dayPreview > 0
+                ? `${dayPreview} iş günü (hafta sonları${weekdayHolidays.some((h) => h.dayType === "FULL") ? " ve resmî tatiller" : ""} hariç)`
+                : "Seçilen aralıkta iş günü yok"}
+            </p>
+          )}
+          {dayPreview !== null && weekdayHolidays.length > 0 && (
+            <p className="text-xs" style={{ color: "var(--cal-holiday-text)" }}>
+              Aralıktaki resmî tatiller:{" "}
+              {weekdayHolidays
+                .map((h) => `${h.name} (${h.date.split("-").reverse().join(".")}${h.dayType === "HALF" ? ", yarım gün — düşülmez" : ""})`)
+                .join(", ")}
             </p>
           )}
 

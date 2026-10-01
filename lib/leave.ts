@@ -11,6 +11,8 @@
  *   kalan             = toplam hak edilen − kullanılan (eksi çıkabilir)
  */
 
+import { localDateKey } from "@/lib/holidays";
+
 // ── İzin türü / durumu ───────────────────────────────────────────────────────
 
 export const LEAVE_TYPES = ["ANNUAL", "EXCUSE", "SICK", "UNPAID", "PARENTAL"] as const;
@@ -57,8 +59,14 @@ export const leaveInclude = {
 /**
  * Başlangıç-bitiş arasındaki (her iki uç dahil) iş günü sayısı — Cumartesi/
  * Pazar hariç. Talep oluşturma / gün sayısı önizlemesi tek doğru kaynak.
+ *
+ * tatilGunleri: merkezi Resmî Tatiller'den TAM GÜN tatillerin "YYYY-MM-DD"
+ * kümesi (lib/holidays-data.ts → loadFullDayHolidayKeys; client'ta
+ * /api/holidays). Hafta içine denk gelen tam gün tatil iş günü sayılmaz.
+ * Yarım gün tatiller düşülmez — gün sayısı (LeaveRequest.days) tam sayıdır.
+ * Verilmezse eski davranış (yalnız hafta sonu hariç).
  */
-export function isGunuSayisi(startDate: Date, endDate: Date): number {
+export function isGunuSayisi(startDate: Date, endDate: Date, tatilGunleri?: ReadonlySet<string>): number {
   let days = 0;
   const cur = new Date(startDate);
   cur.setHours(0, 0, 0, 0);
@@ -66,7 +74,7 @@ export function isGunuSayisi(startDate: Date, endDate: Date): number {
   end.setHours(0, 0, 0, 0);
   while (cur <= end) {
     const dow = cur.getDay(); // 0=Pazar, 6=Cumartesi
-    if (dow !== 0 && dow !== 6) days++;
+    if (dow !== 0 && dow !== 6 && !tatilGunleri?.has(localDateKey(cur))) days++;
     cur.setDate(cur.getDate() + 1);
   }
   return days;

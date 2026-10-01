@@ -8,6 +8,7 @@ import { isEligibleAssignee, resolveProjectAssignAuthority } from "@/lib/task-as
 import { projectDeptToUserDept } from "@/lib/access";
 import { notifyProjectSupervisorOfAssignment, sendNotification, TaskNotif } from "@/lib/notifications";
 import { computeNextOccurrence } from "@/lib/recurring";
+import { isTaskStartAfterDue, TASK_START_AFTER_DUE_ERROR } from "@/lib/task-fields";
 
 /** body.departmentId proje-departman formatındaysa (örn. "YMM") kullanıcı-departman formatına çevirir. */
 function normalizeDepartmentId(raw: string | null | undefined): string | null {
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
 
   const body = await req.json();
-  const { title, description, priority, assignedToId, dueDate, companyId, parentTaskId } = body;
+  const { title, description, priority, assignedToId, dueDate, startDate, companyId, parentTaskId } = body;
   const assigneeIds: string[] = Array.isArray(body.assigneeIds) ? body.assigneeIds.filter(Boolean) : [];
 
   // A BLOĞU: assignedToId tek kaynak — çoklu atama desteklenmiyor
@@ -69,6 +70,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (!title?.trim()) return NextResponse.json({ error: "Başlık gerekli" }, { status: 400 });
+  // Planlanan başlangıç (opsiyonel) son tarihten sonra olamaz
+  if (isTaskStartAfterDue(startDate, dueDate)) {
+    return NextResponse.json({ error: TASK_START_AFTER_DUE_ERROR }, { status: 400 });
+  }
 
   const visUser = sessionVisUser(session);
   const userId = visUser.id;
@@ -227,6 +232,7 @@ export async function POST(req: NextRequest) {
       assignmentLevelSnapshot: assigner.seniorityLevel ?? null,
       departmentId: taskDepartmentId,
       dueDate: dueDate ? new Date(dueDate) : null,
+      startDate: startDate ? new Date(startDate) : null,
       createdById: userId,
       isRecurring: body.isRecurring ?? false,
       recurringType: body.recurringType ?? null,

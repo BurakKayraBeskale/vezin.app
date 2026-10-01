@@ -361,6 +361,20 @@ export default function TaskDetail({
                       </dd>
                     </div>
                   )}
+                  {task.startDate && (
+                    <div>
+                      <dt className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
+                        Planlanan Başlangıç
+                      </dt>
+                      <dd className="text-gray-800 font-medium">
+                        {new Date(task.startDate).toLocaleDateString("tr-TR", {
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </dd>
+                    </div>
+                  )}
                   <div>
                     <dt className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
                       Son Tarih

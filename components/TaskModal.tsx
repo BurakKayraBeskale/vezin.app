@@ -84,6 +84,8 @@ export interface TaskFull {
   reviewOwnerSeniorityLevel?: number | null;
   assignees: AssigneeRecord[];
   dueDate: string | null;
+  /** Planlanan başlangıç (opsiyonel) — Dashboard takvimi */
+  startDate?: string | null;
   completedAt?: string | null;
   projectId?: string | null;
   departmentId?: string | null;
