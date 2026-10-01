@@ -224,6 +224,62 @@ export function trKucult(s: string): string {
   return s.toLocaleLowerCase("tr");
 }
 
+// ── Arama (dört sekmenin ortak eşleştiricisi) ────────────────────────────────
+
+/** VKN girişindeki ayraçlar: boşluk, nokta, tire, eğik çizgi. */
+const VKN_AYRAC_RE = /[\s.\-/]/g;
+
+export interface RotasyonAramaSorgusu {
+  /** trKucult ile küçültülmüş metin (unvan ve sekmeye özgü alanlar için) */
+  metin: string;
+  /** Sorgu ayraçlar çıkarılınca yalnız rakamsa o rakamlar ("123 456.7890" → "1234567890"), değilse null */
+  vknRakamlari: string | null;
+}
+
+/** Arama kutusu metnini ayrıştırır; boş sorgu → null (her kayıt eşleşir). */
+export function rotasyonAramaSorgusu(girdi: string): RotasyonAramaSorgusu | null {
+  const ham = girdi.trim();
+  if (!ham) return null;
+  const rakamlar = ham.replace(VKN_AYRAC_RE, "");
+  return { metin: trKucult(ham), vknRakamlari: /^\d+$/.test(rakamlar) ? rakamlar : null };
+}
+
+/**
+ * Rotasyon sekmelerinin TEK arama kuralı: işletme unvanı (Türkçe harf duyarlı,
+ * alt dize) VEYA işletme VKN'si (rakam sorgusu; baştan, sondan ya da ortadan
+ * kısmi eşleşme) VEYA sekmeye özgü ek alanlar (sözleşme no, denetçi adı …).
+ * Sorgu null ise her kayıt eşleşir.
+ *
+ * Bellek içi çalışır: SQLite'ın LIKE'ı ASCII dışı harflerde büyük/küçük harf
+ * duyarsız değildir ("Ş" ≠ "ş"), Türkçe kuralı Prisma WHERE'de uygulanamaz;
+ * sayfa tüm işletmeleri zaten (uyarı merkezi / istatistik / CSV için) yükler.
+ */
+export function rotasyonAramaEslesir(
+  sorgu: RotasyonAramaSorgusu | null,
+  isletme: { unvan: string; vkn: string },
+  ekAlanlar: readonly string[] = []
+): boolean {
+  if (!sorgu) return true;
+  if (sorgu.vknRakamlari && isletme.vkn.replace(VKN_AYRAC_RE, "").includes(sorgu.vknRakamlari)) return true;
+  return [isletme.unvan, ...ekAlanlar].some((alan) => trKucult(alan).includes(sorgu.metin));
+}
+
+// ── Durum filtresi (Rotasyon sekmelerindeki "Tüm durumlar" seçicisi) ────────
+
+export type RotasyonDurumFiltresi = "all" | "crit" | "warn" | "ok" | "brk";
+
+export function durumFiltresiOf(d: RotasyonDurum): Exclude<RotasyonDurumFiltresi, "all"> {
+  if (d === "DOLDU") return "crit";
+  if (d === "UYARI") return "warn";
+  if (d === "ARA") return "brk";
+  return "ok";
+}
+
+/** "all" → hepsi; aksi halde hesabı olan ve durumu eşleşen kayıt. */
+export function durumFiltresiEslesir(filtre: RotasyonDurumFiltresi, hesap: RotasyonHesap | null | undefined): boolean {
+  return filtre === "all" || (!!hesap && durumFiltresiOf(hesap.durum) === filtre);
+}
+
 /** Girilen metne göre öneri listesini filtreler (Türkçe karakter duyarlı, alt dize eşleşmesi). */
 export function denetciOnerileri(query: string): readonly string[] {
   const q = trKucult(query.trim());

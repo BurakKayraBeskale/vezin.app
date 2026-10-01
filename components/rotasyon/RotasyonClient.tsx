@@ -7,7 +7,11 @@ import {
   uyariKategori,
   uyariKategoriSirasi,
   donemAraligi,
+  durumFiltresiEslesir,
+  rotasyonAramaEslesir,
+  rotasyonAramaSorgusu,
   ROTASYON_SOZLESME_TURU_LABELS,
+  type RotasyonDurumFiltresi,
   type RotasyonSozlesmeTuru,
   type RotasyonAyarlar,
   type RotasyonHesap,
@@ -34,7 +38,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "yil-plani", label: "Yıl planı" },
 ];
 
-type FilterStatus = "all" | "crit" | "warn" | "ok" | "brk";
+type FilterStatus = RotasyonDurumFiltresi;
 const FILTER_OPTIONS: { value: FilterStatus; label: string }[] = [
   { value: "all", label: "Tüm durumlar" },
   { value: "crit", label: "Süre doldu" },
@@ -42,13 +46,6 @@ const FILTER_OPTIONS: { value: FilterStatus; label: string }[] = [
   { value: "ok", label: "Normal" },
   { value: "brk", label: "Ara veriliyor" },
 ];
-
-function durumToFilter(d: RotasyonDurum): FilterStatus {
-  if (d === "DOLDU") return "crit";
-  if (d === "UYARI") return "warn";
-  if (d === "ARA") return "brk";
-  return "ok";
-}
 
 // ── Renk / etiket yardımcıları (reference: renk mantığı — doldu=kırmızı, yaklaşan=amber/turuncu, normal=yeşil, ara=mavi) ──
 
@@ -145,6 +142,7 @@ interface DenetciSatir {
   unvanlar: Set<string>;
   isletmeId: string;
   isletmeUnvan: string;
+  isletmeVkn: string;
   donemler: Set<number>;
 }
 
@@ -169,9 +167,9 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
     setTimeout(() => setToast(null), 2500);
   }
 
-  const q = search.trim().toLocaleLowerCase("tr");
-  const matchQ = (s: string) => !q || s.toLocaleLowerCase("tr").includes(q);
-  const matchS = (hesap: RotasyonHesap | null) => filterStatus === "all" || (!!hesap && durumToFilter(hesap.durum) === filterStatus);
+  // Dört sekmenin ortak arama kuralı: unvan VEYA VKN (+ sekmeye özgü alanlar) — lib/rotasyon.ts
+  const sorgu = useMemo(() => rotasyonAramaSorgusu(search), [search]);
+  const matchS = (hesap: RotasyonHesap | null) => durumFiltresiEslesir(filterStatus, hesap);
 
   // İşletme başına rotasyon hesabı — ayarlar veya dönemler değiştikçe yeniden hesaplanır
   const hesapMap = useMemo(() => {
@@ -291,26 +289,26 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
       for (const soz of isl.sozlesmeler) rows.push({ soz, isl, hesap });
     }
     return rows
-      .filter(({ soz, isl }) => matchQ(`${isl.unvan} ${soz.sozlesmeNo} ${soz.kadrolar.map((k) => k.adSoyad).join(" ")}`))
+      .filter(({ soz, isl }) => rotasyonAramaEslesir(sorgu, isl, [soz.sozlesmeNo, ...soz.kadrolar.map((k) => k.adSoyad)]))
       .filter(({ hesap }) => matchS(hesap))
       .sort((a, b) =>
         (a.hesap.kalanSure - b.hesap.kalanSure) ||
         a.isl.unvan.localeCompare(b.isl.unvan, "tr") ||
         (b.soz.donem - a.soz.donem)
       );
-  }, [isletmeler, hesapMap, q, filterStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isletmeler, hesapMap, sorgu, filterStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── İşletmeler ve rotasyon ────────────────────────────────────────────────
   const isletmeSatirlari = useMemo(() => {
     return isletmeler
       .map((isl) => ({ isl, hesap: hesapMap.get(isl.id) ?? null }))
-      .filter(({ isl }) => matchQ(isl.unvan))
+      .filter(({ isl }) => rotasyonAramaEslesir(sorgu, isl))
       .filter(({ hesap }) => matchS(hesap))
       .sort((a, b) =>
         (a.hesap?.kalanSure ?? Number.POSITIVE_INFINITY) - (b.hesap?.kalanSure ?? Number.POSITIVE_INFINITY) ||
         a.isl.unvan.localeCompare(b.isl.unvan, "tr")
       );
-  }, [isletmeler, hesapMap, q, filterStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isletmeler, hesapMap, sorgu, filterStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Denetçi rotasyonu (yalnızca bilgi amaçlı) ────────────────────────────
   const denetciSatirlari = useMemo(() => {
@@ -321,7 +319,7 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
           const ad = k.adSoyad.trim();
           if (!ad) continue;
           const key = ad.toLocaleLowerCase("tr") + "||" + isl.id;
-          if (!map.has(key)) map.set(key, { adSoyad: ad, unvanlar: new Set(), isletmeId: isl.id, isletmeUnvan: isl.unvan, donemler: new Set() });
+          if (!map.has(key)) map.set(key, { adSoyad: ad, unvanlar: new Set(), isletmeId: isl.id, isletmeUnvan: isl.unvan, isletmeVkn: isl.vkn, donemler: new Set() });
           const row = map.get(key)!;
           row.unvanlar.add(k.tip === "ASIL" ? "Asıl kadro" : "Yedek kadro");
           if (k.unvan) row.unvanlar.add(k.unvan);
@@ -330,9 +328,9 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
       }
     }
     return Array.from(map.values())
-      .filter((d) => matchQ(`${d.adSoyad} ${d.isletmeUnvan}`))
+      .filter((d) => rotasyonAramaEslesir(sorgu, { unvan: d.isletmeUnvan, vkn: d.isletmeVkn }, [d.adSoyad]))
       .sort((a, b) => a.adSoyad.localeCompare(b.adSoyad, "tr") || a.isletmeUnvan.localeCompare(b.isletmeUnvan, "tr"));
-  }, [isletmeler, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isletmeler, sorgu]);
 
   // ── Yıl planı ────────────────────────────────────────────────────────────
   const yilPlaniGruplari = useMemo(() => {
@@ -350,11 +348,12 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
         yil = hesap.yenidenUstlenmeYili; ne = "Yeniden üstlenilebilir";
       }
       if (yil === null) continue;
+      if (!rotasyonAramaEslesir(sorgu, isl)) continue;
       if (!buckets.has(yil)) buckets.set(yil, []);
       buckets.get(yil)!.push({ isl, hesap, ne });
     }
     return { span, gruplar: Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]) };
-  }, [isletmeler, hesapMap, ayar]);
+  }, [isletmeler, hesapMap, ayar, sorgu]);
 
   const isletmelerSirali = useMemo(
     () => [...isletmeler].sort((a, b) => a.unvan.localeCompare(b.unvan, "tr")),
@@ -523,7 +522,7 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="İşletme, denetçi veya sözleşme numarası ara..."
+          placeholder="İşletme unvanı veya VKN ara"
           className="flex-1 min-w-[200px] px-3.5 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F57C28]/30"
         />
         <select
@@ -586,7 +585,8 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
                         )}>
                           <td className={tdClass}>
                             <p className="font-semibold text-gray-800 dark:text-gray-100">{isl.unvan}</p>
-                            <p className="font-mono text-[11px] text-gray-400 mt-0.5">{soz.sozlesmeNo || "sözleşme no girilmedi"}</p>
+                            <p className="font-mono text-[11px] text-gray-400 mt-0.5">VKN {isl.vkn}</p>
+                            <p className="font-mono text-[11px] text-gray-400">{soz.sozlesmeNo || "sözleşme no girilmedi"}</p>
                             {periods > 1 && <p className="text-[11px] text-gray-400">{periods} dönem kayıtlı</p>}
                             {soz.not && <p className="text-[11px] text-gray-400">{soz.not}</p>}
                             {mukerrer && (
@@ -731,7 +731,11 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
             Bu bölüm yalnızca bilgi amaçlıdır; denetçi süreleri kayıt altına alınır ancak uyarı merkezinde ve yıl planında dikkate alınmaz.
           </p>
           {denetciSatirlari.length === 0 ? (
-            <EmptyState title="Veri yok" text="Kadro bilgisi girilen sözleşmeler burada denetçi bazında listelenir." />
+            sorgu ? (
+              <EmptyState title="Aramaya uyan kayıt yok" text="Denetçi adı, işletme unvanı veya VKN ile arayabilirsiniz." />
+            ) : (
+              <EmptyState title="Veri yok" text="Kadro bilgisi girilen sözleşmeler burada denetçi bazında listelenir." />
+            )
           ) : (
             <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden print:break-inside-avoid">
               <div className="overflow-x-auto">
@@ -750,7 +754,10 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
                           <p className="font-semibold text-gray-800 dark:text-gray-100">{d.adSoyad}</p>
                           <p className="text-[11px] text-gray-400">{Array.from(d.unvanlar).join(" · ")}</p>
                         </td>
-                        <td className={clsx(tdClass, "text-gray-700 dark:text-gray-200")}>{d.isletmeUnvan}</td>
+                        <td className={clsx(tdClass, "text-gray-700 dark:text-gray-200")}>
+                          {d.isletmeUnvan}
+                          <p className="font-mono text-[11px] text-gray-400 mt-0.5">VKN {d.isletmeVkn}</p>
+                        </td>
                         <td className={clsx(tdClass, "font-mono text-xs text-gray-600 dark:text-gray-300")}>{donemAraligi(Array.from(d.donemler))}</td>
                         <td className={clsx(tdClass, "font-mono text-xs text-gray-600 dark:text-gray-300")}>{d.donemler.size} dönem</td>
                       </tr>
@@ -766,7 +773,11 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
       {/* ── Yıl planı ────────────────────────────────────────────────────── */}
       {tab === "yil-plani" && (
         yilPlaniGruplari.gruplar.length === 0 ? (
-          <EmptyState title="Yaklaşan rotasyon yok" text={`Önümüzdeki ${yilPlaniGruplari.span} yıl içinde rotasyon gerektiren kayıt bulunmuyor.`} />
+          sorgu ? (
+            <EmptyState title="Aramaya uyan kayıt yok" text={`Önümüzdeki ${yilPlaniGruplari.span} yıl içinde bu aramaya uyan rotasyon kaydı bulunmuyor.`} />
+          ) : (
+            <EmptyState title="Yaklaşan rotasyon yok" text={`Önümüzdeki ${yilPlaniGruplari.span} yıl içinde rotasyon gerektiren kayıt bulunmuyor.`} />
+          )
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden print:break-inside-avoid">
             <div className="overflow-x-auto">
@@ -790,6 +801,7 @@ export default function RotasyonClient({ initialIsletmeler, ayar: initialAyar, i
                         <td className={tdClass}>Kuruluş</td>
                         <td className={tdClass}>
                           <p className="font-semibold text-gray-800 dark:text-gray-100">{k.isl.unvan}</p>
+                          <p className="font-mono text-[11px] text-gray-400 mt-0.5">VKN {k.isl.vkn}</p>
                           <p className="text-[11px] text-gray-400">{k.hesap.denetlenenSure} dönem denetlendi</p>
                         </td>
                         <td className={clsx(tdClass, "text-gray-600 dark:text-gray-300")}>{k.ne}</td>
