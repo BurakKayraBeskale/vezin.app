@@ -47,7 +47,7 @@ type TUser = { id: string; email: string; name: string; role: string };
 
 function asUser(u: TUser) {
   vi.mocked(getToken).mockResolvedValue({
-    id: u.id, name: u.name, email: u.email, role: u.role, canAccessRotasyon: true,
+    id: u.id, name: u.name, email: u.email, role: u.role, status: "ACTIVE", canAccessRotasyon: true,
   } as any);
 }
 

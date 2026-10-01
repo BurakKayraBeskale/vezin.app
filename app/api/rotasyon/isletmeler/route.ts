@@ -14,7 +14,7 @@ const isletmeInclude = {
 export async function GET(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
-  // Erişim kontrolü — kıdem/departman/e-postadan ASLA türetilmez, yalnızca ADMIN veya canAccessRotasyon
+  // Erişim kontrolü — kural lib/access.ts → canAccessRotasyon (ADMIN, BD Partner veya bayrak)
   if (!canAccessRotasyon(token as any)) {
     return NextResponse.json({ error: "Bulunamadı" }, { status: 404 });
   }

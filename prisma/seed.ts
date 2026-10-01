@@ -259,8 +259,8 @@ async function main() {
   console.log("✔ showInLeaveOverview=false uygulandı");
 
   // ── canAccessRotasyon=true — Rotasyon Takip modülüne erişim ──
-  // Rol kısayolu yok (bkz. lib/access.ts canAccessRotasyon) — yalnızca
-  // burada listelenen e-postalar erişir.
+  // Elle verilen istisna bayrağı. ADMIN ve BD Partner'lar bayraksız da erişir
+  // (bkz. lib/access.ts canAccessRotasyon).
   const CAN_ACCESS_ROTASYON = [
     "admin@vezin.com",
     "ahmetoruc@vezin.com.tr",

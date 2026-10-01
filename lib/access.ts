@@ -43,15 +43,28 @@ export function canAccessCompanies(user: { role: string; canManageCompanies?: bo
 }
 
 /**
- * /rotasyon sayfalarına ve /api/rotasyon/* uçlarına erişim.
+ * /rotasyon sayfalarına ve /api/rotasyon/* uçlarına erişim — sayfa guard'ı,
+ * API uçları ve Sidebar bu tek fonksiyonu çağırır.
  *
- * Rotasyon modülü, ADMIN rolünün global istisna olduğu bir modül DEĞİLDİR —
- * erişim yalnızca canAccessRotasyon bayrağıyla verilir, çünkü ADMIN rolüne
- * sahip bazı kullanıcıların bu modülü görmemesi gerekiyor.
- * Kıdemden, departmandan veya e-postadan ASLA türetilmez; rol kısayolu yoktur.
+ * Erişebilenler (yalnızca status === "ACTIVE" kullanıcılar):
+ *   - role === "ADMIN"
+ *   - department === "BAGIMSIZ_DENETIM" && title === "Partner" (seniorityLevel 14)
+ *   - canAccessRotasyon === true (elle verilen istisna bayrağı)
+ * Kural bilinçli olarak rol ve departman+unvandan türetilir (eski "yalnızca
+ * bayrak" kuralının yerine). Başka departmandaki Partner'lar (ör. YMM) ve
+ * BD'nin Partner altı kademeleri bayrak olmadan erişemez.
  * Yetkisiz erişimde çağıran taraf 404 döner (403 değil).
  */
-export function canAccessRotasyon(user: { role: string; canAccessRotasyon?: boolean }): boolean {
+export function canAccessRotasyon(user: {
+  role?: string | null;
+  department?: string | null;
+  title?: string | null;
+  status?: string | null;
+  canAccessRotasyon?: boolean | null;
+}): boolean {
+  if (user.status !== "ACTIVE") return false;
+  if (user.role === "ADMIN") return true;
+  if (user.department === "BAGIMSIZ_DENETIM" && user.title === "Partner") return true;
   return user.canAccessRotasyon === true;
 }
 

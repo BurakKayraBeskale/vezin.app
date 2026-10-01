@@ -24,6 +24,7 @@ declare module "next-auth" {
       overseesDepartment?: string | null;
       canManageCompanies?: boolean;
       status?: string;
+      title?: string;
     } & DefaultSession["user"];
   }
 }
@@ -39,5 +40,6 @@ declare module "next-auth/jwt" {
     overseesDepartment?: string | null;
     canManageCompanies?: boolean;
     status?: string;
+    title?: string;
   }
 }

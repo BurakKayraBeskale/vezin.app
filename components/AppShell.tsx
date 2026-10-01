@@ -16,6 +16,8 @@ interface AppShellProps {
   canViewAllTasks: boolean;
   canViewAllProjects: boolean;
   canAccessRotasyon: boolean;
+  userTitle: string;
+  userStatus: string;
   canViewPerformance: boolean;
   canManageLeave: boolean;
   overseesDepartment: string | null;
@@ -36,6 +38,8 @@ export default function AppShell({
   canViewAllTasks,
   canViewAllProjects,
   canAccessRotasyon,
+  userTitle,
+  userStatus,
   canViewPerformance,
   canManageLeave,
   overseesDepartment,
@@ -185,6 +189,8 @@ export default function AppShell({
         canViewAllTasks={canViewAllTasks}
         canViewAllProjects={canViewAllProjects}
         canAccessRotasyon={canAccessRotasyon}
+        userTitle={userTitle}
+        userStatus={userStatus}
         canViewPerformance={canViewPerformance}
         canManageLeave={canManageLeave}
         overseesDepartment={overseesDepartment}

@@ -16,6 +16,8 @@ interface SidebarProps {
   canViewAllTasks: boolean;
   canViewAllProjects: boolean;
   canAccessRotasyon: boolean;
+  userTitle: string;
+  userStatus: string;
   canViewPerformance: boolean;
   canManageLeave: boolean;
   overseesDepartment: string | null;
@@ -63,7 +65,7 @@ const coreNavItems = [
 const employeeExtraNavItems = [
   {
     href: "/petition",
-    label: "Dilekçeler",
+    label: "Feedback",
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -95,7 +97,7 @@ const managementNavItems = [
   },
   {
     href: "/petition",
-    label: "Dilekçeler",
+    label: "Feedback",
     badgeKey: "unreadPetitions" as const,
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -105,10 +107,10 @@ const managementNavItems = [
   },
 ];
 
-// "İzin Yönetimi" — standalone, canManageLeave (getLeaveOverviewScope) ile
-// gated; managementNavItems'ın dışında tutulur çünkü onaylayıcılar
+// "İzin Yönetimi" — ana menü grubunda, canManageLeave (getLeaveOverviewScope)
+// ile gated; managementNavItems'ın dışında tutulur çünkü onaylayıcılar
 // (Ahmet Oruç, Ebubekir Öztürk) isManagerOrAdmin/canViewAllProjects/
-// canViewAllTasks'a sahip olmayabilir ve bu grup Raporlar/Dilekçeler gibi
+// canViewAllTasks'a sahip olmayabilir ve bu grup Raporlar/Feedback gibi
 // başka yönetim öğelerini de yanlışlıkla açığa çıkarmamalı.
 const leaveManagementNavItem = {
   href: "/leave",
@@ -208,7 +210,7 @@ function NavLink({ href, label, icon, active, badge }: NavLinkProps) {
 }
 
 export default function Sidebar({
-  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, canAccessRotasyon: canAccessRotasyonFlag, canViewPerformance, canManageLeave, overseesDepartment,
+  userName, userEmail, userRole, userDepartment, canViewAllTasks, canViewAllProjects, canAccessRotasyon: canAccessRotasyonFlag, userTitle, userStatus, canViewPerformance, canManageLeave, overseesDepartment,
   overdueCount, unreadPetitions, pendingLeave, unreadNotifications, isOpen = false, onClose,
 }: SidebarProps) {
   const pathname = usePathname();
@@ -286,7 +288,7 @@ export default function Sidebar({
           />
         )}
 
-        {(BYPASS_AUTH_ROLES || canAccessRotasyon({ role: userRole, canAccessRotasyon: canAccessRotasyonFlag })) && (
+        {(BYPASS_AUTH_ROLES || canAccessRotasyon({ role: userRole, department: userDepartment, title: userTitle, status: userStatus, canAccessRotasyon: canAccessRotasyonFlag })) && (
           <NavLink
             href="/rotasyon"
             label="Rotasyon"
@@ -329,7 +331,7 @@ export default function Sidebar({
           active={pathname === "/izin-durumu"}
         />
 
-        {/* Dilekçe + İzin: EMPLOYEE kendi görünümünü görür (badge yok) */}
+        {/* Feedback + İzin: EMPLOYEE kendi görünümünü görür (badge yok) */}
         {(BYPASS_AUTH_ROLES || userRole === "EMPLOYEE") && employeeExtraNavItems.map((item) => (
           <NavLink
             key={item.href}
@@ -339,6 +341,31 @@ export default function Sidebar({
             active={pathname === item.href}
           />
         ))}
+
+        {/* İzin Yönetimi — izin onaylayıcıları (canManageLeave); Yönetim
+            grubundan bağımsız kapı, bkz. leaveManagementNavItem yorumu. */}
+        {(BYPASS_AUTH_ROLES || canManageLeave) && (
+          <NavLink
+            href={leaveManagementNavItem.href}
+            label={leaveManagementNavItem.label}
+            icon={leaveManagementNavItem.icon}
+            active={pathname === leaveManagementNavItem.href}
+            badge={adminBadges[leaveManagementNavItem.badgeKey]}
+          />
+        )}
+
+        {/* Personel Harcama Formu — tüm aktif kullanıcılar.
+            Sekme yetkileri sayfada/API'de (lib/expense/permissions.ts). */}
+        <NavLink
+          href="/harcama"
+          label="Personel Harcama Formu"
+          icon={
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 21.75V4.757c0-1.108-.806-2.057-1.907-2.185a48.507 48.507 0 00-11.186 0C5.306 2.7 4.5 3.65 4.5 4.757V21.75l3.75-1.5 3.75 1.5 3.75-1.5 3.75 1.5zM8.25 7.5h7.5M8.25 11.25h7.5M8.25 15h4.5" />
+            </svg>
+          }
+          active={pathname.startsWith("/harcama")}
+        />
 
         {/* YAPAY ZEKA bölümü */}
         <div className="pt-3 pb-1">
@@ -415,11 +442,7 @@ export default function Sidebar({
 
         {(() => {
           const showManagementSection = isManagerOrAdmin(userRole) || canViewAllProjects || canViewAllTasks;
-          // "İzin Yönetimi" ayrı bir kapıdan geçer: onaylayıcılar (ör. Ahmet
-          // Oruç, Ebubekir Öztürk) isManagerOrAdmin/canViewAllProjects/
-          // canViewAllTasks'a sahip olmayabilir ama izin onaylayabilmelidir.
-          const showLeaveManagement = canManageLeave;
-          if (!BYPASS_AUTH_ROLES && !showManagementSection && !showLeaveManagement) return null;
+          if (!BYPASS_AUTH_ROLES && !showManagementSection) return null;
 
           return (
             <>
@@ -445,16 +468,6 @@ export default function Sidebar({
                   badge={item.badgeKey ? adminBadges[item.badgeKey] : undefined}
                 />
               ))}
-              {(BYPASS_AUTH_ROLES || showLeaveManagement) && (
-                <NavLink
-                  key={leaveManagementNavItem.href}
-                  href={leaveManagementNavItem.href}
-                  label={leaveManagementNavItem.label}
-                  icon={leaveManagementNavItem.icon}
-                  active={pathname === leaveManagementNavItem.href}
-                  badge={adminBadges[leaveManagementNavItem.badgeKey]}
-                />
-              )}
               {/* Kullanıcılar, AI Yöneticisi, Yedekleme, Sistem Ayarları — yalnızca ADMIN */}
               {(BYPASS_AUTH_ROLES || userRole === "ADMIN") && adminOnlyNavItems.map((item) => (
                 <NavLink
@@ -469,20 +482,6 @@ export default function Sidebar({
             </>
           );
         })()}
-
-        {/* Personel Harcama Formu — menünün en altında, tüm aktif kullanıcılar.
-            Sekme yetkileri sayfada/API'de (lib/expense/permissions.ts). */}
-        <div className="pt-3" />
-        <NavLink
-          href="/harcama"
-          label="Personel Harcama Formu"
-          icon={
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 21.75V4.757c0-1.108-.806-2.057-1.907-2.185a48.507 48.507 0 00-11.186 0C5.306 2.7 4.5 3.65 4.5 4.757V21.75l3.75-1.5 3.75 1.5 3.75-1.5 3.75 1.5zM8.25 7.5h7.5M8.25 11.25h7.5M8.25 15h4.5" />
-            </svg>
-          }
-          active={pathname.startsWith("/harcama")}
-        />
       </nav>
 
       {/* Theme toggle + User + Logout */}

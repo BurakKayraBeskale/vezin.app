@@ -55,6 +55,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canViewAllTasks={(session.user as any).canViewAllTasks ?? false}
       canViewAllProjects={(session.user as any).canViewAllProjects ?? false}
       canAccessRotasyon={(session.user as any).canAccessRotasyon ?? false}
+      userTitle={(session.user as any).title ?? ""}
+      userStatus={(session.user as any).status ?? "ACTIVE"}
       canViewPerformance={canViewPerformance}
       canManageLeave={canManageLeave}
       overseesDepartment={overseesDepartment}

@@ -14,8 +14,8 @@ export default async function RotasyonPage() {
 
   const user = session.user as any;
 
-  // Erişim kontrolü — kıdem/departman/e-postadan ASLA türetilmez, yalnızca ADMIN
-  // veya canAccessRotasyon=true. Yetkisiz erişimde 404 (403 değil) — proje kuralı.
+  // Erişim kontrolü — kural lib/access.ts → canAccessRotasyon (ADMIN, BD Partner
+  // veya canAccessRotasyon=true; ACTIVE). Yetkisiz erişimde 404 (403 değil) — proje kuralı.
   if (!canAccessRotasyon(user)) notFound();
 
   const [isletmeler, ayarRow] = await Promise.all([
